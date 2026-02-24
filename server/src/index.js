@@ -8,7 +8,7 @@ const bcrypt = require('bcrypt');
 const cors = require('cors');
 const dotenv = require('dotenv');
 const { Server } = require('socket.io');
-const { initDb } = require('./db');
+const dbApi = require('../db');
 const { ensureAdmin } = require('./auth');
 const { submitToEasyVista } = require('./easyvista');
 
@@ -142,12 +142,25 @@ function defectDateTimeIso(body) {
 }
 
 async function withDb(handler) {
-  const db = await initDb();
-  try {
-    return await handler(db);
-  } finally {
-    await db.close();
-  }
+  await dbApi.init();
+
+  const db = {
+    get: async (sql, params = []) => {
+      const rows = await dbApi.query(sql, params);
+      return rows[0] || null;
+    },
+    all: async (sql, params = []) => dbApi.query(sql, params),
+    run: async (sql, params = []) => {
+      const result = await dbApi.execute(sql, params);
+      return {
+        lastID: result.lastInsertId,
+        changes: result.rowCount,
+      };
+    },
+    close: async () => {},
+  };
+
+  return handler(db);
 }
 
 async function persistUploadedFiles(db, submissionId, files, uploadedByRole) {
@@ -575,6 +588,14 @@ app.put('/api/admin/submissions/:id', ensureAdmin, async (req, res) => {
       return res.status(404).json({ error: 'Submission not found' });
     }
 
+    const incomingDuplicateReference =
+      body.duplicate_reference ?? body.duplicate_of ?? existing.duplicate_reference ?? existing.duplicate_of;
+    const duplicateReference = isBlank(incomingDuplicateReference)
+      ? null
+      : String(incomingDuplicateReference).trim();
+    const duplicateOfNumeric =
+      duplicateReference && /^\d+$/.test(duplicateReference) ? Number(duplicateReference) : null;
+
     const next = {
       type: body.type ?? existing.type,
       application_name: body.application_name ?? existing.application_name,
@@ -605,10 +626,8 @@ app.put('/api/admin/submissions/:id', ensureAdmin, async (req, res) => {
         body.enhancement_request_type ?? existing.enhancement_request_type,
       priority_level: body.priority_level ?? existing.priority_level,
       jira_number: body.jira_number ?? existing.jira_number,
-      duplicate_of:
-        body.duplicate_of === '' || body.duplicate_of === null
-          ? null
-          : body.duplicate_of ?? existing.duplicate_of,
+      duplicate_reference: duplicateReference,
+      duplicate_of: duplicateOfNumeric,
       is_public:
         typeof body.is_public === 'boolean' ? body.is_public : Boolean(existing.is_public),
     };
@@ -659,6 +678,7 @@ app.put('/api/admin/submissions/:id', ensureAdmin, async (req, res) => {
         enhancement_request_type = ?,
         priority_level = ?,
         jira_number = ?,
+        duplicate_reference = ?,
         duplicate_of = ?,
         is_public = ?
       WHERE id = ?
@@ -685,6 +705,7 @@ app.put('/api/admin/submissions/:id', ensureAdmin, async (req, res) => {
         next.enhancement_request_type,
         next.priority_level,
         next.jira_number,
+        next.duplicate_reference,
         next.duplicate_of,
         toBooleanSql(next.is_public),
         req.params.id,
