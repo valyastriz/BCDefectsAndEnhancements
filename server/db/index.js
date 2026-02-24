@@ -1,7 +1,8 @@
 const sqljs = require('./sqljs');
 const postgres = require('./postgres');
 
-const provider = (process.env.DB_PROVIDER || 'sqljs').toLowerCase();
+const dbMode = (process.env.DB_MODE || 'local').toLowerCase();
+const provider = (process.env.DB_PROVIDER || (dbMode === 'hosted' ? 'postgres' : 'sqljs')).toLowerCase();
 
 function resolveBackend() {
   if (provider === 'postgres') {
@@ -44,6 +45,7 @@ async function transaction(fn) {
 }
 
 module.exports = {
+  dbMode,
   provider,
   init,
   query,
