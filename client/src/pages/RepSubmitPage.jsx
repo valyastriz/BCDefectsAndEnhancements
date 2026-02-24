@@ -1,0 +1,255 @@
+import { useState } from 'react';
+import { api } from '../lib/api';
+import { Button, Card, Input, Modal, Notice, Select, Textarea } from '../components/bite-size/BitsizeUI';
+
+const initialForm = {
+  created_by: '',
+  type: 'defect',
+  application_name: 'Billing Center',
+  policy_num: '',
+  account_num: '',
+  transaction_num: '',
+  screen_title: '',
+  summary_of_issue: '',
+  steps_to_reproduce: '',
+  what_happened_exact_details: '',
+  request: '',
+  date_of_error: '',
+  time_of_error: '',
+  desired_completion_date: '',
+};
+
+function CheckIcon() {
+  return (
+    <svg viewBox="0 0 24 24">
+      <polyline points="20 6 9 17 4 12" />
+    </svg>
+  );
+}
+
+export function RepSubmitPage() {
+  const [form, setForm] = useState(initialForm);
+  const [files, setFiles] = useState([]);
+  const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [submittedId, setSubmittedId] = useState(null);
+  const [previewImage, setPreviewImage] = useState(null);
+
+  const isDefect = form.type === 'defect';
+  const isEnhancement = form.type === 'enhancement';
+
+  function updateField(name, value) {
+    setForm((prev) => ({ ...prev, [name]: value }));
+  }
+
+  function setType(t) {
+    setForm((prev) => ({ ...prev, type: t }));
+    setFiles([]);
+    setError('');
+  }
+
+  function onFileChange(event) {
+    const selected = Array.from(event.target.files || []);
+    setFiles((prev) => {
+      const merged = [...prev];
+      for (const nextFile of selected) {
+        const exists = merged.some(
+          (existing) =>
+            existing.name === nextFile.name &&
+            existing.size === nextFile.size &&
+            existing.lastModified === nextFile.lastModified,
+        );
+        if (!exists) merged.push(nextFile);
+      }
+      return merged.slice(0, 3);
+    });
+    event.target.value = '';
+  }
+
+  function removeFile(index) {
+    setFiles((prev) => prev.filter((_, i) => i !== index));
+  }
+
+  async function onSubmit(event) {
+    event.preventDefault();
+    setError('');
+    setSubmittedId(null);
+
+    const isBlank = (v) => String(v ?? '').trim().length === 0;
+
+    if (isDefect && files.length < 1) {
+      setError('At least one screenshot is required for defects.');
+      return;
+    }
+
+    const missing = [];
+    if (isBlank(form.created_by)) missing.push('Requestor Name');
+    if (isBlank(form.summary_of_issue)) missing.push(isDefect ? 'Summary of Issue' : 'Summary');
+    if (isDefect) {
+      if (isBlank(form.screen_title)) missing.push('Screen Title');
+      if (isBlank(form.what_happened_exact_details)) missing.push('What Happened (Exact Details)');
+      if (isBlank(form.date_of_error)) missing.push('Date of Error');
+    }
+    if (isEnhancement) {
+      if (isBlank(form.request)) missing.push('Request Details');
+      if (isBlank(form.desired_completion_date)) missing.push('Desired Completion Date');
+    }
+
+    if (missing.length > 0) {
+      setError(`Missing required field(s): ${missing.join(', ')}`);
+      return;
+    }
+
+    try {
+      setSaving(true);
+      const formData = new FormData();
+      const payload = {
+        ...form,
+        created_by_email: '-',
+        application_name: isEnhancement ? 'Billing Center' : form.application_name || 'Billing Center',
+        steps_to_reproduce: isDefect ? form.steps_to_reproduce || '-' : '-',
+        request: isDefect ? '-' : form.request,
+        date_time_of_error: isDefect ? `${form.date_of_error}T${form.time_of_error || '00:00'}` : '',
+      };
+      Object.entries(payload).forEach(([k, v]) => formData.append(k, v));
+      files.forEach((f) => formData.append('attachments', f));
+
+      const result = await api.submitRepSubmission(formData);
+      setSubmittedId(result.id);
+      setForm(initialForm);
+      setFiles([]);
+      event.target.reset();
+    } catch (submitError) {
+      setError(submitError.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (submittedId) {
+    return (
+      <Card>
+        <div className="submitted-card">
+          <div className="submitted-icon"><CheckIcon /></div>
+          <h3>Request Submitted</h3>
+          <p>Your request has been logged. Reference ID: <strong>#{submittedId}</strong></p>
+          <Button onClick={() => { setSubmittedId(null); setError(''); }}>
+            Submit Another Request
+          </Button>
+        </div>
+      </Card>
+    );
+  }
+
+  return (
+    <>
+      <div className="page-header">
+        <h2>Submit a Request</h2>
+        <p>Use this form to report a defect or request an enhancement in Billing Center.</p>
+      </div>
+
+      <Card>
+        <form className="bs-form" onSubmit={onSubmit}>
+
+          {/* ── Request type toggle ── */}
+          <div className="bs-field">
+            <span>Request Type</span>
+            <div className="type-picker">
+              <button type="button" className={isDefect ? 'active' : ''} onClick={() => setType('defect')}>
+                🐛 Defect
+              </button>
+              <button type="button" className={isEnhancement ? 'active' : ''} onClick={() => setType('enhancement')}>
+                ✨ Enhancement
+              </button>
+            </div>
+          </div>
+
+          {/* ── Requestor ── */}
+          <p className="section-label">Contact</p>
+          <Input
+            label="Requestor Name"
+            required
+            placeholder="Your full name"
+            value={form.created_by}
+            onChange={(e) => updateField('created_by', e.target.value)}
+          />
+
+          {/* ── Defect fields ── */}
+          {isDefect && (
+            <>
+              <p className="section-label">Incident Details</p>
+              <div className="bs-grid two">
+                <Input label="Policy Number" value={form.policy_num} onChange={(e) => updateField('policy_num', e.target.value)} />
+                <Input label="Account Number" value={form.account_num} onChange={(e) => updateField('account_num', e.target.value)} />
+                <Input label="Transaction Number" value={form.transaction_num} onChange={(e) => updateField('transaction_num', e.target.value)} />
+                <Input label="Screen Title" required value={form.screen_title} onChange={(e) => updateField('screen_title', e.target.value)} />
+                <Input label="Date of Error" type="date" required value={form.date_of_error} onChange={(e) => updateField('date_of_error', e.target.value)} />
+                <Input label="Time of Error (optional)" type="time" value={form.time_of_error} onChange={(e) => updateField('time_of_error', e.target.value)} />
+              </div>
+              <Input label="Summary of Issue" required value={form.summary_of_issue} onChange={(e) => updateField('summary_of_issue', e.target.value)} />
+              <Textarea label="Steps to Reproduce" rows={3} value={form.steps_to_reproduce} onChange={(e) => updateField('steps_to_reproduce', e.target.value)} />
+              <Textarea label="What Happened? (Exact Details)" rows={4} required value={form.what_happened_exact_details} onChange={(e) => updateField('what_happened_exact_details', e.target.value)} />
+
+              <p className="section-label">Screenshots <em className="bs-required">*</em></p>
+              <label className="bs-field">
+                <input type="file" accept="image/*" multiple onChange={onFileChange} />
+                <span className="muted" style={{ fontSize: '12px' }}>{files.length}/3 selected — click a thumbnail to preview</span>
+              </label>
+            </>
+          )}
+
+          {/* ── Enhancement fields ── */}
+          {isEnhancement && (
+            <>
+              <p className="section-label">Enhancement Details</p>
+              <div className="bs-grid two">
+                <Input label="Application Name" value="Billing Center" disabled />
+                <Input label="Desired Completion Date" type="date" required value={form.desired_completion_date} onChange={(e) => updateField('desired_completion_date', e.target.value)} />
+              </div>
+              <Input label="Summary" required value={form.summary_of_issue} onChange={(e) => updateField('summary_of_issue', e.target.value)} />
+              <Textarea label="Request Details" rows={5} required value={form.request} onChange={(e) => updateField('request', e.target.value)} />
+
+              <p className="section-label">Attachments (optional)</p>
+              <label className="bs-field">
+                <input type="file" accept="image/*" multiple onChange={onFileChange} />
+                <span className="muted" style={{ fontSize: '12px' }}>{files.length}/3 selected</span>
+              </label>
+            </>
+          )}
+
+          {/* ── Thumbnails ── */}
+          {files.length > 0 && (
+            <div className="thumb-grid">
+              {files.map((file, index) => {
+                const url = URL.createObjectURL(file);
+                return (
+                  <article key={`${file.name}-${file.size}-${index}`} className="thumb-item">
+                    <button type="button" className="thumb-open-btn" onClick={() => setPreviewImage(url)}>
+                      <img src={url} alt={file.name} />
+                    </button>
+                    <div className="thumb-meta">
+                      <span className="thumb-name">{file.name}</span>
+                      <Button kind="ghost" type="button" onClick={() => removeFile(index)}>Remove</Button>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          )}
+
+          <Notice text={error} />
+
+          <div className="bs-actions">
+            <Button type="submit" disabled={saving}>
+              {saving ? 'Submitting…' : 'Submit Request'}
+            </Button>
+          </div>
+        </form>
+      </Card>
+
+      <Modal open={Boolean(previewImage)} onClose={() => setPreviewImage(null)} title="Image Preview">
+        {previewImage && <img className="bs-preview-image" src={previewImage} alt="Preview" />}
+      </Modal>
+    </>
+  );
+}
