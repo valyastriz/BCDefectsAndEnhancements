@@ -1,6 +1,6 @@
 const dotenv = require('dotenv');
 const bcrypt = require('bcrypt');
-const { initDb } = require('./db');
+const db = require('../db');
 
 dotenv.config();
 
@@ -21,20 +21,21 @@ async function seedAdmin() {
   );
   const password = process.env.SEED_ADMIN_PASSWORD || process.env.ADMIN_PASSWORD || 'admin123';
 
-  const db = await initDb();
+  await db.init();
 
   try {
     const passwordHash = await bcrypt.hash(password, 10);
 
     for (const username of usernames) {
-      const existing = await db.get('SELECT id FROM users WHERE username = ?', [username]);
+      const existingRows = await db.query('SELECT id FROM users WHERE username = ?', [username]);
+      const existing = existingRows[0] || null;
 
       if (existing) {
         console.log(`Admin user '${username}' already exists.`);
         continue;
       }
 
-      await db.run(
+      await db.execute(
         'INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)',
         [username, passwordHash, 'admin'],
       );

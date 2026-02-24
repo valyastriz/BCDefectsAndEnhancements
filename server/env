@@ -1,9 +1,7 @@
 PORT=4000
 CLIENT_ORIGIN=http://localhost:5173
 SESSION_SECRET=replace-with-a-long-random-secret
-DB_PROVIDER=sqljs
-SQLJS_PATH=./data/dev.sqlite
-DATABASE_URL=
+SQLITE_PATH=./data/app.db
 
 # Seed defaults (optional)
 ADMIN_LOGINS=admin,lead_admin,ops_admin

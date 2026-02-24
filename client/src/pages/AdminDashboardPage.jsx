@@ -59,7 +59,7 @@ function editableFromDetail(detail) {
     enhancement_request_type: detail.enhancement_request_type || '',
     priority_level: detail.priority_level || '3 - Medium',
     jira_number: detail.jira_number || '',
-    duplicate_of: detail.duplicate_of || '',
+    duplicate_of: detail.duplicate_reference || detail.duplicate_of || '',
     is_public: Boolean(detail.is_public),
   };
 }
@@ -189,7 +189,7 @@ export function AdminDashboardPage({ user, onLogout }) {
       setWorking(true);
       await api.updateAdminSubmission(openId, {
         ...edit,
-        duplicate_of: edit.duplicate_of === '' ? null : Number(edit.duplicate_of),
+        duplicate_of: edit.duplicate_of,
         date_time_of_error: edit.date_time_of_error || null,
         desired_completion_date: edit.desired_completion_date || null,
       });
@@ -247,7 +247,7 @@ export function AdminDashboardPage({ user, onLogout }) {
 
       const saved = await api.updateAdminSubmission(openId, {
         ...edit,
-        duplicate_of: edit.duplicate_of === '' ? null : Number(edit.duplicate_of),
+        duplicate_of: edit.duplicate_of,
         date_time_of_error: edit.date_time_of_error || null,
         desired_completion_date: edit.desired_completion_date || null,
       });
@@ -489,7 +489,7 @@ export function AdminDashboardPage({ user, onLogout }) {
                 {statuses.map((s) => <option key={s} value={s}>{s}</option>)}
               </Select>
               <Input label="Reviewer" value={edit.reviewer} onChange={(e) => setEdit((p) => ({ ...p, reviewer: e.target.value }))} />
-              <Input label="Duplicate Of (ID)" type="number" value={edit.duplicate_of} onChange={(e) => setEdit((p) => ({ ...p, duplicate_of: e.target.value }))} />
+              <Input label="Duplicate Reference (EasyVista / JIRA / ID)" value={edit.duplicate_of} onChange={(e) => setEdit((p) => ({ ...p, duplicate_of: e.target.value }))} />
             </div>
             <Textarea label="Decision Notes" rows={2} value={edit.decision_notes} onChange={(e) => setEdit((p) => ({ ...p, decision_notes: e.target.value }))} />
 
