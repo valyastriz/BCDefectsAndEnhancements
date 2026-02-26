@@ -39,9 +39,12 @@ export function Select({ label, children, required, ...props }) {
   return (
     <label className="bs-field">
       <FieldLabel label={label} required={required} />
-      <select required={required} {...props}>
-        {children}
-      </select>
+      <div className="bs-select-wrap">
+        <select required={required} {...props}>
+          {children}
+        </select>
+        <span className="bs-dropdown-caret" aria-hidden="true" />
+      </div>
     </label>
   );
 }
@@ -95,7 +98,7 @@ export function MultiSelectDropdown({
           aria-expanded={open}
         >
           <span>{summary}</span>
-          <span className="bs-multiselect-caret">▾</span>
+          <span className="bs-dropdown-caret" aria-hidden="true" />
         </button>
         {open && (
           <div className="bs-multiselect-menu" role="listbox" aria-multiselectable="true">

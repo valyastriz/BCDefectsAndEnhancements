@@ -119,7 +119,7 @@ export function PublicUpdatesPage() {
       <div className="page-header">
         <h2>Status Board</h2>
         <p>
-          Live view of submitted requests — updates automatically when admins make changes.
+          Live view of submitted requests that have been marked "Public" by an admin — updates automatically when admins make changes.
           {live && <strong style={{ marginLeft: 8, color: 'var(--status-approved-fg)' }}>● Live update received</strong>}
         </p>
       </div>
@@ -202,27 +202,65 @@ export function PublicUpdatesPage() {
                 </div>
               </div>
               <h4>{item.summary_of_issue || '-'}</h4>
-              <p><strong>Submitted:</strong> {submittedDate(item.created_at)}</p>
-              {(item.status === 'Submitted' || item.status === 'Deployed') && (
-                <p>
-                  <strong>Latest Status Update:</strong> {item.latest_status_value || item.status} on{' '}
-                  {statusDate(item.latest_status_changed_at)}
-                </p>
-              )}
-              {item.status === 'Duplicate' && (
-                <p>
-                  <strong>Marked Duplicate:</strong> {statusDate(item.duplicate_status_at || item.latest_status_changed_at)}
-                </p>
-              )}
-              {item.retired_status_at && (
-                <p>
-                  <strong>Retired:</strong> {statusDate(item.retired_status_at)}
-                </p>
-              )}
-              <p><strong>Policy/Account:</strong> {item.policy_num || '-'} / {item.account_num || '-'}</p>
-              <p><strong>Description:</strong> {descriptionForItem(item)}</p>
-              <p><strong>Requestor:</strong> {item.created_by || '-'}</p>
-              <p>{item.application_name}{item.easyvista_ticket_id ? ` · EV: ${item.easyvista_ticket_id}` : ''}</p>
+              <div className="public-meta">
+                <div className="pub-cols">
+                  <div className="pub-col">
+                    <div className="pub-field">
+                      <span className="pub-label">Reported</span>
+                      <span>{submittedDate(item.created_at)}</span>
+                    </div>
+                    <div className="pub-field">
+                      <span className="pub-label">Policy / Account</span>
+                      <span>{item.policy_num || '-'} / {item.account_num || '-'}</span>
+                    </div>
+                    <div className="pub-field">
+                      <span className="pub-label">Latest Status</span>
+                      <span>
+                        {item.status === 'New'
+                          ? 'Reported'
+                          : item.status === 'Submitted'
+                            ? 'Submitted to EV'
+                            : (item.latest_status_value || item.status)
+                        } on {statusDate(item.latest_status_changed_at)}
+                      </span>
+                    </div>
+                    {item.status === 'Duplicate' && (
+                      <div className="pub-field">
+                        <span className="pub-label">Marked Duplicate</span>
+                        <span>{statusDate(item.duplicate_status_at || item.latest_status_changed_at)}</span>
+                      </div>
+                    )}
+                    {item.status === 'Retired' && !!item.retired_status_at && (
+                      <div className="pub-field">
+                        <span className="pub-label">Retired</span>
+                        <span>{statusDate(item.retired_status_at)}</span>
+                      </div>
+                    )}
+                  </div>
+                  <div className="pub-col">
+                    <div className="pub-field">
+                      <span className="pub-label">Requestor</span>
+                      <span>{item.created_by || '-'}</span>
+                    </div>
+                    <div className="pub-field">
+                      <span className="pub-label">Application</span>
+                      <span>{item.application_name || '-'}</span>
+                    </div>
+                    <div className="pub-field">
+                      <span className="pub-label">EV Ticket</span>
+                      <span>{item.easyvista_ticket_id || '-'}</span>
+                    </div>
+                    <div className="pub-field">
+                      <span className="pub-label">JIRA Card #</span>
+                      <span>{item.jira_number || '-'}</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="pub-field pub-field-full">
+                  <span className="pub-label">Description</span>
+                  <span>{descriptionForItem(item)}</span>
+                </div>
+              </div>
             </article>
           ))}
         </div>

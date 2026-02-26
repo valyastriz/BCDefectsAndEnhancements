@@ -1,12 +1,15 @@
 const API_BASE = import.meta.env.VITE_API_BASE || '';
 
 async function request(path, options = {}) {
+  const { allowStatuses = [], ...fetchOptions } = options;
   const response = await fetch(`${API_BASE}${path}`, {
     credentials: 'include',
-    ...options,
+    ...fetchOptions,
   });
 
-  if (!response.ok) {
+  const isAllowedStatus = Array.isArray(allowStatuses) && allowStatuses.includes(response.status);
+
+  if (!response.ok && !isAllowedStatus) {
     let message = `Request failed (${response.status})`;
     try {
       const body = await response.json();
@@ -34,7 +37,7 @@ export const api = {
       body: JSON.stringify({ username, password }),
     }),
   logout: () => request('/api/auth/logout', { method: 'POST' }),
-  me: () => request('/api/auth/me'),
+  me: () => request('/api/auth/me', { allowStatuses: [401] }),
   submitRepSubmission: (formData) =>
     request('/api/submissions', {
       method: 'POST',
@@ -48,6 +51,9 @@ export const api = {
     search = '',
     requester = '',
     submittedBy = '',
+    year = '',
+    inJira = '',
+    releaseNumber = '',
     sort = 'updated_desc',
   }) => {
     const params = new URLSearchParams();
@@ -60,6 +66,9 @@ export const api = {
     if (search) params.set('search', search);
     if (requester) params.set('requester', requester);
     if (submittedBy) params.set('submittedBy', submittedBy);
+    if (year) params.set('year', year);
+    if (inJira) params.set('inJira', inJira);
+    if (releaseNumber) params.set('releaseNumber', releaseNumber);
     if (sort) params.set('sort', sort);
     const query = params.toString() ? `?${params.toString()}` : '';
     return request(`/api/admin/submissions${query}`);

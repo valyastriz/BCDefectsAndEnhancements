@@ -35,9 +35,16 @@ function sqliteSchema() {
       easyvista_ticket_id TEXT,
       desired_completion_date TEXT,
       impact_details TEXT,
+      impact_notes TEXT,
+      policy_premium_impact REAL,
+      direct_dollar_impact REAL,
+      policies_affected_count INTEGER,
+      logged_defect INTEGER NOT NULL DEFAULT 0,
       enhancement_request_type TEXT,
       priority_level TEXT,
       jira_number TEXT,
+      release_number TEXT,
+      release_notes TEXT,
       easyvista_submitted_by TEXT,
       is_public INTEGER NOT NULL DEFAULT 0,
       FOREIGN KEY (duplicate_of) REFERENCES submissions(id)
@@ -119,9 +126,16 @@ function postgresSchema() {
       easyvista_ticket_id TEXT,
       desired_completion_date TEXT,
       impact_details TEXT,
+      impact_notes TEXT,
+      policy_premium_impact NUMERIC(14, 2),
+      direct_dollar_impact NUMERIC(14, 2),
+      policies_affected_count INTEGER,
+      logged_defect INTEGER NOT NULL DEFAULT 0,
       enhancement_request_type TEXT,
       priority_level TEXT,
       jira_number TEXT,
+      release_number TEXT,
+      release_notes TEXT,
       easyvista_submitted_by TEXT,
       is_public INTEGER NOT NULL DEFAULT 0
     )
@@ -171,6 +185,13 @@ function getPostMigrateStatements(provider) {
   if (provider === 'postgres') {
     return [
       'ALTER TABLE submissions ADD COLUMN IF NOT EXISTS duplicate_reference TEXT',
+      'ALTER TABLE submissions ADD COLUMN IF NOT EXISTS impact_notes TEXT',
+      'ALTER TABLE submissions ADD COLUMN IF NOT EXISTS policy_premium_impact NUMERIC(14, 2)',
+      'ALTER TABLE submissions ADD COLUMN IF NOT EXISTS direct_dollar_impact NUMERIC(14, 2)',
+      'ALTER TABLE submissions ADD COLUMN IF NOT EXISTS policies_affected_count INTEGER',
+      'ALTER TABLE submissions ADD COLUMN IF NOT EXISTS logged_defect INTEGER NOT NULL DEFAULT 0',
+      'ALTER TABLE submissions ADD COLUMN IF NOT EXISTS release_number TEXT',
+      'ALTER TABLE submissions ADD COLUMN IF NOT EXISTS release_notes TEXT',
       `
       UPDATE submissions
       SET duplicate_reference = duplicate_of::text
@@ -181,6 +202,13 @@ function getPostMigrateStatements(provider) {
 
   return [
     'ALTER TABLE submissions ADD COLUMN duplicate_reference TEXT',
+    'ALTER TABLE submissions ADD COLUMN impact_notes TEXT',
+    'ALTER TABLE submissions ADD COLUMN policy_premium_impact REAL',
+    'ALTER TABLE submissions ADD COLUMN direct_dollar_impact REAL',
+    'ALTER TABLE submissions ADD COLUMN policies_affected_count INTEGER',
+    'ALTER TABLE submissions ADD COLUMN logged_defect INTEGER NOT NULL DEFAULT 0',
+    'ALTER TABLE submissions ADD COLUMN release_number TEXT',
+    'ALTER TABLE submissions ADD COLUMN release_notes TEXT',
     `
     UPDATE submissions
     SET duplicate_reference = CAST(duplicate_of AS TEXT)

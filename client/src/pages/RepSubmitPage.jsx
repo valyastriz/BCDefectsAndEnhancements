@@ -128,6 +128,7 @@ export function RepSubmitPage() {
 
   if (submittedId) {
     return (
+      <div className="submit-page-wrap">
       <Card>
         <div className="submitted-card">
           <div className="submitted-icon"><CheckIcon /></div>
@@ -138,11 +139,12 @@ export function RepSubmitPage() {
           </Button>
         </div>
       </Card>
+      </div>
     );
   }
 
   return (
-    <>
+    <div className="submit-page-wrap">
       <div className="page-header">
         <h2>Submit a Request</h2>
         <p>Use this form to report a defect or request an enhancement in Billing Center.</p>
@@ -250,6 +252,6 @@ export function RepSubmitPage() {
       <Modal open={Boolean(previewImage)} onClose={() => setPreviewImage(null)} title="Image Preview">
         {previewImage && <img className="bs-preview-image" src={previewImage} alt="Preview" />}
       </Modal>
-    </>
+    </div>
   );
 }

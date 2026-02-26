@@ -413,7 +413,7 @@ app.get('/api/public/submissions', async (_req, res) => {
       SELECT s.id, s.created_at, s.updated_at, s.created_by, s.type, s.application_name,
              s.policy_num, s.account_num, s.summary_of_issue,
              s.what_happened_exact_details, s.request,
-             s.status, s.easyvista_ticket_id, s.is_public,
+             s.status, s.easyvista_ticket_id, s.jira_number, s.is_public,
              (
                SELECT e.changed_at
                FROM submission_status_events e
@@ -482,7 +482,18 @@ app.get('/api/public/submissions/:id', async (req, res) => {
 });
 
 app.get('/api/admin/submissions', ensureAdmin, async (req, res) => {
-  const { status, statuses, type, search, requester, submittedBy, sort } = req.query;
+  const {
+    status,
+    statuses,
+    type,
+    search,
+    requester,
+    submittedBy,
+    year,
+    inJira,
+    releaseNumber,
+    sort,
+  } = req.query;
 
   return withDb(async (db) => {
     const clauses = [];
@@ -517,7 +528,19 @@ app.get('/api/admin/submissions', ensureAdmin, async (req, res) => {
       clauses.push('COALESCE(easyvista_submitted_by, \'\') LIKE ?');
       params.push(`%${submittedBy}%`);
     }
-
+    if (year) {
+      clauses.push('SUBSTR(created_at, 1, 4) = ?');
+      params.push(String(year).trim());
+    }
+    if (inJira === 'yes') {
+      clauses.push('COALESCE(logged_defect, 0) = 1');
+    } else if (inJira === 'no') {
+      clauses.push('COALESCE(logged_defect, 0) = 0');
+    }
+    if (releaseNumber) {
+      clauses.push("COALESCE(release_number, '') LIKE ?");
+      params.push(`%${releaseNumber}%`);
+    }
     const where = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
 
     const sortMap = {
@@ -529,6 +552,28 @@ app.get('/api/admin/submissions', ensureAdmin, async (req, res) => {
       requester_desc: 'created_by COLLATE NOCASE DESC',
       submitted_by_asc: 'COALESCE(easyvista_submitted_by, \'\') COLLATE NOCASE ASC',
       submitted_by_desc: 'COALESCE(easyvista_submitted_by, \'\') COLLATE NOCASE DESC',
+      policy_premium_impact_desc: 'COALESCE(policy_premium_impact, 0) DESC',
+      policy_premium_impact_asc: 'COALESCE(policy_premium_impact, 0) ASC',
+      direct_dollar_impact_desc: 'COALESCE(direct_dollar_impact, 0) DESC',
+      direct_dollar_impact_asc: 'COALESCE(direct_dollar_impact, 0) ASC',
+      policies_affected_count_desc: 'COALESCE(policies_affected_count, 0) DESC',
+      policies_affected_count_asc: 'COALESCE(policies_affected_count, 0) ASC',
+      logged_defect_desc: 'COALESCE(logged_defect, 0) DESC',
+      logged_defect_asc: 'COALESCE(logged_defect, 0) ASC',
+      jira_number_asc: "COALESCE(jira_number, '') COLLATE NOCASE ASC",
+      jira_number_desc: "COALESCE(jira_number, '') COLLATE NOCASE DESC",
+      type_asc: 'type COLLATE NOCASE ASC',
+      type_desc: 'type COLLATE NOCASE DESC',
+      summary_asc: 'summary_of_issue COLLATE NOCASE ASC',
+      summary_desc: 'summary_of_issue COLLATE NOCASE DESC',
+      status_asc: 'status COLLATE NOCASE ASC',
+      status_desc: 'status COLLATE NOCASE DESC',
+      public_asc: 'COALESCE(is_public, 0) ASC',
+      public_desc: 'COALESCE(is_public, 0) DESC',
+      release_number_asc: "COALESCE(release_number, '') COLLATE NOCASE ASC",
+      release_number_desc: "COALESCE(release_number, '') COLLATE NOCASE DESC",
+      easyvista_asc: "COALESCE(easyvista_ticket_id, '') COLLATE NOCASE ASC",
+      easyvista_desc: "COALESCE(easyvista_ticket_id, '') COLLATE NOCASE DESC",
     };
     const orderBy = sortMap[String(sort || '')] || sortMap.updated_desc;
 
@@ -536,7 +581,9 @@ app.get('/api/admin/submissions', ensureAdmin, async (req, res) => {
       `
       SELECT id, created_at, updated_at, created_by, created_by_email, type, application_name,
              policy_num, account_num, transaction_num, screen_title, summary_of_issue,
-             status, reviewer, decision_notes, easyvista_ticket_id, easyvista_submitted_by, is_public
+              status, reviewer, decision_notes, easyvista_ticket_id, easyvista_submitted_by, is_public,
+                  impact_notes, policy_premium_impact, direct_dollar_impact, policies_affected_count,
+                  jira_number, logged_defect, release_number, release_notes
       FROM submissions
       ${where}
       ORDER BY ${orderBy}
@@ -595,6 +642,15 @@ app.put('/api/admin/submissions/:id', ensureAdmin, async (req, res) => {
       : String(incomingDuplicateReference).trim();
     const duplicateOfNumeric =
       duplicateReference && /^\d+$/.test(duplicateReference) ? Number(duplicateReference) : null;
+    const policyPremiumImpact = isBlank(body.policy_premium_impact)
+      ? null
+      : Number(body.policy_premium_impact);
+    const directDollarImpact = isBlank(body.direct_dollar_impact)
+      ? null
+      : Number(body.direct_dollar_impact);
+    const policiesAffectedCount = isBlank(body.policies_affected_count)
+      ? null
+      : Number(body.policies_affected_count);
 
     const next = {
       type: body.type ?? existing.type,
@@ -622,10 +678,23 @@ app.put('/api/admin/submissions/:id', ensureAdmin, async (req, res) => {
             ? toIsoOrNow(body.desired_completion_date)
             : existing.desired_completion_date,
       impact_details: body.impact_details ?? existing.impact_details,
+      impact_notes: body.impact_notes ?? existing.impact_notes,
+      policy_premium_impact:
+        Number.isFinite(policyPremiumImpact) ? policyPremiumImpact : existing.policy_premium_impact,
+      direct_dollar_impact:
+        Number.isFinite(directDollarImpact) ? directDollarImpact : existing.direct_dollar_impact,
+      policies_affected_count:
+        Number.isFinite(policiesAffectedCount)
+          ? Math.trunc(policiesAffectedCount)
+          : existing.policies_affected_count,
+      logged_defect:
+        typeof body.logged_defect === 'boolean' ? body.logged_defect : Boolean(existing.logged_defect),
       enhancement_request_type:
         body.enhancement_request_type ?? existing.enhancement_request_type,
       priority_level: body.priority_level ?? existing.priority_level,
       jira_number: body.jira_number ?? existing.jira_number,
+      release_number: body.release_number ?? existing.release_number,
+      release_notes: body.release_notes ?? existing.release_notes,
       duplicate_reference: duplicateReference,
       duplicate_of: duplicateOfNumeric,
       is_public:
@@ -675,9 +744,16 @@ app.put('/api/admin/submissions/:id', ensureAdmin, async (req, res) => {
         fingerprint = ?,
         desired_completion_date = ?,
         impact_details = ?,
+        impact_notes = ?,
+        policy_premium_impact = ?,
+        direct_dollar_impact = ?,
+        policies_affected_count = ?,
+        logged_defect = ?,
         enhancement_request_type = ?,
         priority_level = ?,
         jira_number = ?,
+        release_number = ?,
+        release_notes = ?,
         duplicate_reference = ?,
         duplicate_of = ?,
         is_public = ?
@@ -702,9 +778,16 @@ app.put('/api/admin/submissions/:id', ensureAdmin, async (req, res) => {
         next.fingerprint,
         next.desired_completion_date,
         next.impact_details,
+        next.impact_notes,
+        next.policy_premium_impact,
+        next.direct_dollar_impact,
+        next.policies_affected_count,
+        toBooleanSql(next.logged_defect),
         next.enhancement_request_type,
         next.priority_level,
         next.jira_number,
+        next.release_number,
+        next.release_notes,
         next.duplicate_reference,
         next.duplicate_of,
         toBooleanSql(next.is_public),

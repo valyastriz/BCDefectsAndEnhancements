@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../lib/api';
 import { getSocket } from '../lib/socket';
 import {
@@ -30,8 +30,32 @@ function defaultFilters() {
     search: '',
     requester: '',
     submittedBy: '',
+    year: '',
+    inJira: '',
+    releaseNumber: '',
     sort: 'updated_desc',
   };
+}
+
+const SORT_COLS = {
+  type:             { asc: 'type_asc',                    desc: 'type_desc' },
+  requester:        { asc: 'requester_asc',               desc: 'requester_desc' },
+  summary:          { asc: 'summary_asc',                 desc: 'summary_desc' },
+  status:           { asc: 'status_asc',                  desc: 'status_desc' },
+  isPublic:         { asc: 'public_asc',                  desc: 'public_desc' },
+  inJira:           { asc: 'logged_defect_asc',           desc: 'logged_defect_desc' },
+  jiraCard:         { asc: 'jira_number_asc',             desc: 'jira_number_desc' },
+  releaseNum:       { asc: 'release_number_asc',          desc: 'release_number_desc' },
+  policyPremium:    { asc: 'policy_premium_impact_asc',   desc: 'policy_premium_impact_desc' },
+  directImpact:     { asc: 'direct_dollar_impact_asc',    desc: 'direct_dollar_impact_desc' },
+  policiesImpacted: { asc: 'policies_affected_count_asc', desc: 'policies_affected_count_desc' },
+  easyvista:        { asc: 'easyvista_asc',               desc: 'easyvista_desc' },
+  submittedBy:      { asc: 'submitted_by_asc',            desc: 'submitted_by_desc' },
+};
+
+function toNumeric(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 function editableFromDetail(detail) {
@@ -56,9 +80,25 @@ function editableFromDetail(detail) {
     decision_notes: detail.decision_notes || '',
     fingerprint: detail.fingerprint || '',
     impact_details: detail.impact_details || '',
+    impact_notes: detail.impact_notes || '',
+    policy_premium_impact:
+      detail.policy_premium_impact === null || detail.policy_premium_impact === undefined
+        ? ''
+        : String(detail.policy_premium_impact),
+    direct_dollar_impact:
+      detail.direct_dollar_impact === null || detail.direct_dollar_impact === undefined
+        ? ''
+        : String(detail.direct_dollar_impact),
+    policies_affected_count:
+      detail.policies_affected_count === null || detail.policies_affected_count === undefined
+        ? ''
+        : String(detail.policies_affected_count),
     enhancement_request_type: detail.enhancement_request_type || '',
     priority_level: detail.priority_level || '3 - Medium',
     jira_number: detail.jira_number || '',
+    release_number: detail.release_number || '',
+    release_notes: detail.release_notes || '',
+    logged_defect: Boolean(detail.logged_defect),
     duplicate_of: detail.duplicate_reference || detail.duplicate_of || '',
     is_public: Boolean(detail.is_public),
   };
@@ -66,6 +106,8 @@ function editableFromDetail(detail) {
 
 export function AdminDashboardPage({ user, onLogout }) {
   const [filters, setFilters] = useState(defaultFilters());
+  const filtersRef = useRef(filters);
+  filtersRef.current = filters;
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
   const [notice, setNotice] = useState('');
@@ -78,18 +120,19 @@ export function AdminDashboardPage({ user, onLogout }) {
   const [previewAttachment, setPreviewAttachment] = useState(null);
   const [easyVistaConfirmation, setEasyVistaConfirmation] = useState('');
 
-  const loadRows = useCallback(async () => {
+  const loadRows = useCallback(async (filtersParam) => {
+    const f = filtersParam ?? filtersRef.current;
     try {
       setLoading(true);
       setError('');
-      const data = await api.listAdminSubmissions(filters);
+      const data = await api.listAdminSubmissions(f);
       setRows(data);
     } catch (loadError) {
       setError(loadError.message);
     } finally {
       setLoading(false);
     }
-  }, [filters]);
+  }, []);
 
   const openDetail = useCallback(async (id, preserveEdit = false) => {
     try {
@@ -109,8 +152,9 @@ export function AdminDashboardPage({ user, onLogout }) {
   }, []);
 
   useEffect(() => {
-    loadRows();
-  }, [loadRows]);
+    loadRows(filters);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filters]);
 
   useEffect(() => {
     const socket = getSocket();
@@ -178,6 +222,51 @@ export function AdminDashboardPage({ user, onLogout }) {
         setEdit((prev) => (prev ? { ...prev, is_public: isPublic } : prev));
       }
       setNotice(`Public visibility updated to ${isPublic ? 'Yes' : 'No'}.`);
+    } catch (updateError) {
+      setError(updateError.message);
+    }
+  }
+
+  async function updateLoggedDefectQuick(submissionId, loggedDefect) {
+    try {
+      setError('');
+      await api.updateAdminSubmission(submissionId, { logged_defect: loggedDefect });
+      await loadRows();
+      if (openId === submissionId) {
+        await openDetail(submissionId, true);
+        setEdit((prev) => (prev ? { ...prev, logged_defect: loggedDefect } : prev));
+      }
+      setNotice(`In JIRA updated to ${loggedDefect ? 'Yes' : 'No'}.`);
+    } catch (updateError) {
+      setError(updateError.message);
+    }
+  }
+
+  async function updateJiraQuick(submissionId, jiraNumber) {
+    try {
+      setError('');
+      await api.updateAdminSubmission(submissionId, { jira_number: jiraNumber || null });
+      await loadRows();
+      if (openId === submissionId) {
+        await openDetail(submissionId, true);
+        setEdit((prev) => (prev ? { ...prev, jira_number: jiraNumber || '' } : prev));
+      }
+      setNotice('JIRA card number updated.');
+    } catch (updateError) {
+      setError(updateError.message);
+    }
+  }
+
+  async function updateReleaseNumberQuick(submissionId, releaseNumber) {
+    try {
+      setError('');
+      await api.updateAdminSubmission(submissionId, { release_number: releaseNumber || null });
+      await loadRows();
+      if (openId === submissionId) {
+        await openDetail(submissionId, true);
+        setEdit((prev) => (prev ? { ...prev, release_number: releaseNumber || '' } : prev));
+      }
+      setNotice('Release number updated.');
     } catch (updateError) {
       setError(updateError.message);
     }
@@ -298,11 +387,78 @@ export function AdminDashboardPage({ user, onLogout }) {
     return counts;
   }, [rows]);
 
+  const impactTotals = useMemo(() => {
+    return rows.reduce(
+      (acc, row) => {
+        acc.policyPremiumImpact += toNumeric(row.policy_premium_impact);
+        acc.directDollarImpact += toNumeric(row.direct_dollar_impact);
+        acc.policiesAffectedCount += toNumeric(row.policies_affected_count);
+        return acc;
+      },
+      {
+        policyPremiumImpact: 0,
+        directDollarImpact: 0,
+        policiesAffectedCount: 0,
+      },
+    );
+  }, [rows]);
+
+  function formatCurrency(value) {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD',
+      maximumFractionDigits: 2,
+    }).format(value || 0);
+  }
+
+  function formatNumber(value) {
+    return new Intl.NumberFormat('en-US').format(toNumeric(value));
+  }
+
   function formatDateTime(value) {
     if (!value) return '-';
     const parsed = new Date(value);
     if (Number.isNaN(parsed.getTime())) return '-';
     return parsed.toLocaleString();
+  }
+
+  function handleColSort(colKey) {
+    const { asc, desc } = SORT_COLS[colKey];
+    const numericFirst = ['policyPremium', 'directImpact', 'policiesImpacted'];
+    let nextSort;
+    if (filters.sort === asc) nextSort = desc;
+    else if (filters.sort === desc) nextSort = asc;
+    else nextSort = numericFirst.includes(colKey) ? desc : asc;
+    const nextFilters = { ...filters, sort: nextSort };
+    setFilters(nextFilters);
+    loadRows(nextFilters);
+  }
+
+  function sortTh(colKey, label, style) {
+    const { asc, desc } = SORT_COLS[colKey];
+    const isAsc = filters.sort === asc;
+    const isActive = isAsc || filters.sort === desc;
+    return (
+      <th
+        style={{ ...style, cursor: 'pointer', userSelect: 'none', whiteSpace: 'normal', verticalAlign: 'bottom' }}
+        onClick={() => handleColSort(colKey)}
+      >
+        {(() => {
+          const spaceIdx = label.indexOf(' ');
+          const firstWord = spaceIdx === -1 ? label : label.slice(0, spaceIdx);
+          const rest = spaceIdx === -1 ? '' : label.slice(spaceIdx);
+          return (
+            <>
+              <span style={{ whiteSpace: 'nowrap' }}>
+                <span style={{ fontSize: 10, opacity: isActive ? 1 : 0.3, marginRight: 2 }}>
+                  {isAsc ? '▲' : '▼'}
+                </span>{firstWord}
+              </span>{rest}
+            </>
+          );
+        })()}
+      </th>
+    );
   }
 
   return (
@@ -326,6 +482,27 @@ export function AdminDashboardPage({ user, onLogout }) {
               <div className="stat-lbl">{s}</div>
             </div>
           ))}
+        </div>
+      )}
+
+      {rows.length > 0 && (
+        <div className="stat-row">
+          <div className="stat-tile">
+            <div className="stat-num">{rows.length}</div>
+            <div className="stat-lbl">Filtered Items</div>
+          </div>
+          <div className="stat-tile">
+            <div className="stat-num">{formatCurrency(impactTotals.policyPremiumImpact)}</div>
+            <div className="stat-lbl">Policy Premium Impact</div>
+          </div>
+          <div className="stat-tile">
+            <div className="stat-num">{formatCurrency(impactTotals.directDollarImpact)}</div>
+            <div className="stat-lbl">Direct Dollar Impact</div>
+          </div>
+          <div className="stat-tile">
+            <div className="stat-num">{Math.trunc(impactTotals.policiesAffectedCount)}</div>
+            <div className="stat-lbl">Policies Impacted</div>
+          </div>
         </div>
       )}
 
@@ -369,20 +546,27 @@ export function AdminDashboardPage({ user, onLogout }) {
             value={filters.submittedBy}
             onChange={(e) => setFilters((prev) => ({ ...prev, submittedBy: e.target.value }))}
           />
+          <Input
+            label="Year"
+            placeholder="YYYY"
+            value={filters.year}
+            onChange={(e) => setFilters((prev) => ({ ...prev, year: e.target.value }))}
+          />
           <Select
-            label="Sort"
-            value={filters.sort}
-            onChange={(e) => setFilters((prev) => ({ ...prev, sort: e.target.value }))}
+            label="In JIRA"
+            value={filters.inJira}
+            onChange={(e) => setFilters((prev) => ({ ...prev, inJira: e.target.value }))}
           >
-            <option value="updated_desc">Recently Updated (Newest)</option>
-            <option value="updated_asc">Recently Updated (Oldest)</option>
-            <option value="created_desc">Created (Newest)</option>
-            <option value="created_asc">Created (Oldest)</option>
-            <option value="requester_asc">Requester (A→Z)</option>
-            <option value="requester_desc">Requester (Z→A)</option>
-            <option value="submitted_by_asc">EasyVista Submitter (A→Z)</option>
-            <option value="submitted_by_desc">EasyVista Submitter (Z→A)</option>
+            <option value="">All</option>
+            <option value="yes">Yes</option>
+            <option value="no">No</option>
           </Select>
+          <Input
+            label="Release #"
+            placeholder="e.g. v1.0.0"
+            value={filters.releaseNumber}
+            onChange={(e) => setFilters((prev) => ({ ...prev, releaseNumber: e.target.value }))}
+          />
           <Button
             kind="ghost"
             type="button"
@@ -415,27 +599,31 @@ export function AdminDashboardPage({ user, onLogout }) {
           <table>
             <thead>
               <tr>
-                <th style={{ width: 56 }}>ID</th>
-                <th style={{ width: 110 }}>Type</th>
-                <th style={{ width: 180 }}>Requester</th>
-                <th>Summary</th>
-                <th style={{ width: 170 }}>Status</th>
-                <th style={{ width: 72 }}>Public</th>
-                <th style={{ width: 110 }}>EasyVista</th>
-                <th style={{ width: 190 }}>Submitted to EV by</th>
+                {sortTh('type',             'Type',               { width: 110 })}
+                {sortTh('requester',        'Requester',          { width: 180 })}
+                {sortTh('summary',          'Summary',            { minWidth: 200 })}
+                {sortTh('status',           'Status',             { width: 170, minWidth: 170 })}
+                {sortTh('isPublic',         'Public',             { width: 110, minWidth: 110 })}
+                {sortTh('inJira',           'In JIRA',            { width: 130, minWidth: 130 })}
+                {sortTh('jiraCard',         'JIRA Card #',        { width: 170, minWidth: 170 })}
+                {sortTh('releaseNum',       'Release #',          { width: 150, minWidth: 150 })}
+                {sortTh('policyPremium',    'Policy Premium ($)', { width: 160 })}
+                {sortTh('directImpact',     'Direct Impact ($)',  { width: 160 })}
+                {sortTh('policiesImpacted', 'Policies Impacted',  { width: 140 })}
+                {sortTh('easyvista',        'EasyVista',          { width: 110 })}
+                {sortTh('submittedBy',      'Submitted to EV by', { width: 190 })}
               </tr>
             </thead>
             <tbody>
               {rows.length === 0 && !loading && (
-                <tr><td colSpan={8} style={{ textAlign: 'center', color: 'var(--color-muted)', padding: '28px 12px' }}>No submissions match the current filters.</td></tr>
+                <tr><td colSpan={13} style={{ textAlign: 'center', color: 'var(--color-muted)', padding: '28px 12px' }}>No submissions match the current filters.</td></tr>
               )}
               {rows.map((row) => (
                 <tr key={row.id} onClick={() => openDetail(row.id)} className="clickable">
-                  <td><span className="muted">#{row.id}</span></td>
                   <td><Badge value={row.type} /></td>
                   <td>{row.created_by || '—'}</td>
-                  <td style={{ maxWidth: 320, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.summary_of_issue}</td>
-                  <td>
+                  <td style={{ minWidth: 200, whiteSpace: 'normal', wordBreak: 'break-word' }}>{row.summary_of_issue}</td>
+                  <td style={{ minWidth: 170 }}>
                     <select
                       className="bs-inline-select"
                       aria-label={`Update status for #${row.id}`}
@@ -448,7 +636,7 @@ export function AdminDashboardPage({ user, onLogout }) {
                       {statuses.map((s) => <option key={s} value={s}>{s}</option>)}
                     </select>
                   </td>
-                  <td>
+                  <td style={{ minWidth: 110 }}>
                     <select
                       className="bs-inline-select"
                       aria-label={`Update public visibility for #${row.id}`}
@@ -465,6 +653,74 @@ export function AdminDashboardPage({ user, onLogout }) {
                       <option value="no">No</option>
                     </select>
                   </td>
+                  <td style={{ minWidth: 130 }}>
+                    <select
+                      className="bs-inline-select"
+                      aria-label={`Update In JIRA for #${row.id}`}
+                      value={row.logged_defect ? 'yes' : 'no'}
+                      onMouseDown={(e) => e.stopPropagation()}
+                      onClick={(e) => e.stopPropagation()}
+                      onKeyDown={(e) => e.stopPropagation()}
+                      onChange={(e) => {
+                        e.stopPropagation();
+                        updateLoggedDefectQuick(row.id, e.target.value === 'yes');
+                      }}
+                    >
+                      <option value="yes">Yes</option>
+                      <option value="no">No</option>
+                    </select>
+                  </td>
+                  <td style={{ minWidth: 170 }}>
+                    <input
+                      className="bs-inline-input"
+                      aria-label={`Update JIRA number for #${row.id}`}
+                      defaultValue={row.jira_number || ''}
+                      placeholder="JIRA-123"
+                      onMouseDown={(e) => e.stopPropagation()}
+                      onClick={(e) => e.stopPropagation()}
+                      onKeyDown={(e) => {
+                        e.stopPropagation();
+                        if (e.key === 'Enter') {
+                          updateJiraQuick(row.id, e.currentTarget.value.trim());
+                        }
+                      }}
+                      onBlur={(e) => {
+                        e.stopPropagation();
+                        updateJiraQuick(row.id, e.currentTarget.value.trim());
+                      }}
+                    />
+                  </td>
+                  <td style={{ minWidth: 150 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <input
+                        className="bs-inline-input"
+                        aria-label={`Update release number for #${row.id}`}
+                        defaultValue={row.release_number || ''}
+                        placeholder="v1.0.0"
+                        onMouseDown={(e) => e.stopPropagation()}
+                        onClick={(e) => e.stopPropagation()}
+                        onKeyDown={(e) => {
+                          e.stopPropagation();
+                          if (e.key === 'Enter') {
+                            updateReleaseNumberQuick(row.id, e.currentTarget.value.trim());
+                          }
+                        }}
+                        onBlur={(e) => {
+                          e.stopPropagation();
+                          updateReleaseNumberQuick(row.id, e.currentTarget.value.trim());
+                        }}
+                      />
+                      {!!row.release_notes && (
+                        <span
+                          title="Release notes available"
+                          style={{ fontSize: 14, color: 'var(--blue-500)', cursor: 'default', flexShrink: 0 }}
+                        >📋</span>
+                      )}
+                    </div>
+                  </td>
+                  <td>{formatCurrency(row.policy_premium_impact)}</td>
+                  <td>{formatCurrency(row.direct_dollar_impact)}</td>
+                  <td>{formatNumber(row.policies_affected_count)}</td>
                   <td className="muted">{row.easyvista_ticket_id || '—'}</td>
                   <td>{row.easyvista_submitted_by || '—'}</td>
                 </tr>
@@ -490,8 +746,12 @@ export function AdminDashboardPage({ user, onLogout }) {
               </Select>
               <Input label="Reviewer" value={edit.reviewer} onChange={(e) => setEdit((p) => ({ ...p, reviewer: e.target.value }))} />
               <Input label="Duplicate Reference (EasyVista / JIRA / ID)" value={edit.duplicate_of} onChange={(e) => setEdit((p) => ({ ...p, duplicate_of: e.target.value }))} />
+              <Input label="JIRA Number" value={edit.jira_number} onChange={(e) => setEdit((p) => ({ ...p, jira_number: e.target.value }))} placeholder="JIRA-123" />
+              <Input label="EasyVista Ticket" value={detail.easyvista_ticket_id || ''} readOnly placeholder="—" />
             </div>
             <Textarea label="Decision Notes" rows={2} value={edit.decision_notes} onChange={(e) => setEdit((p) => ({ ...p, decision_notes: e.target.value }))} />
+            <Input label="Release #" placeholder="e.g. v1.2.0" value={edit.release_number} onChange={(e) => setEdit((p) => ({ ...p, release_number: e.target.value }))} />
+            <Textarea label="Release Notes" rows={3} value={edit.release_notes} onChange={(e) => setEdit((p) => ({ ...p, release_notes: e.target.value }))} />
 
             <p className="section-label">Status Timeline</p>
             <Card className="inner">
@@ -534,6 +794,44 @@ export function AdminDashboardPage({ user, onLogout }) {
             <Textarea label="Exact Details / What Happened" rows={3} value={edit.what_happened_exact_details} onChange={(e) => setEdit((p) => ({ ...p, what_happened_exact_details: e.target.value }))} />
             <Textarea label="Request Details" rows={3} value={edit.request} onChange={(e) => setEdit((p) => ({ ...p, request: e.target.value }))} />
 
+            <p className="section-label">Impact Analysis</p>
+            <Textarea
+              label="Impact Notes"
+              rows={3}
+              value={edit.impact_notes}
+              onChange={(e) => setEdit((p) => ({ ...p, impact_notes: e.target.value }))}
+            />
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+                gap: 12,
+              }}
+            >
+              <Input
+                label="Policy Premium Impact ($)"
+                type="number"
+                step="0.01"
+                value={edit.policy_premium_impact}
+                onChange={(e) => setEdit((p) => ({ ...p, policy_premium_impact: e.target.value }))}
+              />
+              <Input
+                label="Direct Dollar Impact ($)"
+                type="number"
+                step="0.01"
+                value={edit.direct_dollar_impact}
+                onChange={(e) => setEdit((p) => ({ ...p, direct_dollar_impact: e.target.value }))}
+              />
+              <Input
+                label="Policies Affected Count"
+                type="number"
+                step="1"
+                min="0"
+                value={edit.policies_affected_count}
+                onChange={(e) => setEdit((p) => ({ ...p, policies_affected_count: e.target.value }))}
+              />
+            </div>
+
             {/* ── Enhancement admin ── */}
             {edit.type === 'enhancement' && (
               <>
@@ -550,6 +848,10 @@ export function AdminDashboardPage({ user, onLogout }) {
                         {enhancementPriorityLevels.map((o) => <option key={o} value={o}>{o}</option>)}
                       </Select>
                       <Input label="Jira Number" value={edit.jira_number} onChange={(e) => setEdit((p) => ({ ...p, jira_number: e.target.value }))} />
+                      <Select label="In JIRA" value={edit.logged_defect ? 'yes' : 'no'} onChange={(e) => setEdit((p) => ({ ...p, logged_defect: e.target.value === 'yes' }))}>
+                        <option value="yes">Yes</option>
+                        <option value="no">No</option>
+                      </Select>
                     </div>
                   </div>
                 </Card>
@@ -625,6 +927,7 @@ export function AdminDashboardPage({ user, onLogout }) {
               <Notice text={`Complete before EasyVista submission: ${enhancementMissingRequirements.join(', ')}`} />
             )}
             {easyVistaConfirmation && <Notice text={easyVistaConfirmation} kind="success" />}
+            {notice && <Notice text={notice} kind="success" />}
             {error && <Notice text={error} />}
             {detail.easyvista_ticket_id && (
               <p className="muted" style={{ fontSize: 13 }}>EasyVista ticket: <strong>{detail.easyvista_ticket_id}</strong></p>
