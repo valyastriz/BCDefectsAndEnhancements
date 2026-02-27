@@ -1,47 +1,105 @@
-const sqljs = require('./sqljs');
-const postgres = require('./postgres');
+const { QueryTypes } = require('sequelize');
+const { createSequelize } = require('./sequelize');
 
+const { provider, sequelize } = createSequelize();
 const dbMode = (process.env.DB_MODE || 'local').toLowerCase();
-const provider = (process.env.DB_PROVIDER || (dbMode === 'hosted' ? 'postgres' : 'sqljs')).toLowerCase();
+let initialized = false;
 
-function resolveBackend() {
-  if (provider === 'postgres') {
-    return postgres;
+function withReturningIdForInsert(sql) {
+  const normalized = String(sql || '').trim();
+  if (!/^insert\s+into\s+/i.test(normalized)) {
+    return normalized;
   }
-  return sqljs;
+  if (/\breturning\b/i.test(normalized)) {
+    return normalized;
+  }
+  return `${normalized} RETURNING id`;
 }
 
-const backend = resolveBackend();
-let initialized = false;
+function normalizeExecuteResult(sql, rows, metadata) {
+  const normalizedSql = String(sql || '').trim();
+  const metadataObject = metadata && typeof metadata === 'object' ? metadata : {};
+  const rowCountFromMeta = Number(
+    metadataObject.rowCount
+      ?? metadataObject.changes
+      ?? (Array.isArray(rows) ? rows.length : 0),
+  ) || 0;
+
+  let lastInsertId = null;
+  if (Array.isArray(rows) && rows.length > 0) {
+    const first = rows[0];
+    if (first && Object.prototype.hasOwnProperty.call(first, 'id')) {
+      lastInsertId = first.id;
+    }
+  }
+  if (lastInsertId == null && metadataObject.lastID != null) {
+    lastInsertId = metadataObject.lastID;
+  }
+
+  return {
+    rowCount: rowCountFromMeta,
+    lastInsertId,
+    rows: Array.isArray(rows) ? rows : [],
+    sql: normalizedSql,
+  };
+}
 
 async function init() {
   if (initialized) return;
-  await backend.init();
+  await sequelize.authenticate();
   initialized = true;
 }
 
 async function query(sql, params = []) {
   await init();
-  return backend.query(sql, params);
+  return sequelize.query(String(sql), {
+    replacements: params,
+    type: QueryTypes.SELECT,
+  });
 }
 
 async function execute(sql, params = []) {
   await init();
-  return backend.execute(sql, params);
+  const sqlToRun = provider === 'postgres' ? withReturningIdForInsert(sql) : String(sql);
+  const [rows, metadata] = await sequelize.query(sqlToRun, {
+    replacements: params,
+  });
+  return normalizeExecuteResult(sqlToRun, rows, metadata);
 }
 
 async function close() {
   if (!initialized) return;
-  await backend.close();
+  await sequelize.close();
   initialized = false;
 }
 
 async function transaction(fn) {
   await init();
-  if (typeof backend.transaction === 'function') {
-    return backend.transaction(fn);
+  const tx = await sequelize.transaction();
+  const txApi = {
+    query: async (sql, params = []) => sequelize.query(String(sql), {
+      transaction: tx,
+      replacements: params,
+      type: QueryTypes.SELECT,
+    }),
+    execute: async (sql, params = []) => {
+      const sqlToRun = provider === 'postgres' ? withReturningIdForInsert(sql) : String(sql);
+      const [rows, metadata] = await sequelize.query(sqlToRun, {
+        transaction: tx,
+        replacements: params,
+      });
+      return normalizeExecuteResult(sqlToRun, rows, metadata);
+    },
+  };
+
+  try {
+    const result = await fn(txApi);
+    await tx.commit();
+    return result;
+  } catch (error) {
+    await tx.rollback();
+    throw error;
   }
-  return fn({ query, execute });
 }
 
 module.exports = {

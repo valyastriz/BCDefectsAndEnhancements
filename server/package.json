@@ -21,8 +21,10 @@
     "express-session": "^1.19.0",
     "multer": "^2.0.2",
     "pg": "^8.16.3",
+    "sequelize": "^6.37.7",
     "socket.io": "^4.8.1",
     "sql.js": "^1.13.0",
+    "sqlite3": "^5.1.7",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
