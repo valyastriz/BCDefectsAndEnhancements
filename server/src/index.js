@@ -644,6 +644,21 @@ async function getLookupIdByName(db, table, value, { lowercase = false } = {}) {
   return row?.id ? Number(row.id) : null;
 }
 
+function getLookupModelByTable(table) {
+  const dbModels = dbApi.getModels() || {};
+  const tableToModel = {
+    submission_sources: dbModels.SubmissionSource,
+    submission_types: dbModels.SubmissionType,
+    applications: dbModels.Application,
+    defect_enhancement_statuses: dbModels.DefectEnhancementStatus,
+    cleanup_statuses: dbModels.CleanupStatus,
+    cleanup_tag_types: dbModels.CleanupTagType,
+    enhancement_request_types: dbModels.EnhancementRequestType,
+    priority_levels: dbModels.PriorityLevel,
+  };
+  return tableToModel[table] || null;
+}
+
 async function resolveSubmissionLookupIds(db, payload) {
   return {
     created_via_id: await getLookupIdByName(db, 'submission_sources', payload.created_via, { lowercase: true }),
@@ -736,28 +751,37 @@ function formatMissingLookupError(missingFields) {
 }
 
 async function getSubmissionLookupMigrationAudit(db) {
-  const totalRow = await db.get('SELECT COUNT(*) AS count FROM submissions');
-  const totalSubmissions = Number(totalRow?.count || 0);
+  const dbModels = dbApi.getModels() || {};
+  const Submission = dbModels.Submission;
+  if (!Submission) {
+    throw new Error('Submission model is not initialized');
+  }
+
+  const submissions = await Submission.findAll({ raw: true });
+  const totalSubmissions = submissions.length;
   const byField = [];
 
   for (const config of SUBMISSION_LOOKUP_AUDIT_CONFIG) {
-    const missingForTextRow = await db.get(
-      `
-      SELECT COUNT(*) AS count
-      FROM submissions s
-      WHERE TRIM(COALESCE(s.${config.textColumn}, '')) <> ''
-        AND s.${config.idColumn} IS NULL
-    `,
-    );
-    const orphanedIdRow = await db.get(
-      `
-      SELECT COUNT(*) AS count
-      FROM submissions s
-      LEFT JOIN ${config.lookupTable} l ON l.id = s.${config.idColumn}
-      WHERE s.${config.idColumn} IS NOT NULL
-        AND l.id IS NULL
-    `,
-    );
+    const LookupModel = getLookupModelByTable(config.lookupTable);
+    const lookupRows = LookupModel
+      ? await LookupModel.findAll({ attributes: ['id'], raw: true })
+      : await db.all(`SELECT id FROM ${config.lookupTable}`);
+    const lookupIds = new Set(lookupRows.map((row) => Number(row.id)).filter((id) => Number.isFinite(id)));
+
+    let missingForTextCount = 0;
+    let orphanedIdCount = 0;
+    for (const submission of submissions) {
+      const textValue = String(submission?.[config.textColumn] || '').trim();
+      const idValueRaw = submission?.[config.idColumn];
+      const idValue = idValueRaw == null ? null : Number(idValueRaw);
+
+      if (textValue && (idValueRaw == null)) {
+        missingForTextCount += 1;
+      }
+      if (idValueRaw != null && (!Number.isFinite(idValue) || !lookupIds.has(idValue))) {
+        orphanedIdCount += 1;
+      }
+    }
 
     byField.push({
       key: config.key,
@@ -766,8 +790,8 @@ async function getSubmissionLookupMigrationAudit(db) {
       idColumn: config.idColumn,
       lookupTable: config.lookupTable,
       requiredForAll: config.requiredForAll,
-      missingIdForTextCount: Number(missingForTextRow?.count || 0),
-      orphanedIdCount: Number(orphanedIdRow?.count || 0),
+      missingIdForTextCount: missingForTextCount,
+      orphanedIdCount,
     });
   }
 
@@ -1868,57 +1892,57 @@ app.post('/api/submissions', tempUpload.array('attachments', 3), async (req, res
 
 app.get('/api/public/submissions', async (_req, res) => {
   return withDb(async (db) => {
-    const rows = await db.all(
-      `
-      SELECT s.id, s.created_at, s.updated_at, s.created_by, s.type, s.application_name,
-             s.policy_num, s.account_num, s.summary_of_issue,
-             s.what_happened_exact_details, s.request,
-               s.status, s.easyvista_ticket_id, s.jira_number, s.is_public, s.is_retired,
-               s.is_resubmission, s.resubmission_of_submission_id, s.resubmission_of_easyvista_ticket_id,
-               s.has_resubmission, s.latest_resubmission_submission_id, s.latest_resubmission_easyvista_ticket_id,
-             ${SUBMISSION_LOOKUP_SELECT},
-             (
-               SELECT e.changed_at
-               FROM submission_status_events e
-               WHERE e.submission_id = s.id
-               ORDER BY e.changed_at DESC
-               LIMIT 1
-             ) AS latest_status_changed_at,
-             (
-               SELECT e.status
-               FROM submission_status_events e
-               WHERE e.submission_id = s.id
-               ORDER BY e.changed_at DESC
-               LIMIT 1
-             ) AS latest_status_value,
-             (
-               SELECT MAX(e.changed_at)
-               FROM submission_status_events e
-               WHERE e.submission_id = s.id AND e.status = 'Submitted'
-             ) AS submitted_status_at,
-             (
-               SELECT MAX(e.changed_at)
-               FROM submission_status_events e
-               WHERE e.submission_id = s.id AND e.status = 'Deployed'
-             ) AS deployed_status_at,
-             (
-               SELECT MAX(e.changed_at)
-               FROM submission_status_events e
-               WHERE e.submission_id = s.id AND e.status = 'Duplicate'
-             ) AS duplicate_status_at,
-             (
-               SELECT MAX(e.changed_at)
-               FROM submission_status_events e
-               WHERE e.submission_id = s.id AND e.status = 'Retired'
-             ) AS retired_status_at
-      FROM submissions s
-      ${SUBMISSION_LOOKUP_JOINS}
-      WHERE s.is_public = 1
-      ORDER BY updated_at DESC
-    `,
-    );
+    const dbModels = dbApi.getModels() || {};
+    const Submission = dbModels.Submission;
+    const SubmissionStatusEvent = dbModels.SubmissionStatusEvent;
+    if (!Submission) {
+      return res.status(500).json({ error: 'Submission model is not initialized' });
+    }
 
-    res.json(rows.map(mapSubmission));
+    const rows = await Submission.findAll({
+      where: { is_public: 1 },
+      raw: true,
+    });
+
+    const ids = rows.map((row) => Number(row.id)).filter((id) => Number.isFinite(id));
+    const events = SubmissionStatusEvent
+      ? await SubmissionStatusEvent.findAll({
+        where: { submission_id: ids },
+        attributes: ['submission_id', 'status', 'changed_at'],
+        raw: true,
+      })
+      : [];
+    const bySubmissionId = new Map();
+    for (const event of events) {
+      const submissionId = Number(event.submission_id);
+      if (!bySubmissionId.has(submissionId)) bySubmissionId.set(submissionId, []);
+      bySubmissionId.get(submissionId).push(event);
+    }
+
+    const enrichedRows = rows.map((row) => {
+      const submissionEvents = bySubmissionId.get(Number(row.id)) || [];
+      const sortedEvents = [...submissionEvents].sort((a, b) => new Date(b.changed_at) - new Date(a.changed_at));
+      const latest = sortedEvents[0] || null;
+      const maxByStatus = (status) => {
+        const matches = sortedEvents.filter((event) => String(event.status || '') === status);
+        return matches.length > 0 ? matches.reduce((max, event) => (
+          !max || new Date(event.changed_at) > new Date(max) ? event.changed_at : max
+        ), null) : null;
+      };
+
+      return {
+        ...row,
+        latest_status_changed_at: latest?.changed_at || null,
+        latest_status_value: latest?.status || null,
+        submitted_status_at: maxByStatus('Submitted'),
+        deployed_status_at: maxByStatus('Deployed'),
+        duplicate_status_at: maxByStatus('Duplicate'),
+        retired_status_at: maxByStatus('Retired'),
+      };
+    });
+
+    enrichedRows.sort((a, b) => String(b.updated_at || '').localeCompare(String(a.updated_at || '')));
+    return res.json(enrichedRows.map(mapSubmission));
   });
 });
 
