@@ -1,7 +1,8 @@
 const dotenv = require('dotenv');
-const db = require('../db');
 
 dotenv.config();
+
+const db = require('../db');
 
 function isoDaysAgo(daysAgo, hour = 10) {
   const date = new Date();

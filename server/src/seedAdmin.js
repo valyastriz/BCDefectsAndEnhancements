@@ -1,8 +1,9 @@
 const dotenv = require('dotenv');
 const bcrypt = require('bcrypt');
-const db = require('../db');
 
 dotenv.config();
+
+const db = require('../db');
 
 function parseCsv(value) {
   return String(value || '')
