@@ -309,7 +309,7 @@ function editableFromDetail(detail) {
 function normalizeAdminRow(row) {
   if (!row) return row;
   const isCleanup = Boolean(row.is_cleanup);
-  const baseStatus = row.status || row.defect_enhancement_status || 'New';
+  const baseStatus = row.defect_enhancement_status || row.status || 'New';
   const isRetired = Boolean(row.is_retired) || String(baseStatus) === retiredStatus;
   const cleanupStatus = isCleanup
     ? (row.cleanup_status || statusToCleanup[baseStatus] || 'Not Started')
@@ -393,6 +393,13 @@ function formatCreatedViaLabel(value) {
     .join(' ');
 }
 
+function resolveAttachmentUrl(filePath) {
+  const raw = String(filePath || '').trim();
+  if (!raw) return '';
+  if (/^https?:\/\//i.test(raw)) return raw;
+  return raw.startsWith('/') ? raw : `/${raw}`;
+}
+
 function isProtectedRetiredStatusMetaItem(categoryKey, item) {
   if (String(categoryKey || '') !== 'statuses') return false;
   const itemName = String(item?.name || '').trim().toLowerCase();
@@ -412,18 +419,29 @@ export function AdminDashboardPage({ user, onLogout }) {
   const [openId, setOpenId] = useState(null);
   const [detail, setDetail] = useState(null);
   const [edit, setEdit] = useState(null);
+  const [pendingAttachmentFiles, setPendingAttachmentFiles] = useState([]);
+  const [pendingRemovedAttachmentIds, setPendingRemovedAttachmentIds] = useState([]);
   const [modalTopNotice, setModalTopNotice] = useState('');
+  const [detailError, setDetailError] = useState('');
   const [working, setWorking] = useState(false);
   const [previewAttachment, setPreviewAttachment] = useState(null);
   const [easyVistaConfirmation, setEasyVistaConfirmation] = useState('');
   const [backdatedOpen, setBackdatedOpen] = useState(false);
+  const [backdatedError, setBackdatedError] = useState('');
   const [backdatedWorking, setBackdatedWorking] = useState(false);
   const [backdatedForm, setBackdatedForm] = useState(defaultBackdatedForm(user?.username || ''));
   const [cleanupOpen, setCleanupOpen] = useState(false);
+  const [cleanupError, setCleanupError] = useState('');
   const [cleanupWorking, setCleanupWorking] = useState(false);
   const [cleanupForm, setCleanupForm] = useState(defaultCleanupForm(user?.username || ''));
   const [cleanupFiles, setCleanupFiles] = useState([]);
   const [cleanupPreviewIndex, setCleanupPreviewIndex] = useState(null);
+  const previousDetailEditRef = useRef(null);
+  const previousDetailPendingFilesCountRef = useRef(0);
+  const previousDetailPendingRemovedCountRef = useRef(0);
+  const previousBackdatedFormRef = useRef(null);
+  const previousCleanupFormRef = useRef(null);
+  const previousCleanupFilesCountRef = useRef(0);
   const cleanupFileInputRef = useRef(null);
   const importFileInputRef = useRef(null);
   const [importModalOpen, setImportModalOpen] = useState(false);
@@ -468,6 +486,21 @@ export function AdminDashboardPage({ user, onLogout }) {
   const [selectedMetaCategory, setSelectedMetaCategory] = useState('statuses');
   const [newMetaName, setNewMetaName] = useState('');
   const [metaDraftNames, setMetaDraftNames] = useState({});
+
+  const isDetailModalOpen = Boolean(openId && detail && edit);
+  const isAnyAdminModalOpen = isDetailModalOpen || backdatedOpen || cleanupOpen || importModalOpen;
+
+  const clearPendingAttachmentDrafts = useCallback(() => {
+    setPendingAttachmentFiles((prev) => {
+      prev.forEach((item) => {
+        if (item?.preview_url) {
+          URL.revokeObjectURL(item.preview_url);
+        }
+      });
+      return [];
+    });
+    setPendingRemovedAttachmentIds([]);
+  }, []);
 
   const runtimeStatusFilterOptions = useMemo(
     () => [...dynamicFilterStatuses, cleanupOnlyStatus, cleanupMarkedStatus],
@@ -757,6 +790,7 @@ export function AdminDashboardPage({ user, onLogout }) {
       setDetail(data);
       if (!preserveEdit) {
         setEdit(editableFromDetail(data));
+        clearPendingAttachmentDrafts();
       }
       setOpenId(id);
       return data;
@@ -764,7 +798,7 @@ export function AdminDashboardPage({ user, onLogout }) {
       setError(detailError.message);
       return null;
     }
-  }, []);
+  }, [clearPendingAttachmentDrafts]);
 
   useEffect(() => {
     loadRows(filters);
@@ -830,6 +864,44 @@ export function AdminDashboardPage({ user, onLogout }) {
     loadImportHistory();
   }, [importModalOpen, loadImportHistory]);
 
+  useEffect(() => {
+    const editChanged = previousDetailEditRef.current !== edit;
+    const pendingFilesChanged = previousDetailPendingFilesCountRef.current !== pendingAttachmentFiles.length;
+    const pendingRemovedChanged = previousDetailPendingRemovedCountRef.current !== pendingRemovedAttachmentIds.length;
+
+    previousDetailEditRef.current = edit;
+    previousDetailPendingFilesCountRef.current = pendingAttachmentFiles.length;
+    previousDetailPendingRemovedCountRef.current = pendingRemovedAttachmentIds.length;
+
+    if (!isDetailModalOpen || !detailError) return;
+    if (editChanged || pendingFilesChanged || pendingRemovedChanged) {
+      setDetailError('');
+    }
+  }, [edit, pendingAttachmentFiles.length, pendingRemovedAttachmentIds.length, isDetailModalOpen, detailError]);
+
+  useEffect(() => {
+    const backdatedChanged = previousBackdatedFormRef.current !== backdatedForm;
+    previousBackdatedFormRef.current = backdatedForm;
+
+    if (!backdatedOpen || !backdatedError) return;
+    if (backdatedChanged) {
+      setBackdatedError('');
+    }
+  }, [backdatedForm, backdatedOpen, backdatedError]);
+
+  useEffect(() => {
+    const cleanupFormChanged = previousCleanupFormRef.current !== cleanupForm;
+    const cleanupFilesChanged = previousCleanupFilesCountRef.current !== cleanupFiles.length;
+
+    previousCleanupFormRef.current = cleanupForm;
+    previousCleanupFilesCountRef.current = cleanupFiles.length;
+
+    if (!cleanupOpen || !cleanupError) return;
+    if (cleanupFormChanged || cleanupFilesChanged) {
+      setCleanupError('');
+    }
+  }, [cleanupForm, cleanupFiles.length, cleanupOpen, cleanupError]);
+
   const modalTitle = useMemo(() => {
     if (!detail) return 'Submission Details';
     return `Submission #${detail.id}`;
@@ -877,8 +949,36 @@ export function AdminDashboardPage({ user, onLogout }) {
   }, [detail, edit, effectiveType]);
 
   const hasPendingChanges = useMemo(
-    () => hasPendingModalChanges(detail, edit),
-    [detail, edit],
+    () => (
+      hasPendingModalChanges(detail, edit)
+      || pendingAttachmentFiles.length > 0
+      || pendingRemovedAttachmentIds.length > 0
+    ),
+    [detail, edit, pendingAttachmentFiles.length, pendingRemovedAttachmentIds.length],
+  );
+
+  const visibleExistingAttachments = useMemo(
+    () => (detail?.attachments || []).map((att) => ({
+      ...att,
+      _isMarkedForRemoval: pendingRemovedAttachmentIds.includes(Number(att.id)),
+    })),
+    [detail, pendingRemovedAttachmentIds],
+  );
+
+  const pendingAttachmentItems = useMemo(
+    () => pendingAttachmentFiles.map((item) => ({
+      id: item.id,
+      filename: item.file?.name || 'attachment',
+      mime_type: item.file?.type || 'application/octet-stream',
+      preview_url: item.preview_url || '',
+      _isPendingUpload: true,
+    })),
+    [pendingAttachmentFiles],
+  );
+
+  const visibleAttachments = useMemo(
+    () => [...visibleExistingAttachments, ...pendingAttachmentItems],
+    [visibleExistingAttachments, pendingAttachmentItems],
   );
   const saveDisabledReason = working
     ? 'Saving in progress'
@@ -889,6 +989,12 @@ export function AdminDashboardPage({ user, onLogout }) {
   async function updateStatusQuick(submissionId, status, rowContext = null) {
     try {
       setError('');
+      const nextStatus = status === cleanupOnlyStatus ? 'New' : status;
+      const nextCleanupTagType = status === cleanupOnlyStatus
+        ? 'cleanup_only'
+        : (rowContext?.cleanup_tag_type === 'cleanup_only'
+          ? (rowContext?.type === 'enhancement' ? 'enhancement' : 'defect')
+          : rowContext?.cleanup_tag_type);
       const payload = status === cleanupOnlyStatus
         ? {
           status: 'New',
@@ -906,11 +1012,49 @@ export function AdminDashboardPage({ user, onLogout }) {
             }
             : {}),
         };
+
+      setRows((prev) =>
+        prev.map((row) => {
+          if (Number(row.id) !== Number(submissionId)) {
+            return row;
+          }
+          return normalizeAdminRow({
+            ...row,
+            status: nextStatus,
+            defect_enhancement_status: nextStatus,
+            ...(status === cleanupOnlyStatus
+              ? {
+                is_cleanup: true,
+                cleanup_status: row.cleanup_status || statusToCleanup[row.status] || 'Not Started',
+                cleanup_tag_type: 'cleanup_only',
+                type: 'defect',
+              }
+              : {
+                ...(row.cleanup_tag_type === 'cleanup_only'
+                  ? {
+                    cleanup_tag_type:
+                      row.type === 'enhancement' ? 'enhancement' : 'defect',
+                  }
+                  : {}),
+              }),
+          });
+        }),
+      );
+
       const saved = await api.updateAdminSubmission(submissionId, payload);
       if (saved?.id) {
         setRows((prev) =>
           prev.map((row) => (
-            Number(row.id) === Number(saved.id) ? normalizeAdminRow({ ...row, ...saved }) : row
+            Number(row.id) === Number(saved.id)
+              ? normalizeAdminRow({
+                ...row,
+                ...saved,
+                status: nextStatus,
+                defect_enhancement_status: nextStatus,
+                ...(status === cleanupOnlyStatus ? { is_cleanup: true, type: 'defect' } : {}),
+                ...(nextCleanupTagType ? { cleanup_tag_type: nextCleanupTagType } : {}),
+              })
+              : row
           )),
         );
         if (Number(openId) === Number(saved.id)) {
@@ -923,6 +1067,7 @@ export function AdminDashboardPage({ user, onLogout }) {
         setNotice('Status updated.');
       }
     } catch (updateError) {
+      await loadRows();
       setError(updateError.message);
     }
   }
@@ -1186,29 +1331,53 @@ export function AdminDashboardPage({ user, onLogout }) {
     }
   }
 
-  async function saveEdits(source = 'footer') {
+  async function saveEdits() {
     if (!openId || !edit) return;
-    if (!hasPendingModalChanges(detail, edit)) {
-      setNotice('No changes to save.');
-      setModalTopNotice(source === 'header' ? 'No changes to save.' : '');
+    const hasFieldChanges = hasPendingModalChanges(detail, edit);
+    const hasAttachmentChanges = pendingAttachmentFiles.length > 0 || pendingRemovedAttachmentIds.length > 0;
+    if (!hasFieldChanges && !hasAttachmentChanges) {
+      setModalTopNotice('No changes to save.');
       return;
     }
     try {
       setWorking(true);
-      const saved = await api.updateAdminSubmission(openId, buildAdminUpdatePayload(edit));
+      let saved = null;
+      if (hasFieldChanges) {
+        saved = await api.updateAdminSubmission(openId, buildAdminUpdatePayload(edit));
 
-      if (saved?.id) {
-        setRows((prev) =>
-          prev.map((row) => (
-            Number(row.id) === Number(saved.id) ? normalizeAdminRow({ ...row, ...saved }) : row
-          )),
-        );
-        await openDetail(saved.id);
+        if (saved?.id) {
+          setRows((prev) =>
+            prev.map((row) => (
+              Number(row.id) === Number(saved.id) ? normalizeAdminRow({ ...row, ...saved }) : row
+            )),
+          );
+        }
       }
-      setNotice('Saved successfully.');
-      setModalTopNotice(source === 'header' ? 'Saved successfully.' : '');
+
+      const targetSubmissionId = Number(saved?.id || openId);
+
+      if (pendingAttachmentFiles.length > 0) {
+        const formData = new FormData();
+        pendingAttachmentFiles.forEach((item) => {
+          if (item?.file) {
+            formData.append('attachments', item.file);
+          }
+        });
+        await api.uploadAdminAttachment(targetSubmissionId, formData);
+      }
+
+      if (pendingRemovedAttachmentIds.length > 0) {
+        for (const attachmentId of pendingRemovedAttachmentIds) {
+          await api.deleteAdminAttachment(attachmentId);
+        }
+      }
+
+      await openDetail(targetSubmissionId);
+      await loadRows();
+      setModalTopNotice('Saved successfully.');
     } catch (saveError) {
-      setError(saveError.message);
+      setModalTopNotice('');
+      setDetailError(saveError.message);
     } finally {
       setWorking(false);
     }
@@ -1218,7 +1387,7 @@ export function AdminDashboardPage({ user, onLogout }) {
     if (!openId || !edit || edit.is_retired) return;
     try {
       setWorking(true);
-      setError('');
+      setDetailError('');
       const saved = await api.updateAdminSubmission(openId, { is_retired: true });
       if (saved?.id) {
         setRows((prev) =>
@@ -1228,10 +1397,10 @@ export function AdminDashboardPage({ user, onLogout }) {
         );
         await openDetail(saved.id);
       }
-      setNotice('Item retired.');
       setModalTopNotice('Item retired.');
     } catch (retireError) {
-      setError(retireError.message);
+      setModalTopNotice('');
+      setDetailError(retireError.message);
     } finally {
       setWorking(false);
     }
@@ -1241,7 +1410,7 @@ export function AdminDashboardPage({ user, onLogout }) {
     if (!openId || !edit || !edit.is_retired) return;
     try {
       setWorking(true);
-      setError('');
+      setDetailError('');
       const saved = await api.updateAdminSubmission(openId, { is_retired: false, unretire: true });
       if (saved?.id) {
         setRows((prev) =>
@@ -1251,55 +1420,67 @@ export function AdminDashboardPage({ user, onLogout }) {
         );
         await openDetail(saved.id);
       }
-      setNotice('Item unretired.');
       setModalTopNotice('Item unretired.');
     } catch (unretireError) {
-      setError(unretireError.message);
+      setModalTopNotice('');
+      setDetailError(unretireError.message);
     } finally {
       setWorking(false);
     }
   }
 
   async function uploadAttachment(event) {
-    if (!openId) return;
     const files = Array.from(event.target.files || []);
+    event.target.value = '';
     if (files.length === 0) return;
-    const formData = new FormData();
-    files.forEach((file) => formData.append('attachments', file));
-
-    try {
-      setWorking(true);
-      await api.uploadAdminAttachment(openId, formData);
-      await openDetail(openId, true);
-      await loadRows();
-      setNotice('Attachment uploaded.');
-      event.target.value = '';
-    } catch (uploadError) {
-      setError(uploadError.message);
-    } finally {
-      setWorking(false);
-    }
+    const queuedFiles = files.map((file) => ({
+      id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      file,
+      preview_url: file.type?.startsWith('image/') ? URL.createObjectURL(file) : '',
+    }));
+    setPendingAttachmentFiles((prev) => [...prev, ...queuedFiles]);
+    setModalTopNotice('Attachment changes are staged. Click Save Changes to apply.');
   }
 
-  async function deleteAttachment(attachmentId) {
-    try {
-      setWorking(true);
-      await api.deleteAdminAttachment(attachmentId);
-      await openDetail(openId, true);
-      await loadRows();
-      setNotice('Attachment removed.');
-    } catch (deleteError) {
-      setError(deleteError.message);
-    } finally {
-      setWorking(false);
+  function removePendingAttachment(localId) {
+    setPendingAttachmentFiles((prev) => {
+      const target = prev.find((item) => item.id === localId);
+      if (target?.preview_url) {
+        URL.revokeObjectURL(target.preview_url);
+      }
+      return prev.filter((item) => item.id !== localId);
+    });
+  }
+
+  function toggleAttachmentRemoval(attachmentId) {
+    const normalizedId = Number(attachmentId);
+    if (!Number.isFinite(normalizedId)) return;
+    setPendingRemovedAttachmentIds((prev) => (
+      prev.includes(normalizedId)
+        ? prev.filter((id) => id !== normalizedId)
+        : [...prev, normalizedId]
+    ));
+  }
+
+  async function deleteAttachment(attachment) {
+    if (attachment?._isPendingUpload) {
+      removePendingAttachment(attachment.id);
+      return;
     }
+
+    toggleAttachmentRemoval(attachment.id);
+    setModalTopNotice('Attachment changes are staged. Click Save Changes to apply.');
   }
 
   async function submitEasyVista() {
     if (!openId || !edit) return;
+    if (pendingAttachmentFiles.length > 0 || pendingRemovedAttachmentIds.length > 0) {
+      setDetailError('You have unsaved attachment changes. Click Save Changes first.');
+      return;
+    }
     setShowEasyVistaRequirements(true);
     setEasyVistaConfirmation('');
-    setError('');
+    setDetailError('');
     if (easyVistaMissingRequirements.length > 0) {
       return;
     }
@@ -1336,16 +1517,13 @@ export function AdminDashboardPage({ user, onLogout }) {
         setEasyVistaConfirmation(
           `Successfully re-submitted to EasyVista. New card #${result?.submission?.id || ''}, Ticket: ${result?.ticketId || 'created'}`,
         );
-        setNotice(
-          `Re-submitted to EasyVista. New card #${result?.submission?.id || ''}, Ticket: ${result?.ticketId || 'created'}`,
-        );
       } else {
         setEasyVistaConfirmation(`Successfully submitted to EasyVista. Ticket: ${result?.ticketId || 'created'}`);
-        setNotice(`Submitted to EasyVista. Ticket: ${result?.ticketId || 'created'}`);
       }
     } catch (submitError) {
       setEasyVistaConfirmation('');
-      setError(submitError.message);
+      setModalTopNotice('');
+      setDetailError(submitError.message);
     } finally {
       setWorking(false);
     }
@@ -1371,13 +1549,13 @@ export function AdminDashboardPage({ user, onLogout }) {
       || 'Admin';
 
     if (!String(backdatedForm.summary_of_issue || '').trim()) {
-      setError('Backdated ticket requires Summary of Issue.');
+      setBackdatedError('Backdated ticket requires Summary of Issue.');
       return;
     }
 
     try {
       setBackdatedWorking(true);
-      setError('');
+      setBackdatedError('');
 
       const statusEvents = [];
 
@@ -1443,7 +1621,7 @@ export function AdminDashboardPage({ user, onLogout }) {
       resetBackdatedForm();
       setNotice(`Backdated ticket #${created?.id || ''} created successfully.`);
     } catch (createError) {
-      setError(createError.message);
+      setBackdatedError(createError.message);
     } finally {
       setBackdatedWorking(false);
     }
@@ -1507,13 +1685,13 @@ export function AdminDashboardPage({ user, onLogout }) {
     }
 
     if (missing.length > 0) {
-      setError(`Missing required field(s): ${missing.join(', ')}`);
+      setCleanupError(`Missing required field(s): ${missing.join(', ')}`);
       return;
     }
 
     try {
       setCleanupWorking(true);
-      setError('');
+      setCleanupError('');
 
       const defectDateTime = isDefectTagged && cleanupForm.date_of_error
         ? `${cleanupForm.date_of_error}T${cleanupForm.time_of_error || '00:00'}`
@@ -1617,7 +1795,7 @@ export function AdminDashboardPage({ user, onLogout }) {
         setNotice(`Cleanup task #${created?.id || ''} created successfully.`);
       }
     } catch (createError) {
-      setError(createError.message);
+      setCleanupError(createError.message);
     } finally {
       setCleanupWorking(false);
     }
@@ -1778,7 +1956,8 @@ export function AdminDashboardPage({ user, onLogout }) {
             kind="secondary"
             disabled={importWorking}
             onClick={() => {
-              setError('');
+              setImportStatusText('');
+              setImportStatusKind('');
               setImportModalOpen(true);
             }}
           >
@@ -1787,7 +1966,7 @@ export function AdminDashboardPage({ user, onLogout }) {
           <Button
             kind="secondary"
             onClick={() => {
-              setError('');
+              setBackdatedError('');
               resetBackdatedForm();
               setBackdatedOpen(true);
             }}
@@ -1797,7 +1976,7 @@ export function AdminDashboardPage({ user, onLogout }) {
           <Button
             kind="secondary"
             onClick={() => {
-              setError('');
+              setCleanupError('');
               resetCleanupForm();
               setCleanupOpen(true);
             }}
@@ -1843,8 +2022,8 @@ export function AdminDashboardPage({ user, onLogout }) {
         </div>
       )}
 
-      {error && <Notice text={error} />}
-      {notice && <Notice text={notice} kind="success" />}
+      {!isAnyAdminModalOpen && error && <Notice text={error} />}
+      {!isAnyAdminModalOpen && notice && <Notice text={notice} kind="success" />}
 
       <Card>
         {/* ── Filters ── */}
@@ -2094,7 +2273,7 @@ export function AdminDashboardPage({ user, onLogout }) {
       <Modal
         open={cleanupOpen}
         onClose={() => {
-          setError('');
+          setCleanupError('');
           setCleanupOpen(false);
           resetCleanupForm();
         }}
@@ -2456,7 +2635,7 @@ export function AdminDashboardPage({ user, onLogout }) {
             </>
           )}
 
-          {error && <Notice text={error} />}
+          {cleanupError && <Notice text={cleanupError} />}
 
           <div className="bs-actions">
             <Button type="button" onClick={createCleanupTask} disabled={cleanupWorking}>Save Changes</Button>
@@ -2464,7 +2643,7 @@ export function AdminDashboardPage({ user, onLogout }) {
               kind="ghost"
               type="button"
               onClick={() => {
-                setError('');
+                setCleanupError('');
                 setCleanupOpen(false);
                 resetCleanupForm();
               }}
@@ -2724,7 +2903,7 @@ export function AdminDashboardPage({ user, onLogout }) {
       <Modal
         open={backdatedOpen}
         onClose={() => {
-          setError('');
+          setBackdatedError('');
           setBackdatedOpen(false);
           resetBackdatedForm();
         }}
@@ -2932,7 +3111,7 @@ export function AdminDashboardPage({ user, onLogout }) {
             ))}
           </div>
 
-          {error && <Notice text={error} />}
+          {backdatedError && <Notice text={backdatedError} />}
 
           <div className="bs-actions">
             <Button type="button" onClick={createBackdatedTicket} disabled={backdatedWorking}>Create Backdated Ticket</Button>
@@ -2940,7 +3119,7 @@ export function AdminDashboardPage({ user, onLogout }) {
               kind="ghost"
               type="button"
               onClick={() => {
-                setError('');
+                setBackdatedError('');
                 setBackdatedOpen(false);
                 resetBackdatedForm();
               }}
@@ -2955,8 +3134,10 @@ export function AdminDashboardPage({ user, onLogout }) {
       <Modal
         open={Boolean(openId && detail && edit)}
         onClose={() => {
+          clearPendingAttachmentDrafts();
           setOpenId(null);
           setModalTopNotice('');
+          setDetailError('');
           setShowEasyVistaRequirements(false);
         }}
         title={modalTitle}
@@ -2967,7 +3148,7 @@ export function AdminDashboardPage({ user, onLogout }) {
             onMouseLeave={() => setShowHeaderSaveTooltip(false)}
           >
             <Button
-              onClick={() => saveEdits('header')}
+                  onClick={saveEdits}
               disabled={working || !hasPendingChanges}
             >
               Save Changes
@@ -2998,6 +3179,7 @@ export function AdminDashboardPage({ user, onLogout }) {
         {detail && edit && (
           <div className="stack">
             {modalTopNotice && <Notice text={modalTopNotice} kind="success" />}
+            {detailError && <Notice text={detailError} />}
             {edit.is_retired && <Notice text="This item is retired." kind="info" />}
             {detail.has_resubmission && detail.latest_resubmission_easyvista_ticket_id && (
               <Notice
@@ -3292,20 +3474,46 @@ export function AdminDashboardPage({ user, onLogout }) {
                     onChange={uploadAttachment}
                   />
                 </label>
-                {detail.attachments?.length > 0 && (
+                {visibleAttachments.length > 0 && (
                   <div className="thumb-grid">
-                    {detail.attachments.map((att) => (
+                    {visibleAttachments.map((att) => (
                       <article key={att.id} className="thumb-item">
-                        {att.mime_type?.startsWith('image/') ? (
+                        {att._isPendingUpload ? (
+                          att.mime_type?.startsWith('image/') && att.preview_url ? (
+                            <button
+                              type="button"
+                              className="thumb-open-btn"
+                              onClick={() => setPreviewAttachment(att)}
+                            >
+                              <img src={att.preview_url} alt={att.filename} />
+                            </button>
+                          ) : (
+                            <span className="file-link">{att.filename}</span>
+                          )
+                        ) : att.mime_type?.startsWith('image/') ? (
                           <button type="button" className="thumb-open-btn" onClick={() => setPreviewAttachment(att)}>
-                            <img src={`/${att.file_path}`} alt={att.filename} />
+                            <img src={resolveAttachmentUrl(att.file_path)} alt={att.filename} />
                           </button>
                         ) : (
-                          <a href={`/${att.file_path}`} target="_blank" rel="noreferrer" className="file-link">{att.filename}</a>
+                          <a href={resolveAttachmentUrl(att.file_path)} target="_blank" rel="noreferrer" className="file-link">{att.filename}</a>
                         )}
                         <div className="thumb-meta">
                           <span className="thumb-name">{att.filename}</span>
-                          <Button kind="danger" onClick={() => deleteAttachment(att.id)}>Remove</Button>
+                          {att._isPendingUpload ? (
+                            <Badge tone="warning">Pending upload</Badge>
+                          ) : att._isMarkedForRemoval ? (
+                            <Badge tone="danger">Pending removal</Badge>
+                          ) : null}
+                          <Button
+                            kind="danger"
+                            onClick={() => deleteAttachment(att)}
+                          >
+                            {att._isPendingUpload
+                              ? 'Discard'
+                              : att._isMarkedForRemoval
+                                ? 'Undo Remove'
+                                : 'Remove'}
+                          </Button>
                         </div>
                       </article>
                     ))}
@@ -3326,7 +3534,7 @@ export function AdminDashboardPage({ user, onLogout }) {
                 onMouseLeave={() => setShowFooterSaveTooltip(false)}
               >
                 <Button
-                  onClick={() => saveEdits('footer')}
+                  onClick={saveEdits}
                   disabled={working || !hasPendingChanges}
                 >
                   Save Changes
@@ -3383,7 +3591,6 @@ export function AdminDashboardPage({ user, onLogout }) {
               </p>
             )}
             {easyVistaConfirmation && <Notice text={easyVistaConfirmation} kind="success" />}
-            {error && <Notice text={error} />}
             {detail.easyvista_ticket_id && (
               <p className="muted" style={{ fontSize: 13 }}>EasyVista ticket: <strong>{detail.easyvista_ticket_id}</strong></p>
             )}
@@ -3399,7 +3606,9 @@ export function AdminDashboardPage({ user, onLogout }) {
         {previewAttachment && (
           <img
             className="bs-preview-image"
-            src={`/${previewAttachment.file_path}`}
+            src={previewAttachment._isPendingUpload
+              ? previewAttachment.preview_url
+              : resolveAttachmentUrl(previewAttachment.file_path)}
             alt={previewAttachment.filename}
           />
         )}

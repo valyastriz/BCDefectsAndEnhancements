@@ -209,15 +209,15 @@ function toBooleanSql(value) {
 
 function mapSubmission(row) {
   if (!row) return null;
-  const resolvedStatus = row.model_status_name || 'New';
-  const resolvedType = row.model_type_name || 'defect';
-  const resolvedApplicationName = row.model_application_name || 'Billing Center';
+  const resolvedStatus = row.model_status_name || row.status || 'New';
+  const resolvedType = row.model_type_name || row.type || 'defect';
+  const resolvedApplicationName = row.model_application_name || row.application_name || 'Billing Center';
   const resolvedCleanupStatus = row.model_cleanup_status_name || row.cleanup_status || null;
   const resolvedCleanupTagType = row.model_cleanup_tag_type_name || row.cleanup_tag_type || null;
   const resolvedEnhancementRequestType =
     row.model_enhancement_request_type_name || row.enhancement_request_type || null;
   const resolvedPriorityLevel = row.model_priority_level_name || row.priority_level || null;
-  const resolvedCreatedVia = row.model_created_via_name || 'rep_form';
+  const resolvedCreatedVia = row.model_created_via_name || row.created_via || 'rep_form';
   const isCleanup = Boolean(row.is_cleanup);
   const baseStatus = resolvedStatus;
   const isRetired = Boolean(row.is_retired) || String(baseStatus) === 'Retired';
