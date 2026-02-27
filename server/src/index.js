@@ -793,6 +793,7 @@ async function getSubmissionLookupMigrationAudit(db) {
 const LOOKUP_TABLES = {
   statuses: {
     table: 'defect_enhancement_statuses',
+    modelName: 'DefectEnhancementStatus',
     hasRetiredFlag: true,
     normalize: (value) => String(value || '').trim(),
     submissionIdColumn: 'status_id',
@@ -800,6 +801,7 @@ const LOOKUP_TABLES = {
   },
   types: {
     table: 'submission_types',
+    modelName: 'SubmissionType',
     hasRetiredFlag: false,
     normalize: (value) => String(value || '').trim().toLowerCase(),
     submissionIdColumn: 'type_id',
@@ -807,6 +809,7 @@ const LOOKUP_TABLES = {
   },
   'cleanup-statuses': {
     table: 'cleanup_statuses',
+    modelName: 'CleanupStatus',
     hasRetiredFlag: false,
     normalize: (value) => String(value || '').trim(),
     submissionIdColumn: 'cleanup_status_id',
@@ -814,6 +817,7 @@ const LOOKUP_TABLES = {
   },
   'cleanup-tag-types': {
     table: 'cleanup_tag_types',
+    modelName: 'CleanupTagType',
     hasRetiredFlag: false,
     normalize: (value) => String(value || '').trim().toLowerCase(),
     submissionIdColumn: 'cleanup_tag_type_id',
@@ -821,6 +825,7 @@ const LOOKUP_TABLES = {
   },
   applications: {
     table: 'applications',
+    modelName: 'Application',
     hasRetiredFlag: false,
     normalize: (value) => String(value || '').trim(),
     submissionIdColumn: 'application_id',
@@ -828,6 +833,7 @@ const LOOKUP_TABLES = {
   },
   'enhancement-request-types': {
     table: 'enhancement_request_types',
+    modelName: 'EnhancementRequestType',
     hasRetiredFlag: false,
     normalize: (value) => String(value || '').trim(),
     submissionIdColumn: 'enhancement_request_type_id',
@@ -835,6 +841,7 @@ const LOOKUP_TABLES = {
   },
   'priority-levels': {
     table: 'priority_levels',
+    modelName: 'PriorityLevel',
     hasRetiredFlag: false,
     normalize: (value) => String(value || '').trim(),
     submissionIdColumn: 'priority_level_id',
@@ -842,6 +849,7 @@ const LOOKUP_TABLES = {
   },
   'submission-sources': {
     table: 'submission_sources',
+    modelName: 'SubmissionSource',
     hasRetiredFlag: false,
     normalize: (value) => String(value || '').trim().toLowerCase(),
     submissionIdColumn: 'created_via_id',
@@ -852,6 +860,12 @@ const LOOKUP_TABLES = {
 function resolveLookupCategory(categoryParam) {
   const key = String(categoryParam || '').trim().toLowerCase();
   return LOOKUP_TABLES[key] ? { key, ...LOOKUP_TABLES[key] } : null;
+}
+
+function resolveLookupModel(category) {
+  if (!category?.modelName) return null;
+  const dbModels = dbApi.getModels() || {};
+  return dbModels[category.modelName] || null;
 }
 
 function normalizeImportHeader(value) {
@@ -1299,32 +1313,45 @@ app.get('/api/meta/options', async (_req, res) => {
 
 app.get('/api/admin/meta/options', ensureAdmin, async (_req, res) => {
   return withDb(async (db) => {
-    const fetchRows = async (tableName, hasRetiredFlag) => {
-      const rows = await db.all(
-        `
-        SELECT id, name, sort_order, is_active${hasRetiredFlag ? ', is_retired' : ''}
-        FROM ${tableName}
+    const mapRow = (row, hasRetiredFlag) => ({
+      id: Number(row.id),
+      name: String(row.name || ''),
+      sortOrder: Number(row.sort_order || 0),
+      isActive: Boolean(row.is_active),
+      ...(hasRetiredFlag ? { isRetired: Boolean(row.is_retired) } : {}),
+    });
+
+    const fetchRows = async (categoryKey) => {
+      const category = resolveLookupCategory(categoryKey);
+      if (!category) return [];
+      const LookupModel = resolveLookupModel(category);
+      const rows = LookupModel
+        ? await LookupModel.findAll({
+          attributes: ['id', 'name', 'sort_order', 'is_active', ...(category.hasRetiredFlag ? ['is_retired'] : [])],
+          order: [['sort_order', 'ASC'], ['id', 'ASC']],
+          raw: true,
+        })
+        : await db.all(
+          `
+        SELECT id, name, sort_order, is_active${category.hasRetiredFlag ? ', is_retired' : ''}
+        FROM ${category.table}
         ORDER BY COALESCE(sort_order, 0) ASC, id ASC
       `,
-      );
+        );
       return (rows || []).map((row) => ({
-        id: Number(row.id),
-        name: String(row.name || ''),
-        sortOrder: Number(row.sort_order || 0),
-        isActive: Boolean(row.is_active),
-        ...(hasRetiredFlag ? { isRetired: Boolean(row.is_retired) } : {}),
+        ...mapRow(row, category.hasRetiredFlag),
       }));
     };
 
     return res.json({
-      statuses: await fetchRows('defect_enhancement_statuses', true),
-      types: await fetchRows('submission_types', false),
-      cleanupStatuses: await fetchRows('cleanup_statuses', false),
-      cleanupTagTypes: await fetchRows('cleanup_tag_types', false),
-      applications: await fetchRows('applications', false),
-      enhancementRequestTypes: await fetchRows('enhancement_request_types', false),
-      priorityLevels: await fetchRows('priority_levels', false),
-      submissionSources: await fetchRows('submission_sources', false),
+      statuses: await fetchRows('statuses'),
+      types: await fetchRows('types'),
+      cleanupStatuses: await fetchRows('cleanup-statuses'),
+      cleanupTagTypes: await fetchRows('cleanup-tag-types'),
+      applications: await fetchRows('applications'),
+      enhancementRequestTypes: await fetchRows('enhancement-request-types'),
+      priorityLevels: await fetchRows('priority-levels'),
+      submissionSources: await fetchRows('submission-sources'),
     });
   });
 });
@@ -1343,35 +1370,50 @@ app.post('/api/admin/meta/:category', ensureAdmin, async (req, res) => {
   }
 
   return withDb(async (db) => {
+    const LookupModel = resolveLookupModel(category);
     const normalizedName = category.normalize(req.body?.name);
     if (!normalizedName) {
       return res.status(400).json({ error: 'Name is required' });
     }
 
-    const existing = await db.get(
-      `SELECT id FROM ${category.table} WHERE LOWER(name) = LOWER(?) LIMIT 1`,
-      [normalizedName],
-    );
+    const existing = LookupModel
+      ? (await LookupModel.findAll({ attributes: ['id', 'name'], raw: true })).find(
+        (row) => String(row.name || '').trim().toLowerCase() === normalizedName.toLowerCase(),
+      )
+      : await db.get(
+        `SELECT id FROM ${category.table} WHERE LOWER(name) = LOWER(?) LIMIT 1`,
+        [normalizedName],
+      );
     if (existing) {
       return res.status(409).json({ error: 'Value already exists' });
     }
 
-    const maxSortRow = await db.get(`SELECT COALESCE(MAX(sort_order), 0) AS maxSort FROM ${category.table}`);
-    const nextSort = Number(maxSortRow?.maxSort || 0) + 1;
+    const nextSort = LookupModel
+      ? ((await LookupModel.findAll({ attributes: ['sort_order'], raw: true }))
+        .reduce((max, row) => Math.max(max, Number(row.sort_order || 0)), 0) + 1)
+      : (Number((await db.get(`SELECT COALESCE(MAX(sort_order), 0) AS maxSort FROM ${category.table}`))?.maxSort || 0) + 1);
     const isRetired = category.hasRetiredFlag && Boolean(req.body?.isRetired);
 
-    const insertSql = category.hasRetiredFlag
-      ? `INSERT INTO ${category.table} (name, sort_order, is_active, is_retired) VALUES (?, ?, 1, ?)`
-      : `INSERT INTO ${category.table} (name, sort_order, is_active) VALUES (?, ?, 1)`;
-    const params = category.hasRetiredFlag
-      ? [normalizedName, nextSort, toBooleanSql(isRetired)]
-      : [normalizedName, nextSort];
-
-    const inserted = await db.run(insertSql, params);
-    const created = await db.get(
-      `SELECT id, name, sort_order, is_active${category.hasRetiredFlag ? ', is_retired' : ''} FROM ${category.table} WHERE id = ?`,
-      [inserted.lastID],
-    );
+    const created = LookupModel
+      ? (await LookupModel.create({
+        name: normalizedName,
+        sort_order: nextSort,
+        is_active: 1,
+        ...(category.hasRetiredFlag ? { is_retired: toBooleanSql(isRetired) } : {}),
+      })).toJSON()
+      : (async () => {
+        const insertSql = category.hasRetiredFlag
+          ? `INSERT INTO ${category.table} (name, sort_order, is_active, is_retired) VALUES (?, ?, 1, ?)`
+          : `INSERT INTO ${category.table} (name, sort_order, is_active) VALUES (?, ?, 1)`;
+        const params = category.hasRetiredFlag
+          ? [normalizedName, nextSort, toBooleanSql(isRetired)]
+          : [normalizedName, nextSort];
+        const inserted = await db.run(insertSql, params);
+        return db.get(
+          `SELECT id, name, sort_order, is_active${category.hasRetiredFlag ? ', is_retired' : ''} FROM ${category.table} WHERE id = ?`,
+          [inserted.lastID],
+        );
+      })();
 
     return res.status(201).json({
       id: Number(created.id),
@@ -1395,7 +1437,10 @@ app.put('/api/admin/meta/:category/:id', ensureAdmin, async (req, res) => {
   }
 
   return withDb(async (db) => {
-    const existing = await db.get(`SELECT * FROM ${category.table} WHERE id = ?`, [recordId]);
+    const LookupModel = resolveLookupModel(category);
+    const existing = LookupModel
+      ? await LookupModel.findByPk(recordId, { raw: true })
+      : await db.get(`SELECT * FROM ${category.table} WHERE id = ?`, [recordId]);
     if (!existing) {
       return res.status(404).json({ error: 'Metadata entry not found' });
     }
@@ -1413,10 +1458,15 @@ app.put('/api/admin/meta/:category/:id', ensureAdmin, async (req, res) => {
       return res.status(400).json({ error: 'Name is required' });
     }
 
-    const duplicate = await db.get(
-      `SELECT id FROM ${category.table} WHERE LOWER(name) = LOWER(?) AND id <> ? LIMIT 1`,
-      [nextNameRaw, recordId],
-    );
+    const duplicate = LookupModel
+      ? (await LookupModel.findAll({ attributes: ['id', 'name'], raw: true })).find(
+        (row) => Number(row.id) !== recordId
+          && String(row.name || '').trim().toLowerCase() === nextNameRaw.toLowerCase(),
+      )
+      : await db.get(
+        `SELECT id FROM ${category.table} WHERE LOWER(name) = LOWER(?) AND id <> ? LIMIT 1`,
+        [nextNameRaw, recordId],
+      );
     if (duplicate) {
       return res.status(409).json({ error: 'Value already exists' });
     }
@@ -1433,30 +1483,54 @@ app.put('/api/admin/meta/:category/:id', ensureAdmin, async (req, res) => {
         : toBooleanSql(Boolean(existing.is_retired)))
       : null;
 
-    const updateSql = category.hasRetiredFlag
-      ? `UPDATE ${category.table} SET name = ?, sort_order = ?, is_active = ?, is_retired = ? WHERE id = ?`
-      : `UPDATE ${category.table} SET name = ?, sort_order = ?, is_active = ? WHERE id = ?`;
-    const params = category.hasRetiredFlag
-      ? [nextNameRaw, nextSortOrder, nextIsActive, nextIsRetired, recordId]
-      : [nextNameRaw, nextSortOrder, nextIsActive, recordId];
+    const updatePayload = {
+      name: nextNameRaw,
+      sort_order: nextSortOrder,
+      is_active: nextIsActive,
+      ...(category.hasRetiredFlag ? { is_retired: nextIsRetired } : {}),
+    };
 
-    await db.run(updateSql, params);
+    if (LookupModel) {
+      await LookupModel.update(updatePayload, { where: { id: recordId } });
+    } else {
+      const updateSql = category.hasRetiredFlag
+        ? `UPDATE ${category.table} SET name = ?, sort_order = ?, is_active = ?, is_retired = ? WHERE id = ?`
+        : `UPDATE ${category.table} SET name = ?, sort_order = ?, is_active = ? WHERE id = ?`;
+      const params = category.hasRetiredFlag
+        ? [nextNameRaw, nextSortOrder, nextIsActive, nextIsRetired, recordId]
+        : [nextNameRaw, nextSortOrder, nextIsActive, recordId];
+      await db.run(updateSql, params);
+    }
 
     if (
       category.submissionIdColumn
       && category.submissionTextColumn
       && String(nextNameRaw || '') !== String(existing.name || '')
     ) {
-      await db.run(
-        `UPDATE submissions SET ${category.submissionTextColumn} = ? WHERE ${category.submissionIdColumn} = ?`,
-        [nextNameRaw, recordId],
-      );
+      const dbModels = dbApi.getModels() || {};
+      const Submission = dbModels.Submission;
+      if (Submission) {
+        await Submission.update(
+          { [category.submissionTextColumn]: nextNameRaw },
+          { where: { [category.submissionIdColumn]: recordId } },
+        );
+      } else {
+        await db.run(
+          `UPDATE submissions SET ${category.submissionTextColumn} = ? WHERE ${category.submissionIdColumn} = ?`,
+          [nextNameRaw, recordId],
+        );
+      }
     }
 
-    const updated = await db.get(
-      `SELECT id, name, sort_order, is_active${category.hasRetiredFlag ? ', is_retired' : ''} FROM ${category.table} WHERE id = ?`,
-      [recordId],
-    );
+    const updated = LookupModel
+      ? await LookupModel.findByPk(recordId, {
+        attributes: ['id', 'name', 'sort_order', 'is_active', ...(category.hasRetiredFlag ? ['is_retired'] : [])],
+        raw: true,
+      })
+      : await db.get(
+        `SELECT id, name, sort_order, is_active${category.hasRetiredFlag ? ', is_retired' : ''} FROM ${category.table} WHERE id = ?`,
+        [recordId],
+      );
 
     return res.json({
       id: Number(updated.id),
@@ -1483,7 +1557,14 @@ app.post('/api/admin/meta/:category/reorder', ensureAdmin, async (req, res) => {
   }
 
   return withDb(async (db) => {
-    const rows = await db.all(`SELECT id FROM ${category.table} ORDER BY COALESCE(sort_order, 0) ASC, id ASC`);
+    const LookupModel = resolveLookupModel(category);
+    const rows = LookupModel
+      ? await LookupModel.findAll({
+        attributes: ['id'],
+        order: [['sort_order', 'ASC'], ['id', 'ASC']],
+        raw: true,
+      })
+      : await db.all(`SELECT id FROM ${category.table} ORDER BY COALESCE(sort_order, 0) ASC, id ASC`);
     const existingIds = rows.map((row) => Number(row.id));
     const existingSet = new Set(existingIds);
 
@@ -1497,16 +1578,26 @@ app.post('/api/admin/meta/:category/reorder', ensureAdmin, async (req, res) => {
     const finalOrder = [...orderedIds, ...remaining];
 
     for (let index = 0; index < finalOrder.length; index += 1) {
-      await db.run(`UPDATE ${category.table} SET sort_order = ? WHERE id = ?`, [index + 1, finalOrder[index]]);
+      if (LookupModel) {
+        await LookupModel.update({ sort_order: index + 1 }, { where: { id: finalOrder[index] } });
+      } else {
+        await db.run(`UPDATE ${category.table} SET sort_order = ? WHERE id = ?`, [index + 1, finalOrder[index]]);
+      }
     }
 
-    const refreshed = await db.all(
-      `
+    const refreshed = LookupModel
+      ? await LookupModel.findAll({
+        attributes: ['id', 'name', 'sort_order', 'is_active', ...(category.hasRetiredFlag ? ['is_retired'] : [])],
+        order: [['sort_order', 'ASC'], ['id', 'ASC']],
+        raw: true,
+      })
+      : await db.all(
+        `
       SELECT id, name, sort_order, is_active${category.hasRetiredFlag ? ', is_retired' : ''}
       FROM ${category.table}
       ORDER BY COALESCE(sort_order, 0) ASC, id ASC
     `,
-    );
+      );
 
     return res.json(
       refreshed.map((row) => ({
@@ -3227,6 +3318,9 @@ app.post('/api/admin/submissions/import-xlsx', ensureAdmin, tempUpload.single('f
     }
 
     return withDb(async (db) => {
+      const dbModels = dbApi.getModels() || {};
+      const Submission = dbModels.Submission;
+      const ExcelImportRun = dbModels.ExcelImportRun;
       const changedBy = req.session?.user?.username || 'admin';
       let insertedRows = 0;
       const insertionErrors = [];
@@ -3328,16 +3422,19 @@ app.post('/api/admin/submissions/import-xlsx', ensureAdmin, tempUpload.single('f
               toBooleanSql(row.is_retired),
               toBooleanSql(row.logged_defect),
             ];
-            const placeholders = insertColumns.map(() => '?').join(',');
-
-            const insert = await db.run(
-              `INSERT INTO submissions (
+            const submissionId = Submission
+              ? Number((await Submission.create(
+                insertColumns.reduce((acc, column, columnIndex) => {
+                  acc[column] = insertValues[columnIndex];
+                  return acc;
+                }, {}),
+              )).id)
+              : (await db.run(
+                `INSERT INTO submissions (
                 ${insertColumns.join(', ')}
-              ) VALUES (${placeholders})`,
-              insertValues,
-            );
-
-            const submissionId = insert.lastID;
+              ) VALUES (${insertColumns.map(() => '?').join(',')})`,
+                insertValues,
+              )).lastID;
             await logStatusChange(db, submissionId, 'New', changedBy, row.created_at);
             if (row.status !== 'New') {
               await logStatusChange(db, submissionId, row.status, changedBy, row.updated_at);
@@ -3383,31 +3480,51 @@ app.post('/api/admin/submissions/import-xlsx', ensureAdmin, tempUpload.single('f
         ? `Dry run complete: ${responseBase.validRows} valid row(s), ${invalidRows} invalid row(s).`
         : `Import complete: ${insertedRows} of ${responseBase.totalRows} row(s) added.${invalidRows > 0 ? ` Skipped ${invalidRows} invalid row(s).` : ''}`;
 
-      const historyInsert = await db.run(
-        `
+      const historyPayload = {
+        created_at: new Date().toISOString(),
+        created_by: changedBy,
+        file_name: String(uploadedFile.originalname || 'upload.xlsx'),
+        sheet_name: sheetName,
+        import_mode: importMode,
+        total_rows: responseBase.totalRows,
+        valid_rows: responseBase.validRows,
+        invalid_rows: invalidRows,
+        inserted_rows: insertedRows,
+        dry_run: toBooleanSql(dryRun),
+        status,
+        summary_message: summaryMessage,
+        errors_json: JSON.stringify(combinedErrors),
+      };
+
+      const historyEntry = ExcelImportRun
+        ? (await ExcelImportRun.create(historyPayload)).toJSON()
+        : (async () => {
+          const historyInsert = await db.run(
+            `
         INSERT INTO excel_import_runs (
           created_at, created_by, file_name, sheet_name, import_mode,
           total_rows, valid_rows, invalid_rows, inserted_rows, dry_run,
           status, summary_message, errors_json
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
-        [
-          new Date().toISOString(),
-          changedBy,
-          String(uploadedFile.originalname || 'upload.xlsx'),
-          sheetName,
-          importMode,
-          responseBase.totalRows,
-          responseBase.validRows,
-          invalidRows,
-          insertedRows,
-          toBooleanSql(dryRun),
-          status,
-          summaryMessage,
-          JSON.stringify(combinedErrors),
-        ],
-      );
-      const historyEntry = await db.get('SELECT * FROM excel_import_runs WHERE id = ?', [historyInsert.lastID]);
+            [
+              historyPayload.created_at,
+              historyPayload.created_by,
+              historyPayload.file_name,
+              historyPayload.sheet_name,
+              historyPayload.import_mode,
+              historyPayload.total_rows,
+              historyPayload.valid_rows,
+              historyPayload.invalid_rows,
+              historyPayload.inserted_rows,
+              historyPayload.dry_run,
+              historyPayload.status,
+              historyPayload.summary_message,
+              historyPayload.errors_json,
+            ],
+          );
+          return db.get('SELECT * FROM excel_import_runs WHERE id = ?', [historyInsert.lastID]);
+        })();
 
       return res.json({
         ...responseBase,
