@@ -272,6 +272,92 @@ const SUBMISSION_LOOKUP_SELECT = `
 `;
 
 async function getSubmissionByIdWithLookups(db, submissionId, { publicOnly = false } = {}) {
+  const dbModels = dbApi.getModels() || {};
+  const Submission = dbModels.Submission;
+
+  if (Submission) {
+    const where = {
+      id: Number(submissionId),
+      ...(publicOnly ? { is_public: 1 } : {}),
+    };
+    const submission = await Submission.findOne({ where, raw: true });
+    if (!submission) return null;
+
+    const lookupConfigs = [
+      {
+        idColumn: 'status_id',
+        table: 'defect_enhancement_statuses',
+        targetKey: 'model_status_name',
+        fallbackKey: 'status',
+      },
+      {
+        idColumn: 'type_id',
+        table: 'submission_types',
+        targetKey: 'model_type_name',
+        fallbackKey: 'type',
+      },
+      {
+        idColumn: 'cleanup_status_id',
+        table: 'cleanup_statuses',
+        targetKey: 'model_cleanup_status_name',
+        fallbackKey: 'cleanup_status',
+      },
+      {
+        idColumn: 'cleanup_tag_type_id',
+        table: 'cleanup_tag_types',
+        targetKey: 'model_cleanup_tag_type_name',
+        fallbackKey: 'cleanup_tag_type',
+      },
+      {
+        idColumn: 'application_id',
+        table: 'applications',
+        targetKey: 'model_application_name',
+        fallbackKey: 'application_name',
+      },
+      {
+        idColumn: 'enhancement_request_type_id',
+        table: 'enhancement_request_types',
+        targetKey: 'model_enhancement_request_type_name',
+        fallbackKey: 'enhancement_request_type',
+      },
+      {
+        idColumn: 'priority_level_id',
+        table: 'priority_levels',
+        targetKey: 'model_priority_level_name',
+        fallbackKey: 'priority_level',
+      },
+      {
+        idColumn: 'created_via_id',
+        table: 'submission_sources',
+        targetKey: 'model_created_via_name',
+        fallbackKey: 'created_via',
+      },
+    ];
+
+    const hydrated = { ...submission };
+    for (const config of lookupConfigs) {
+      const lookupId = hydrated[config.idColumn];
+      if (lookupId == null) {
+        hydrated[config.targetKey] = hydrated[config.fallbackKey] || null;
+        continue;
+      }
+
+      const LookupModel = getLookupModelByTable(config.table);
+      if (LookupModel) {
+        const row = await LookupModel.findByPk(Number(lookupId), {
+          attributes: ['name'],
+          raw: true,
+        });
+        hydrated[config.targetKey] = row?.name || hydrated[config.fallbackKey] || null;
+      } else {
+        const row = await db.get(`SELECT name FROM ${config.table} WHERE id = ? LIMIT 1`, [lookupId]);
+        hydrated[config.targetKey] = row?.name || hydrated[config.fallbackKey] || null;
+      }
+    }
+
+    return hydrated;
+  }
+
   const whereClause = publicOnly ? 'AND s.is_public = 1' : '';
   return db.get(
     `
@@ -1804,6 +1890,8 @@ app.post('/api/submissions', tempUpload.array('attachments', 3), async (req, res
   }
 
   return withDb(async (db) => {
+    const dbModels = dbApi.getModels() || {};
+    const Submission = dbModels.Submission;
     const now = new Date().toISOString();
     const lookupIds = await resolveSubmissionLookupIds(db, {
       created_via: 'rep_form',
@@ -1829,8 +1917,50 @@ app.post('/api/submissions', tempUpload.array('attachments', 3), async (req, res
     if (missingLookupFields.length > 0) {
       return res.status(400).json({ error: formatMissingLookupError(missingLookupFields) });
     }
-    const insert = await db.run(
-      `
+    const createPayload = {
+      created_at: now,
+      updated_at: now,
+      created_via: 'rep_form',
+      created_via_id: lookupIds.created_via_id,
+      created_by: normalized.created_by,
+      created_by_email: normalized.created_by_email,
+      type: normalized.type,
+      type_id: lookupIds.type_id,
+      application_name: normalized.application_name,
+      application_id: lookupIds.application_id,
+      policy_num: normalized.policy_num,
+      account_num: normalized.account_num,
+      transaction_num: normalized.transaction_num,
+      screen_title: normalized.screen_title,
+      summary_of_issue: normalized.summary_of_issue,
+      steps_to_reproduce: normalized.steps_to_reproduce,
+      what_happened_exact_details: normalized.what_happened_exact_details,
+      request: normalized.request,
+      date_time_of_error: normalized.date_time_of_error,
+      status: 'New',
+      status_id: lookupIds.status_id,
+      reviewer: null,
+      decision_notes: null,
+      fingerprint: null,
+      duplicate_of: null,
+      easyvista_ticket_id: null,
+      desired_completion_date: normalized.desired_completion_date,
+      impact_details: null,
+      enhancement_request_type: null,
+      enhancement_request_type_id: null,
+      priority_level: normalized.priority_level || null,
+      priority_level_id: lookupIds.priority_level_id,
+      jira_number: null,
+      is_public: 0,
+    };
+
+    let submissionId = null;
+    if (Submission) {
+      const createdSubmission = await Submission.create(createPayload);
+      submissionId = Number(createdSubmission.id);
+    } else {
+      const insert = await db.run(
+        `
       INSERT INTO submissions (
         created_at, updated_at, created_via, created_via_id, created_by, created_by_email, type, type_id, application_name, application_id,
         policy_num, account_num, transaction_num, screen_title, summary_of_issue,
@@ -1839,52 +1969,54 @@ app.post('/api/submissions', tempUpload.array('attachments', 3), async (req, res
         desired_completion_date, impact_details, enhancement_request_type, enhancement_request_type_id, priority_level, priority_level_id, jira_number, is_public
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
-      [
-        now,
-        now,
-        'rep_form',
-        lookupIds.created_via_id,
-        normalized.created_by,
-        normalized.created_by_email,
-        normalized.type,
-        lookupIds.type_id,
-        normalized.application_name,
-        lookupIds.application_id,
-        normalized.policy_num,
-        normalized.account_num,
-        normalized.transaction_num,
-        normalized.screen_title,
-        normalized.summary_of_issue,
-        normalized.steps_to_reproduce,
-        normalized.what_happened_exact_details,
-        normalized.request,
-        normalized.date_time_of_error,
-        'New',
-        lookupIds.status_id,
-        null,
-        null,
-        null,
-        null,
-        null,
-        normalized.desired_completion_date,
-        null,
-        null,
-        null,
-        normalized.priority_level || null,
-        lookupIds.priority_level_id,
-        null,
-        0,
-      ],
-    );
+        [
+          createPayload.created_at,
+          createPayload.updated_at,
+          createPayload.created_via,
+          createPayload.created_via_id,
+          createPayload.created_by,
+          createPayload.created_by_email,
+          createPayload.type,
+          createPayload.type_id,
+          createPayload.application_name,
+          createPayload.application_id,
+          createPayload.policy_num,
+          createPayload.account_num,
+          createPayload.transaction_num,
+          createPayload.screen_title,
+          createPayload.summary_of_issue,
+          createPayload.steps_to_reproduce,
+          createPayload.what_happened_exact_details,
+          createPayload.request,
+          createPayload.date_time_of_error,
+          createPayload.status,
+          createPayload.status_id,
+          createPayload.reviewer,
+          createPayload.decision_notes,
+          createPayload.fingerprint,
+          createPayload.duplicate_of,
+          createPayload.easyvista_ticket_id,
+          createPayload.desired_completion_date,
+          createPayload.impact_details,
+          createPayload.enhancement_request_type,
+          createPayload.enhancement_request_type_id,
+          createPayload.priority_level,
+          createPayload.priority_level_id,
+          createPayload.jira_number,
+          createPayload.is_public,
+        ],
+      );
+      submissionId = Number(insert.lastID);
+    }
 
-    await persistUploadedFiles(db, insert.lastID, req.files || [], 'rep');
-    await logStatusChange(db, insert.lastID, 'New', normalized.created_by || 'rep', now);
+    await persistUploadedFiles(db, submissionId, req.files || [], 'rep');
+    await logStatusChange(db, submissionId, 'New', normalized.created_by || 'rep', now);
 
-    const created = await getSubmissionByIdWithLookups(db, insert.lastID);
+    const created = await getSubmissionByIdWithLookups(db, submissionId);
     emitAdminNotification('submission:new', mapSubmission(created));
 
     return res.status(201).json({
-      id: insert.lastID,
+      id: submissionId,
       message: 'Submission created',
     });
   });
