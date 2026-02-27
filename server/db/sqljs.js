@@ -2,7 +2,15 @@ const fs = require('fs');
 const path = require('path');
 const initSqlJs = require('sql.js');
 
-const DB_FILE = process.env.SQLJS_PATH || path.join(__dirname, '..', 'data', 'dev.sqlite');
+function resolveDbFile() {
+  const configured = process.env.SQLJS_PATH || process.env.SQLITE_PATH;
+  if (configured) {
+    return path.isAbsolute(configured)
+      ? configured
+      : path.join(__dirname, '..', configured);
+  }
+  return path.join(__dirname, '..', 'data', 'dev.sqlite');
+}
 
 let SQL = null;
 let db = null;
@@ -15,6 +23,7 @@ function ensureReady() {
 
 async function persistToDisk() {
   ensureReady();
+  const DB_FILE = resolveDbFile();
   const dir = path.dirname(DB_FILE);
   fs.mkdirSync(dir, { recursive: true });
   const data = db.export();
@@ -23,6 +32,7 @@ async function persistToDisk() {
 
 async function init() {
   if (db) return;
+  const DB_FILE = resolveDbFile();
 
   SQL = await initSqlJs({
     locateFile: (file) => path.join(__dirname, '..', 'node_modules', 'sql.js', 'dist', file),

@@ -1,8 +1,9 @@
 const dotenv = require('dotenv');
-const db = require('../db');
 const { getSchemaStatements, getPostMigrateStatements } = require('../db/schema');
 
 dotenv.config();
+
+const db = require('../db');
 
 async function migrate() {
   await db.init();
@@ -20,7 +21,7 @@ async function migrate() {
       const message = String(error?.message || '').toLowerCase();
       const duplicateColumnError =
         message.includes('duplicate column') ||
-        message.includes('already exists') ||
+        (message.includes('already exists') && message.includes('column')) ||
         message.includes('column "duplicate_reference" of relation "submissions" already exists');
 
       if (!duplicateColumnError) {

@@ -83,7 +83,7 @@ export function RepSubmitPage() {
     }
 
     const missing = [];
-    if (isBlank(form.created_by)) missing.push('Requestor Name');
+    if (isBlank(form.created_by)) missing.push('Requester Name');
     if (isBlank(form.summary_of_issue)) missing.push(isDefect ? 'Summary of Issue' : 'Summary');
     if (isDefect) {
       if (isBlank(form.screen_title)) missing.push('Screen Title');
@@ -166,10 +166,10 @@ export function RepSubmitPage() {
             </div>
           </div>
 
-          {/* ── Requestor ── */}
+          {/* ── Requester ── */}
           <p className="section-label">Contact</p>
           <Input
-            label="Requestor Name"
+            label="Requester Name"
             required
             placeholder="Your full name"
             value={form.created_by}

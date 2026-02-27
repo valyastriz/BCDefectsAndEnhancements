@@ -10,18 +10,64 @@ import {
   Select,
 } from '../components/bite-size/BitsizeUI';
 
-const publicStatuses = ['New', 'Approved', 'Rejected', 'Duplicate', 'Submitted', 'Deployed', 'Retired'];
+const publicStatuses = ['New', 'Approved', 'Rejected', 'Duplicate', 'Submitted', 'Deployed'];
+const publicFiltersStorageKey = 'bc.public.filters';
+const publicRetiredFilterStorageKey = 'bc.public.retiredFilter';
+
+function readSavedPublicFilters() {
+  const defaults = {
+    search: '',
+    typeFilter: '',
+    selectedStatuses: [...publicStatuses],
+    retiredFilter: 'non_retired',
+    sortBy: 'updated_desc',
+  };
+
+  if (typeof window === 'undefined') return defaults;
+
+  const savedRetiredFilter = window.localStorage.getItem(publicRetiredFilterStorageKey);
+  const normalizedRetiredFilter = ['non_retired', 'retired_only', 'all'].includes(savedRetiredFilter)
+    ? savedRetiredFilter
+    : defaults.retiredFilter;
+
+  const raw = window.localStorage.getItem(publicFiltersStorageKey);
+  if (!raw) {
+    return { ...defaults, retiredFilter: normalizedRetiredFilter };
+  }
+
+  try {
+    const parsed = JSON.parse(raw);
+    const selectedStatuses = Array.isArray(parsed?.selectedStatuses)
+      ? parsed.selectedStatuses.filter((value) => publicStatuses.includes(value))
+      : defaults.selectedStatuses;
+    const retiredFilter = ['non_retired', 'retired_only', 'all'].includes(parsed?.retiredFilter)
+      ? parsed.retiredFilter
+      : normalizedRetiredFilter;
+
+    return {
+      search: typeof parsed?.search === 'string' ? parsed.search : defaults.search,
+      typeFilter: typeof parsed?.typeFilter === 'string' ? parsed.typeFilter : defaults.typeFilter,
+      selectedStatuses,
+      retiredFilter,
+      sortBy: typeof parsed?.sortBy === 'string' && parsed.sortBy.trim()
+        ? parsed.sortBy
+        : defaults.sortBy,
+    };
+  } catch {
+    return { ...defaults, retiredFilter: normalizedRetiredFilter };
+  }
+}
 
 export function PublicUpdatesPage() {
+  const savedFilters = useMemo(() => readSavedPublicFilters(), []);
   const [items, setItems] = useState([]);
   const [error, setError] = useState('');
   const [live, setLive] = useState(false);
-  const [search, setSearch] = useState('');
-  const [typeFilter, setTypeFilter] = useState('');
-  const [selectedStatuses, setSelectedStatuses] = useState(
-    publicStatuses.filter((status) => status !== 'Retired'),
-  );
-  const [sortBy, setSortBy] = useState('updated_desc');
+  const [search, setSearch] = useState(savedFilters.search);
+  const [typeFilter, setTypeFilter] = useState(savedFilters.typeFilter);
+  const [selectedStatuses, setSelectedStatuses] = useState(savedFilters.selectedStatuses);
+  const [retiredFilter, setRetiredFilter] = useState(savedFilters.retiredFilter);
+  const [sortBy, setSortBy] = useState(savedFilters.sortBy);
 
   const load = useCallback(async () => {
     try {
@@ -40,6 +86,15 @@ export function PublicUpdatesPage() {
     socket.on('public:update', onUpdate);
     return () => { socket.off('public:update', onUpdate); };
   }, [load]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem(
+      publicFiltersStorageKey,
+      JSON.stringify({ search, typeFilter, selectedStatuses, retiredFilter, sortBy }),
+    );
+    window.localStorage.setItem(publicRetiredFilterStorageKey, retiredFilter || 'non_retired');
+  }, [search, typeFilter, selectedStatuses, retiredFilter, sortBy]);
 
   const hasItems = useMemo(() => items.length > 0, [items]);
 
@@ -67,6 +122,13 @@ export function PublicUpdatesPage() {
     const query = search.trim().toLowerCase();
 
     const filtered = items.filter((item) => {
+      const isRetired = Boolean(item.is_retired) || String(item.status || '') === 'Retired';
+      if (retiredFilter === 'retired_only' && !isRetired) {
+        return false;
+      }
+      if (retiredFilter === 'non_retired' && isRetired) {
+        return false;
+      }
       if (typeFilter && item.type !== typeFilter) {
         return false;
       }
@@ -112,7 +174,7 @@ export function PublicUpdatesPage() {
     });
 
     return filtered;
-  }, [items, search, typeFilter, selectedStatuses, sortBy]);
+  }, [items, search, typeFilter, selectedStatuses, retiredFilter, sortBy]);
 
   return (
     <>
@@ -129,7 +191,7 @@ export function PublicUpdatesPage() {
       <div className="filters-bar" style={{ marginBottom: 14 }}>
         <Input
           label="Search"
-          placeholder="Search by summary, description, policy/account, requestor, EV ticket"
+          placeholder="Search by summary, description, policy/account, Requester, EV ticket"
           value={search}
           onChange={(event) => setSearch(event.target.value)}
         />
@@ -145,6 +207,11 @@ export function PublicUpdatesPage() {
           onChange={setSelectedStatuses}
           placeholder="Select statuses"
         />
+        <Select label="Retired" value={retiredFilter} onChange={(event) => setRetiredFilter(event.target.value)}>
+          <option value="non_retired">Non-Retired Only</option>
+          <option value="retired_only">Retired Only</option>
+          <option value="all">Show All</option>
+        </Select>
         <Select label="Sort" value={sortBy} onChange={(event) => setSortBy(event.target.value)}>
           <option value="updated_desc">Recently Updated (Newest)</option>
           <option value="updated_asc">Recently Updated (Oldest)</option>
@@ -154,24 +221,11 @@ export function PublicUpdatesPage() {
         <Button
           kind="ghost"
           type="button"
-          onClick={() => setSelectedStatuses(publicStatuses.filter((status) => status !== 'Retired'))}
-        >
-          Hide Retired
-        </Button>
-        <Button
-          kind="ghost"
-          type="button"
-          onClick={() => setSelectedStatuses([...publicStatuses])}
-        >
-          Show All Statuses
-        </Button>
-        <Button
-          kind="ghost"
-          type="button"
           onClick={() => {
             setSearch('');
             setTypeFilter('');
-            setSelectedStatuses(publicStatuses.filter((status) => status !== 'Retired'));
+            setSelectedStatuses([...publicStatuses]);
+            setRetiredFilter('non_retired');
             setSortBy('updated_desc');
           }}
         >
@@ -194,73 +248,85 @@ export function PublicUpdatesPage() {
         <div className="public-list">
           {visibleItems.map((item) => (
             <article key={item.id} className="public-item">
-              <div className="public-top">
-                <strong>#{item.id}</strong>
+              <div className="public-top" style={{ gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                  <h4 style={{ margin: 0 }}>{item.summary_of_issue || '-'}</h4>
+                  <span className="muted" style={{ fontSize: 12 }}>
+                    Reported: {submittedDate(item.created_at)}
+                  </span>
+                  <span className="muted" style={{ fontSize: 12 }}>
+                    Latest update: {submittedDate(item.latest_status_changed_at || item.updated_at)}
+                  </span>
+                </div>
                 <div style={{ display: 'flex', gap: 6 }}>
                   <Badge value={item.type} />
                   <Badge value={item.status} />
+                  {(item.is_retired || item.status === 'Retired') && <Badge value="Retired" />}
                 </div>
               </div>
-              <h4>{item.summary_of_issue || '-'}</h4>
-              <div className="public-meta">
-                <div className="pub-cols">
-                  <div className="pub-col">
-                    <div className="pub-field">
-                      <span className="pub-label">Reported</span>
-                      <span>{submittedDate(item.created_at)}</span>
-                    </div>
-                    <div className="pub-field">
-                      <span className="pub-label">Policy / Account</span>
-                      <span>{item.policy_num || '-'} / {item.account_num || '-'}</span>
-                    </div>
-                    <div className="pub-field">
-                      <span className="pub-label">Latest Status</span>
-                      <span>
-                        {item.status === 'New'
-                          ? 'Reported'
-                          : item.status === 'Submitted'
-                            ? 'Submitted to EV'
-                            : (item.latest_status_value || item.status)
-                        } on {statusDate(item.latest_status_changed_at)}
-                      </span>
-                    </div>
-                    {item.status === 'Duplicate' && (
+              <details>
+                <summary style={{ cursor: 'pointer', fontWeight: 600 }}>Show details</summary>
+                <div style={{ marginTop: 10 }}><strong>#{item.id}</strong></div>
+                <div className="public-meta">
+                  <div className="pub-cols">
+                    <div className="pub-col">
                       <div className="pub-field">
-                        <span className="pub-label">Marked Duplicate</span>
-                        <span>{statusDate(item.duplicate_status_at || item.latest_status_changed_at)}</span>
+                        <span className="pub-label">Reported</span>
+                        <span>{submittedDate(item.created_at)}</span>
                       </div>
-                    )}
-                    {item.status === 'Retired' && !!item.retired_status_at && (
                       <div className="pub-field">
-                        <span className="pub-label">Retired</span>
-                        <span>{statusDate(item.retired_status_at)}</span>
+                        <span className="pub-label">Policy / Account</span>
+                        <span>{item.policy_num || '-'} / {item.account_num || '-'}</span>
                       </div>
-                    )}
+                      <div className="pub-field">
+                        <span className="pub-label">Latest Status</span>
+                        <span>
+                          {item.status === 'New'
+                            ? 'Reported'
+                            : item.status === 'Submitted'
+                              ? 'Submitted to EV'
+                              : (item.latest_status_value || item.status)
+                          } on {submittedDate(item.latest_status_changed_at)}
+                        </span>
+                      </div>
+                      {item.status === 'Duplicate' && (
+                        <div className="pub-field">
+                          <span className="pub-label">Marked Duplicate</span>
+                          <span>{statusDate(item.duplicate_status_at || item.latest_status_changed_at)}</span>
+                        </div>
+                      )}
+                      {(item.is_retired || item.status === 'Retired') && !!item.retired_status_at && (
+                        <div className="pub-field">
+                          <span className="pub-label">Retired</span>
+                          <span>{statusDate(item.retired_status_at)}</span>
+                        </div>
+                      )}
+                    </div>
+                    <div className="pub-col">
+                      <div className="pub-field">
+                        <span className="pub-label">Requester</span>
+                        <span>{item.created_by || '-'}</span>
+                      </div>
+                      <div className="pub-field">
+                        <span className="pub-label">Application</span>
+                        <span>{item.application_name || '-'}</span>
+                      </div>
+                      <div className="pub-field">
+                        <span className="pub-label">EV Ticket</span>
+                        <span>{item.easyvista_ticket_id || '-'}</span>
+                      </div>
+                      <div className="pub-field">
+                        <span className="pub-label">JIRA Card #</span>
+                        <span>{item.jira_number || '-'}</span>
+                      </div>
+                    </div>
                   </div>
-                  <div className="pub-col">
-                    <div className="pub-field">
-                      <span className="pub-label">Requestor</span>
-                      <span>{item.created_by || '-'}</span>
-                    </div>
-                    <div className="pub-field">
-                      <span className="pub-label">Application</span>
-                      <span>{item.application_name || '-'}</span>
-                    </div>
-                    <div className="pub-field">
-                      <span className="pub-label">EV Ticket</span>
-                      <span>{item.easyvista_ticket_id || '-'}</span>
-                    </div>
-                    <div className="pub-field">
-                      <span className="pub-label">JIRA Card #</span>
-                      <span>{item.jira_number || '-'}</span>
-                    </div>
+                  <div className="pub-field pub-field-full">
+                    <span className="pub-label">Description</span>
+                    <span>{descriptionForItem(item)}</span>
                   </div>
                 </div>
-                <div className="pub-field pub-field-full">
-                  <span className="pub-label">Description</span>
-                  <span>{descriptionForItem(item)}</span>
-                </div>
-              </div>
+              </details>
             </article>
           ))}
         </div>

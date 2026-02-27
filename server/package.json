@@ -6,7 +6,8 @@
     "dev": "nodemon src/index.js",
     "start": "node src/index.js",
     "migrate": "node scripts/migrate.js",
-    "seed:admin": "node src/seedAdmin.js"
+    "seed:admin": "node src/seedAdmin.js",
+    "seed:sample": "node src/seedSampleData.js"
   },
   "keywords": [],
   "author": "",

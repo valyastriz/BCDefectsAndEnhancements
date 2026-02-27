@@ -22,7 +22,7 @@ async function submitToEasyVista(submission) {
     `Desired Completion Date: ${submission.desired_completion_date || 'N/A'}`,
     `Enhancement Request Type: ${submission.enhancement_request_type || 'N/A'}`,
     `Priority Level: ${submission.priority_level || 'N/A'}`,
-    `Jira Number: ${submission.jira_number || 'N/A'}`,
+    `JIRA Number: ${submission.jira_number || 'N/A'}`,
     '',
     'Summary:',
     submission.summary_of_issue,

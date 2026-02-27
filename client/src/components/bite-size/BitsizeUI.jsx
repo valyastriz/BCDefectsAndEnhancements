@@ -156,7 +156,7 @@ export function Badge({ value }) {
   return <span className={`bs-badge ${modifier}`.trim()}>{value}</span>;
 }
 
-export function Modal({ open, onClose, title, children }) {
+export function Modal({ open, onClose, title, headerActions, children }) {
   useEffect(() => {
     if (!open) return;
     const onKey = (e) => { if (e.key === 'Escape') onClose(); };
@@ -176,9 +176,12 @@ export function Modal({ open, onClose, title, children }) {
       >
         <header className="bs-modal-head">
           <h3>{title}</h3>
-          <button type="button" className="bs-close" onClick={onClose} aria-label="Close">
-            ×
-          </button>
+          <div className="bs-modal-head-actions">
+            {headerActions}
+            <button type="button" className="bs-close" onClick={onClose} aria-label="Close">
+              ×
+            </button>
+          </div>
         </header>
         <div className="bs-modal-body">{children}</div>
       </div>

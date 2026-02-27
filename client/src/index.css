@@ -105,17 +105,21 @@ h1, h2, h3, h4, h5, h6 {
 
 /* ── Header ── */
 .app-header {
+  display: block;
+  background: var(--slate-800);
+  border-bottom: 1px solid rgba(255,255,255,.06);
+  position: sticky;
+  top: 0;
+  z-index: 50;
+}
+
+.app-header-top {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
   padding: 0 28px;
   height: 60px;
-  background: var(--slate-800);
-  border-bottom: 1px solid rgba(255,255,255,.06);
-  position: sticky;
-  top: 0;
-  z-index: 50;
 }
 
 .brand {
@@ -126,7 +130,8 @@ h1, h2, h3, h4, h5, h6 {
   font-weight: 700;
   font-size: 15px;
   text-decoration: none;
-  flex-shrink: 0;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .brand-icon {
@@ -154,12 +159,16 @@ h1, h2, h3, h4, h5, h6 {
   display: flex;
   flex-direction: column;
   line-height: 1.2;
+  min-width: 0;
 }
 
 .brand-text strong {
   font-size: 14px;
   font-weight: 700;
   color: #f8fafc;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .brand-text span {
@@ -169,16 +178,65 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 /* ── Nav ── */
-.header-right {
-  display: flex;
+.hamburger-menu-btn {
+  display: none;
   align-items: center;
-  gap: 4px;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border: 1px solid rgba(255,255,255,.2);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: #fff;
+  cursor: pointer;
+  flex-shrink: 0;
+  margin-left: auto;
 }
 
-.app-header nav {
+.hamburger-menu-btn span {
+  font-size: 18px;
+  line-height: 1;
+}
+
+.app-nav-links {
   display: flex;
   align-items: center;
   gap: 2px;
+}
+
+/* Desktop: nav visible, pushed to right; hamburger hidden */
+.app-header .app-nav-desktop {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.app-header .app-nav-mobile {
+  display: none;
+}
+
+/* Hamburger mode: nav hidden, hamburger shown on same line as brand */
+.app-header.use-hamburger .app-nav-desktop {
+  display: none;
+}
+
+.app-header.use-hamburger .hamburger-menu-btn {
+  display: inline-flex;
+}
+
+.app-header.use-hamburger.menu-open .app-nav-mobile {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  padding: 8px 16px 12px;
+  border-top: 1px solid rgba(255,255,255,.12);
+}
+
+.app-header.use-hamburger .app-nav-mobile a {
+  display: block;
 }
 
 .app-header nav a {
@@ -699,6 +757,12 @@ tr.clickable:hover td { background: var(--blue-50); }
   color: var(--slate-800);
 }
 
+.bs-modal-head-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .bs-close {
   border: 0;
   background: var(--slate-100);
@@ -1086,19 +1150,19 @@ tr.clickable:hover td { background: var(--blue-50); }
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
-  padding: 16px 18px;
+  padding: clamp(8px, 1.2vw, 16px) clamp(10px, 1.4vw, 18px);
   box-shadow: var(--shadow-sm);
 }
 
 .stat-tile .stat-num {
-  font-size: 28px;
+  font-size: clamp(15px, 2.2vw, 28px);
   font-weight: 800;
   color: var(--slate-800);
   line-height: 1.1;
 }
 
 .stat-tile .stat-lbl {
-  font-size: 12px;
+  font-size: clamp(10px, 0.9vw, 12px);
   color: var(--color-muted);
   margin-top: 2px;
 }

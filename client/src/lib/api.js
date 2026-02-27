@@ -51,8 +51,10 @@ export const api = {
     search = '',
     requester = '',
     submittedBy = '',
+    retiredFilter = 'non_retired',
     year = '',
     inJira = '',
+    jiraNumber = '',
     releaseNumber = '',
     sort = 'updated_desc',
   }) => {
@@ -66,8 +68,10 @@ export const api = {
     if (search) params.set('search', search);
     if (requester) params.set('requester', requester);
     if (submittedBy) params.set('submittedBy', submittedBy);
+    if (retiredFilter) params.set('retiredFilter', retiredFilter);
     if (year) params.set('year', year);
     if (inJira) params.set('inJira', inJira);
+    if (jiraNumber) params.set('jiraNumber', jiraNumber);
     if (releaseNumber) params.set('releaseNumber', releaseNumber);
     if (sort) params.set('sort', sort);
     const query = params.toString() ? `?${params.toString()}` : '';
@@ -80,6 +84,12 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
     }),
+  createAdminSubmission: (data) =>
+    request('/api/admin/submissions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    }),
   uploadAdminAttachment: (id, formData) =>
     request(`/api/admin/submissions/${id}/attachments`, {
       method: 'POST',
@@ -89,8 +99,14 @@ export const api = {
     request(`/api/admin/attachments/${id}`, {
       method: 'DELETE',
     }),
-  submitToEasyVista: (id) =>
+  submitToEasyVista: (id, data) =>
     request(`/api/admin/submissions/${id}/submit-easyvista`, {
       method: 'POST',
+      ...(data
+        ? {
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(data),
+        }
+        : {}),
     }),
 };

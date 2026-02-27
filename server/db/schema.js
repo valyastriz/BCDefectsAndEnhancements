@@ -45,9 +45,21 @@ function sqliteSchema() {
       jira_number TEXT,
       release_number TEXT,
       release_notes TEXT,
+      is_cleanup INTEGER NOT NULL DEFAULT 0,
+      cleanup_status TEXT,
+      cleanup_tag_type TEXT,
       easyvista_submitted_by TEXT,
+      is_resubmission INTEGER NOT NULL DEFAULT 0,
+      resubmission_of_submission_id INTEGER,
+      resubmission_of_easyvista_ticket_id TEXT,
+      has_resubmission INTEGER NOT NULL DEFAULT 0,
+      latest_resubmission_submission_id INTEGER,
+      latest_resubmission_easyvista_ticket_id TEXT,
+      is_retired INTEGER NOT NULL DEFAULT 0,
       is_public INTEGER NOT NULL DEFAULT 0,
-      FOREIGN KEY (duplicate_of) REFERENCES submissions(id)
+      FOREIGN KEY (duplicate_of) REFERENCES submissions(id),
+      FOREIGN KEY (resubmission_of_submission_id) REFERENCES submissions(id),
+      FOREIGN KEY (latest_resubmission_submission_id) REFERENCES submissions(id)
     )
   `,
     `
@@ -136,7 +148,17 @@ function postgresSchema() {
       jira_number TEXT,
       release_number TEXT,
       release_notes TEXT,
+      is_cleanup INTEGER NOT NULL DEFAULT 0,
+      cleanup_status TEXT,
+      cleanup_tag_type TEXT,
       easyvista_submitted_by TEXT,
+      is_resubmission INTEGER NOT NULL DEFAULT 0,
+      resubmission_of_submission_id INTEGER REFERENCES submissions(id),
+      resubmission_of_easyvista_ticket_id TEXT,
+      has_resubmission INTEGER NOT NULL DEFAULT 0,
+      latest_resubmission_submission_id INTEGER REFERENCES submissions(id),
+      latest_resubmission_easyvista_ticket_id TEXT,
+      is_retired INTEGER NOT NULL DEFAULT 0,
       is_public INTEGER NOT NULL DEFAULT 0
     )
   `,
@@ -192,6 +214,42 @@ function getPostMigrateStatements(provider) {
       'ALTER TABLE submissions ADD COLUMN IF NOT EXISTS logged_defect INTEGER NOT NULL DEFAULT 0',
       'ALTER TABLE submissions ADD COLUMN IF NOT EXISTS release_number TEXT',
       'ALTER TABLE submissions ADD COLUMN IF NOT EXISTS release_notes TEXT',
+      'ALTER TABLE submissions ADD COLUMN IF NOT EXISTS is_cleanup INTEGER NOT NULL DEFAULT 0',
+      'ALTER TABLE submissions ADD COLUMN IF NOT EXISTS cleanup_status TEXT',
+      'ALTER TABLE submissions ADD COLUMN IF NOT EXISTS cleanup_tag_type TEXT',
+      'ALTER TABLE submissions ADD COLUMN IF NOT EXISTS is_resubmission INTEGER NOT NULL DEFAULT 0',
+      'ALTER TABLE submissions ADD COLUMN IF NOT EXISTS resubmission_of_submission_id INTEGER',
+      'ALTER TABLE submissions ADD COLUMN IF NOT EXISTS resubmission_of_easyvista_ticket_id TEXT',
+      'ALTER TABLE submissions ADD COLUMN IF NOT EXISTS has_resubmission INTEGER NOT NULL DEFAULT 0',
+      'ALTER TABLE submissions ADD COLUMN IF NOT EXISTS latest_resubmission_submission_id INTEGER',
+      'ALTER TABLE submissions ADD COLUMN IF NOT EXISTS latest_resubmission_easyvista_ticket_id TEXT',
+      'ALTER TABLE submissions ADD COLUMN IF NOT EXISTS is_retired INTEGER NOT NULL DEFAULT 0',
+      `
+      UPDATE submissions
+      SET is_retired = CASE
+        WHEN status = 'Retired' THEN 1
+        ELSE COALESCE(is_retired, 0)
+      END
+    `,
+      `
+      UPDATE submissions
+      SET status = COALESCE((
+        SELECT REPLACE(e.status, 'Defect/Enhancement Status: ', '')
+        FROM submission_status_events e
+        WHERE e.submission_id = submissions.id
+          AND e.status LIKE 'Defect/Enhancement Status:%'
+          AND REPLACE(e.status, 'Defect/Enhancement Status: ', '') <> 'Retired'
+          AND e.changed_at < COALESCE((
+            SELECT MAX(r.changed_at)
+            FROM submission_status_events r
+            WHERE r.submission_id = submissions.id
+              AND (r.status = 'Retired' OR r.status = 'Defect/Enhancement Status: Retired')
+          ), '9999-12-31T23:59:59.999Z')
+        ORDER BY e.changed_at DESC, e.id DESC
+        LIMIT 1
+      ), 'New')
+      WHERE status = 'Retired'
+    `,
       `
       UPDATE submissions
       SET duplicate_reference = duplicate_of::text
@@ -209,6 +267,42 @@ function getPostMigrateStatements(provider) {
     'ALTER TABLE submissions ADD COLUMN logged_defect INTEGER NOT NULL DEFAULT 0',
     'ALTER TABLE submissions ADD COLUMN release_number TEXT',
     'ALTER TABLE submissions ADD COLUMN release_notes TEXT',
+    'ALTER TABLE submissions ADD COLUMN is_cleanup INTEGER NOT NULL DEFAULT 0',
+    'ALTER TABLE submissions ADD COLUMN cleanup_status TEXT',
+    'ALTER TABLE submissions ADD COLUMN cleanup_tag_type TEXT',
+    'ALTER TABLE submissions ADD COLUMN is_resubmission INTEGER NOT NULL DEFAULT 0',
+    'ALTER TABLE submissions ADD COLUMN resubmission_of_submission_id INTEGER',
+    'ALTER TABLE submissions ADD COLUMN resubmission_of_easyvista_ticket_id TEXT',
+    'ALTER TABLE submissions ADD COLUMN has_resubmission INTEGER NOT NULL DEFAULT 0',
+    'ALTER TABLE submissions ADD COLUMN latest_resubmission_submission_id INTEGER',
+    'ALTER TABLE submissions ADD COLUMN latest_resubmission_easyvista_ticket_id TEXT',
+    'ALTER TABLE submissions ADD COLUMN is_retired INTEGER NOT NULL DEFAULT 0',
+    `
+    UPDATE submissions
+    SET is_retired = CASE
+      WHEN status = 'Retired' THEN 1
+      ELSE COALESCE(is_retired, 0)
+    END
+  `,
+    `
+    UPDATE submissions
+    SET status = COALESCE((
+      SELECT REPLACE(e.status, 'Defect/Enhancement Status: ', '')
+      FROM submission_status_events e
+      WHERE e.submission_id = submissions.id
+        AND e.status LIKE 'Defect/Enhancement Status:%'
+        AND REPLACE(e.status, 'Defect/Enhancement Status: ', '') <> 'Retired'
+        AND e.changed_at < COALESCE((
+          SELECT MAX(r.changed_at)
+          FROM submission_status_events r
+          WHERE r.submission_id = submissions.id
+            AND (r.status = 'Retired' OR r.status = 'Defect/Enhancement Status: Retired')
+        ), '9999-12-31T23:59:59.999Z')
+      ORDER BY e.changed_at DESC, e.id DESC
+      LIMIT 1
+    ), 'New')
+    WHERE status = 'Retired'
+  `,
     `
     UPDATE submissions
     SET duplicate_reference = CAST(duplicate_of AS TEXT)
