@@ -390,14 +390,23 @@ function normalizeCleanupTagType(value, allowedCleanupTagTypes = DEFAULT_CLEANUP
 
 async function getDefectEnhancementStatuses(db, { includeRetired = false } = {}) {
   try {
-    const rows = await db.all(
-      `
+    const dbModels = dbApi.getModels() || {};
+    const DefectEnhancementStatus = dbModels.DefectEnhancementStatus;
+    const rows = DefectEnhancementStatus
+      ? await DefectEnhancementStatus.findAll({
+        where: { is_active: 1 },
+        attributes: ['name', 'is_retired'],
+        order: [['sort_order', 'ASC'], ['id', 'ASC']],
+        raw: true,
+      })
+      : await db.all(
+        `
       SELECT name, is_retired
       FROM defect_enhancement_statuses
       WHERE COALESCE(is_active, 1) = 1
       ORDER BY COALESCE(sort_order, 0) ASC, id ASC
     `,
-    );
+      );
     const names = (rows || []).map((row) => String(row.name || '').trim()).filter(Boolean);
     if (names.length === 0) {
       return includeRetired
@@ -420,14 +429,23 @@ async function getDefectEnhancementStatuses(db, { includeRetired = false } = {})
 
 async function getSubmissionTypes(db) {
   try {
-    const rows = await db.all(
-      `
+    const dbModels = dbApi.getModels() || {};
+    const SubmissionType = dbModels.SubmissionType;
+    const rows = SubmissionType
+      ? await SubmissionType.findAll({
+        where: { is_active: 1 },
+        attributes: ['name'],
+        order: [['sort_order', 'ASC'], ['id', 'ASC']],
+        raw: true,
+      })
+      : await db.all(
+        `
       SELECT name
       FROM submission_types
       WHERE COALESCE(is_active, 1) = 1
       ORDER BY COALESCE(sort_order, 0) ASC, id ASC
     `,
-    );
+      );
     const names = (rows || []).map((row) => String(row.name || '').trim().toLowerCase()).filter(Boolean);
     return names.length > 0 ? names : [...DEFAULT_SUBMISSION_TYPES];
   } catch {
@@ -437,14 +455,23 @@ async function getSubmissionTypes(db) {
 
 async function getCleanupStatuses(db) {
   try {
-    const rows = await db.all(
-      `
+    const dbModels = dbApi.getModels() || {};
+    const CleanupStatus = dbModels.CleanupStatus;
+    const rows = CleanupStatus
+      ? await CleanupStatus.findAll({
+        where: { is_active: 1 },
+        attributes: ['name'],
+        order: [['sort_order', 'ASC'], ['id', 'ASC']],
+        raw: true,
+      })
+      : await db.all(
+        `
       SELECT name
       FROM cleanup_statuses
       WHERE COALESCE(is_active, 1) = 1
       ORDER BY COALESCE(sort_order, 0) ASC, id ASC
     `,
-    );
+      );
     const names = (rows || []).map((row) => String(row.name || '').trim()).filter(Boolean);
     return names.length > 0 ? names : [...DEFAULT_CLEANUP_STATUSES];
   } catch {
@@ -454,14 +481,23 @@ async function getCleanupStatuses(db) {
 
 async function getCleanupTagTypes(db) {
   try {
-    const rows = await db.all(
-      `
+    const dbModels = dbApi.getModels() || {};
+    const CleanupTagType = dbModels.CleanupTagType;
+    const rows = CleanupTagType
+      ? await CleanupTagType.findAll({
+        where: { is_active: 1 },
+        attributes: ['name'],
+        order: [['sort_order', 'ASC'], ['id', 'ASC']],
+        raw: true,
+      })
+      : await db.all(
+        `
       SELECT name
       FROM cleanup_tag_types
       WHERE COALESCE(is_active, 1) = 1
       ORDER BY COALESCE(sort_order, 0) ASC, id ASC
     `,
-    );
+      );
     const names = (rows || []).map((row) => String(row.name || '').trim().toLowerCase()).filter(Boolean);
     return names.length > 0 ? names : [...DEFAULT_CLEANUP_TAG_TYPES];
   } catch {
@@ -471,14 +507,23 @@ async function getCleanupTagTypes(db) {
 
 async function getApplications(db) {
   try {
-    const rows = await db.all(
-      `
+    const dbModels = dbApi.getModels() || {};
+    const Application = dbModels.Application;
+    const rows = Application
+      ? await Application.findAll({
+        where: { is_active: 1 },
+        attributes: ['name'],
+        order: [['sort_order', 'ASC'], ['id', 'ASC']],
+        raw: true,
+      })
+      : await db.all(
+        `
       SELECT name
       FROM applications
       WHERE COALESCE(is_active, 1) = 1
       ORDER BY COALESCE(sort_order, 0) ASC, id ASC
     `,
-    );
+      );
     const names = (rows || []).map((row) => String(row.name || '').trim()).filter(Boolean);
     return names.length > 0 ? names : [...DEFAULT_APPLICATIONS];
   } catch {
@@ -488,14 +533,23 @@ async function getApplications(db) {
 
 async function getEnhancementRequestTypes(db) {
   try {
-    const rows = await db.all(
-      `
+    const dbModels = dbApi.getModels() || {};
+    const EnhancementRequestType = dbModels.EnhancementRequestType;
+    const rows = EnhancementRequestType
+      ? await EnhancementRequestType.findAll({
+        where: { is_active: 1 },
+        attributes: ['name'],
+        order: [['sort_order', 'ASC'], ['id', 'ASC']],
+        raw: true,
+      })
+      : await db.all(
+        `
       SELECT name
       FROM enhancement_request_types
       WHERE COALESCE(is_active, 1) = 1
       ORDER BY COALESCE(sort_order, 0) ASC, id ASC
     `,
-    );
+      );
     const names = (rows || []).map((row) => String(row.name || '').trim()).filter(Boolean);
     return names.length > 0 ? names : [...DEFAULT_ENHANCEMENT_REQUEST_TYPES];
   } catch {
@@ -505,14 +559,23 @@ async function getEnhancementRequestTypes(db) {
 
 async function getPriorityLevels(db) {
   try {
-    const rows = await db.all(
-      `
+    const dbModels = dbApi.getModels() || {};
+    const PriorityLevel = dbModels.PriorityLevel;
+    const rows = PriorityLevel
+      ? await PriorityLevel.findAll({
+        where: { is_active: 1 },
+        attributes: ['name'],
+        order: [['sort_order', 'ASC'], ['id', 'ASC']],
+        raw: true,
+      })
+      : await db.all(
+        `
       SELECT name
       FROM priority_levels
       WHERE COALESCE(is_active, 1) = 1
       ORDER BY COALESCE(sort_order, 0) ASC, id ASC
     `,
-    );
+      );
     const names = (rows || []).map((row) => String(row.name || '').trim()).filter(Boolean);
     return names.length > 0 ? names : [...DEFAULT_PRIORITY_LEVELS];
   } catch {
@@ -522,14 +585,23 @@ async function getPriorityLevels(db) {
 
 async function getSubmissionSources(db) {
   try {
-    const rows = await db.all(
-      `
+    const dbModels = dbApi.getModels() || {};
+    const SubmissionSource = dbModels.SubmissionSource;
+    const rows = SubmissionSource
+      ? await SubmissionSource.findAll({
+        where: { is_active: 1 },
+        attributes: ['name'],
+        order: [['sort_order', 'ASC'], ['id', 'ASC']],
+        raw: true,
+      })
+      : await db.all(
+        `
       SELECT name
       FROM submission_sources
       WHERE COALESCE(is_active, 1) = 1
       ORDER BY COALESCE(sort_order, 0) ASC, id ASC
     `,
-    );
+      );
     const names = (rows || []).map((row) => String(row.name || '').trim().toLowerCase()).filter(Boolean);
     return names.length > 0 ? names : [...DEFAULT_SUBMISSION_SOURCES];
   } catch {
@@ -540,6 +612,30 @@ async function getSubmissionSources(db) {
 async function getLookupIdByName(db, table, value, { lowercase = false } = {}) {
   const normalizedValue = String(value || '').trim();
   if (!normalizedValue) return null;
+
+  const dbModels = dbApi.getModels() || {};
+  const tableToModel = {
+    submission_sources: dbModels.SubmissionSource,
+    submission_types: dbModels.SubmissionType,
+    applications: dbModels.Application,
+    defect_enhancement_statuses: dbModels.DefectEnhancementStatus,
+    cleanup_statuses: dbModels.CleanupStatus,
+    cleanup_tag_types: dbModels.CleanupTagType,
+    enhancement_request_types: dbModels.EnhancementRequestType,
+    priority_levels: dbModels.PriorityLevel,
+  };
+
+  const model = tableToModel[table];
+  if (model) {
+    const rows = await model.findAll({ attributes: ['id', 'name'], raw: true });
+    const target = lowercase ? normalizedValue.toLowerCase() : normalizedValue;
+    const match = rows.find((row) => {
+      const candidate = String(row.name || '').trim();
+      return lowercase ? candidate.toLowerCase() === target : candidate === target;
+    });
+    return match?.id ? Number(match.id) : null;
+  }
+
   const compareValue = lowercase ? normalizedValue.toLowerCase() : normalizedValue;
   const row = await db.get(
     `SELECT id FROM ${table} WHERE ${lowercase ? 'LOWER(name) = ?' : 'name = ?'} LIMIT 1`,
@@ -1398,26 +1494,31 @@ app.post('/api/auth/login', async (req, res) => {
     return res.status(400).json({ error: 'Username and password are required' });
   }
 
-  return withDb(async (db) => {
-    const user = await db.get('SELECT * FROM users WHERE username = ?', [username]);
-    if (!user || user.role !== 'admin') {
-      return res.status(401).json({ error: 'Invalid credentials' });
-    }
+  await dbApi.init();
+  const dbModels = dbApi.getModels() || {};
+  const User = dbModels.User;
+  if (!User) {
+    return res.status(500).json({ error: 'User model is not initialized' });
+  }
 
-    const isMatch = await bcrypt.compare(password, user.password_hash);
-    if (!isMatch) {
-      return res.status(401).json({ error: 'Invalid credentials' });
-    }
+  const user = await User.findOne({ where: { username } });
+  if (!user || user.role !== 'admin') {
+    return res.status(401).json({ error: 'Invalid credentials' });
+  }
 
-    req.session.user = {
-      id: user.id,
-      username: user.username,
-      role: user.role,
-    };
+  const isMatch = await bcrypt.compare(password, user.password_hash);
+  if (!isMatch) {
+    return res.status(401).json({ error: 'Invalid credentials' });
+  }
 
-    return res.json({
-      user: req.session.user,
-    });
+  req.session.user = {
+    id: user.id,
+    username: user.username,
+    role: user.role,
+  };
+
+  return res.json({
+    user: req.session.user,
   });
 });
 
@@ -1442,19 +1543,20 @@ app.get('/api/admin/submissions/import-xlsx/history', ensureAdmin, async (req, r
     ? Math.min(Math.max(requestedLimit, 1), 50)
     : 10;
 
-  return withDb(async (db) => {
-    const rows = await db.all(
-      `
-      SELECT *
-      FROM excel_import_runs
-      ORDER BY datetime(created_at) DESC, id DESC
-      LIMIT ?
-    `,
-      [limit],
-    );
+  await dbApi.init();
+  const dbModels = dbApi.getModels() || {};
+  const ExcelImportRun = dbModels.ExcelImportRun;
+  if (!ExcelImportRun) {
+    return res.status(500).json({ error: 'ExcelImportRun model is not initialized' });
+  }
 
-    return res.json(rows.map(mapExcelImportRun));
+  const rows = await ExcelImportRun.findAll({
+    order: [['created_at', 'DESC'], ['id', 'DESC']],
+    limit,
+    raw: true,
   });
+
+  return res.json(rows.map(mapExcelImportRun));
 });
 
 app.post('/api/submissions', tempUpload.array('attachments', 3), async (req, res) => {
@@ -1736,8 +1838,13 @@ app.get('/api/admin/submissions', ensureAdmin, async (req, res) => {
   } = req.query;
 
   return withDb(async (db) => {
-    const clauses = [];
-    const params = [];
+    const dbModels = dbApi.getModels() || {};
+    const Submission = dbModels.Submission;
+    const SubmissionStatusEvent = dbModels.SubmissionStatusEvent;
+
+    if (!Submission) {
+      return res.status(500).json({ error: 'Submission model is not available' });
+    }
 
     const statusList = String(statuses || '')
       .split(',')
@@ -1751,52 +1858,121 @@ app.get('/api/admin/submissions', ensureAdmin, async (req, res) => {
       .map((value) => CLEANUP_TO_SUBMISSION_STATUS[value] || value);
     const normalizedStatus = CLEANUP_TO_SUBMISSION_STATUS[String(status || '').trim()] || status;
 
-    if (retiredFilter !== 'retired_only' && statusList.length > 0) {
-      const statusClauses = [];
-      if (normalizedStatuses.length > 0) {
-        statusClauses.push(`status IN (${normalizedStatuses.map(() => '?').join(',')})`);
-        params.push(...normalizedStatuses);
+    const createdViaFilter = createdVia ? String(createdVia || '').trim().toLowerCase() : '';
+    const lookupCreatedViaId = createdViaFilter
+      ? await getLookupIdByName(db, 'submission_sources', createdViaFilter, { lowercase: true })
+      : null;
+
+    const containsIgnoreCase = (value, needle) => String(value || '').toLowerCase().includes(String(needle || '').toLowerCase());
+    const compareText = (a, b) => String(a || '').localeCompare(String(b || ''), undefined, { sensitivity: 'base' });
+    const compareNum = (a, b) => Number(a || 0) - Number(b || 0);
+    const compareBool = (a, b) => Number(Boolean(a)) - Number(Boolean(b));
+
+    const rows = await Submission.findAll({ raw: true });
+    const filteredRows = rows.filter((row) => {
+      const rowStatus = String(row.status || '').trim();
+      const rowIsCleanup = Boolean(row.is_cleanup);
+      const rowCleanupTagType = String(row.cleanup_tag_type || '').trim();
+
+      if (retiredFilter !== 'retired_only' && statusList.length > 0) {
+        const statusMatch = normalizedStatuses.includes(rowStatus);
+        const cleanupOnlyMatch = cleanupOnlySelected && rowIsCleanup && rowCleanupTagType === 'cleanup_only';
+        const cleanupMarkedMatch = cleanupMarkedSelected && rowIsCleanup;
+        if (!(statusMatch || cleanupOnlyMatch || cleanupMarkedMatch)) return false;
+      } else if (retiredFilter !== 'retired_only' && normalizedStatus) {
+        if (normalizedStatus === 'Cleanup Only') {
+          if (!(rowIsCleanup && rowCleanupTagType === 'cleanup_only')) return false;
+        } else if (normalizedStatus === 'Cleanup Marked') {
+          if (!rowIsCleanup) return false;
+        } else if (rowStatus !== normalizedStatus) {
+          return false;
+        }
       }
-      if (cleanupOnlySelected) {
-        statusClauses.push("(COALESCE(is_cleanup, 0) = 1 AND COALESCE(cleanup_tag_type, '') = 'cleanup_only')");
+
+      if (type) {
+        if (String(type).toLowerCase() === 'cleanup') {
+          if (!rowIsCleanup) return false;
+        } else if (String(row.type || '') !== String(type)) {
+          return false;
+        }
       }
-      if (cleanupMarkedSelected) {
-        statusClauses.push('COALESCE(is_cleanup, 0) = 1');
+
+      if (search) {
+        const searchValue = String(search || '');
+        const searchMatch = containsIgnoreCase(row.policy_num, searchValue)
+          || containsIgnoreCase(row.account_num, searchValue)
+          || containsIgnoreCase(row.summary_of_issue, searchValue);
+        if (!searchMatch) return false;
       }
-      if (statusClauses.length > 0) {
-        clauses.push(`(${statusClauses.join(' OR ')})`);
+
+      if (requester && !containsIgnoreCase(row.created_by, requester)) {
+        return false;
       }
-    } else if (retiredFilter !== 'retired_only' && normalizedStatus) {
-      if (normalizedStatus === 'Cleanup Only') {
-        clauses.push("(COALESCE(is_cleanup, 0) = 1 AND COALESCE(cleanup_tag_type, '') = 'cleanup_only')");
-      } else if (normalizedStatus === 'Cleanup Marked') {
-        clauses.push('COALESCE(is_cleanup, 0) = 1');
-      } else {
-        clauses.push('status = ?');
-        params.push(normalizedStatus);
+
+      if (submittedBy && !containsIgnoreCase(row.easyvista_submitted_by, submittedBy)) {
+        return false;
+      }
+
+      if (createdViaFilter) {
+        if (!lookupCreatedViaId) return false;
+        if (Number(row.created_via_id) !== Number(lookupCreatedViaId)) return false;
+      }
+
+      if (retiredFilter === 'retired_only') {
+        if (!(Boolean(row.is_retired) || rowStatus === 'Retired')) return false;
+      } else if (retiredFilter === 'non_retired') {
+        if (Boolean(row.is_retired) || rowStatus === 'Retired') return false;
+      }
+
+      if (year && String(row.created_at || '').slice(0, 4) !== String(year).trim()) {
+        return false;
+      }
+
+      if (inJira === 'yes' && !Boolean(row.logged_defect)) return false;
+      if (inJira === 'no' && Boolean(row.logged_defect)) return false;
+
+      if (jiraNumber && !containsIgnoreCase(row.jira_number, jiraNumber)) return false;
+      if (easyvistaNumber && !containsIgnoreCase(row.easyvista_ticket_id, easyvistaNumber)) return false;
+      if (releaseNumber && !containsIgnoreCase(row.release_number, releaseNumber)) return false;
+
+      return true;
+    });
+
+    const filteredIds = filteredRows.map((row) => Number(row.id)).filter((id) => Number.isFinite(id));
+    const statusUpdateAtById = new Map();
+
+    if (SubmissionStatusEvent && filteredIds.length > 0) {
+      const events = await SubmissionStatusEvent.findAll({
+        where: { submission_id: filteredIds },
+        attributes: ['submission_id', 'status', 'changed_at'],
+        raw: true,
+      });
+
+      const submissionById = new Map(filteredRows.map((row) => [Number(row.id), row]));
+      for (const event of events) {
+        const submissionId = Number(event.submission_id);
+        const row = submissionById.get(submissionId);
+        if (!row) continue;
+
+        const statusValue = String(event.status || '');
+        const currentStatus = String(row.status || '');
+        const eligible = statusValue === 'Retired'
+          || statusValue === 'Unretired'
+          || statusValue === currentStatus
+          || statusValue === `Defect/Enhancement Status: ${currentStatus}`;
+
+        if (!eligible) continue;
+        const currentMax = statusUpdateAtById.get(submissionId);
+        if (!currentMax || new Date(event.changed_at).getTime() > new Date(currentMax).getTime()) {
+          statusUpdateAtById.set(submissionId, event.changed_at);
+        }
       }
     }
-    if (type) {
-      if (String(type).toLowerCase() === 'cleanup') {
-        clauses.push('COALESCE(is_cleanup, 0) = 1');
-      } else {
-        clauses.push('type = ?');
-        params.push(type);
-      }
-    }
-    if (search) {
-      clauses.push('(COALESCE(policy_num, \'\') LIKE ? OR COALESCE(account_num, \'\') LIKE ? OR summary_of_issue LIKE ?)');
-      const like = `%${search}%`;
-      params.push(like, like, like);
-    }
-    if (requester) {
-      clauses.push('created_by LIKE ?');
-      params.push(`%${requester}%`);
-    }
-    if (submittedBy) {
-      clauses.push('COALESCE(easyvista_submitted_by, \'\') LIKE ?');
-      params.push(`%${submittedBy}%`);
-    }
+
+    const enrichedRows = filteredRows.map((row) => ({
+      ...row,
+      status_update_at: statusUpdateAtById.get(Number(row.id)) || row.updated_at,
+    }));
     if (createdVia) {
       const normalizedCreatedVia = String(createdVia || '').trim().toLowerCase();
       const lookupCreatedViaId = await getLookupIdByName(db, 'submission_sources', normalizedCreatedVia, {
@@ -1809,125 +1985,84 @@ app.get('/api/admin/submissions', ensureAdmin, async (req, res) => {
         clauses.push('1 = 0');
       }
     }
-    if (retiredFilter === 'retired_only') {
-      clauses.push("(COALESCE(s.is_retired, 0) = 1 OR s.status = 'Retired')");
-    } else if (retiredFilter === 'non_retired') {
-      clauses.push("(COALESCE(s.is_retired, 0) = 0 AND s.status <> 'Retired')");
-    }
-    if (year) {
-      clauses.push('SUBSTR(created_at, 1, 4) = ?');
-      params.push(String(year).trim());
-    }
-    if (inJira === 'yes') {
-      clauses.push('COALESCE(logged_defect, 0) = 1');
-    } else if (inJira === 'no') {
-      clauses.push('COALESCE(logged_defect, 0) = 0');
-    }
-    if (jiraNumber) {
-      clauses.push("COALESCE(jira_number, '') LIKE ?");
-      params.push(`%${jiraNumber}%`);
-    }
-    if (easyvistaNumber) {
-      clauses.push("COALESCE(easyvista_ticket_id, '') LIKE ?");
-      params.push(`%${easyvistaNumber}%`);
-    }
-    if (releaseNumber) {
-      clauses.push("COALESCE(release_number, '') LIKE ?");
-      params.push(`%${releaseNumber}%`);
-    }
-    const where = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
-
-    const sortMap = {
-      updated_desc: 'status_update_at DESC',
-      updated_asc: 'status_update_at ASC',
-      created_desc: 'created_at DESC',
-      created_asc: 'created_at ASC',
-      requester_asc: 'created_by COLLATE NOCASE ASC',
-      requester_desc: 'created_by COLLATE NOCASE DESC',
-      submitted_by_asc: 'COALESCE(easyvista_submitted_by, \'\') COLLATE NOCASE ASC',
-      submitted_by_desc: 'COALESCE(easyvista_submitted_by, \'\') COLLATE NOCASE DESC',
-      policy_premium_impact_desc: 'COALESCE(policy_premium_impact, 0) DESC',
-      policy_premium_impact_asc: 'COALESCE(policy_premium_impact, 0) ASC',
-      direct_dollar_impact_desc: 'COALESCE(direct_dollar_impact, 0) DESC',
-      direct_dollar_impact_asc: 'COALESCE(direct_dollar_impact, 0) ASC',
-      policies_affected_count_desc: 'COALESCE(policies_affected_count, 0) DESC',
-      policies_affected_count_asc: 'COALESCE(policies_affected_count, 0) ASC',
-      logged_defect_desc: 'COALESCE(logged_defect, 0) DESC',
-      logged_defect_asc: 'COALESCE(logged_defect, 0) ASC',
-      jira_number_asc: "COALESCE(jira_number, '') COLLATE NOCASE ASC",
-      jira_number_desc: "COALESCE(jira_number, '') COLLATE NOCASE DESC",
-      type_asc: 'type COLLATE NOCASE ASC',
-      type_desc: 'type COLLATE NOCASE DESC',
-      summary_asc: 'summary_of_issue COLLATE NOCASE ASC',
-      summary_desc: 'summary_of_issue COLLATE NOCASE DESC',
-      status_asc: 'status COLLATE NOCASE ASC',
-      status_desc: 'status COLLATE NOCASE DESC',
-      public_asc: 'COALESCE(is_public, 0) ASC',
-      public_desc: 'COALESCE(is_public, 0) DESC',
-      release_number_asc: "COALESCE(release_number, '') COLLATE NOCASE ASC",
-      release_number_desc: "COALESCE(release_number, '') COLLATE NOCASE DESC",
-      easyvista_asc: "COALESCE(easyvista_ticket_id, '') COLLATE NOCASE ASC",
-      easyvista_desc: "COALESCE(easyvista_ticket_id, '') COLLATE NOCASE DESC",
+    const sortKey = String(sort || 'updated_desc');
+    const comparatorMap = {
+      updated_desc: (a, b) => compareText(b.status_update_at, a.status_update_at),
+      updated_asc: (a, b) => compareText(a.status_update_at, b.status_update_at),
+      created_desc: (a, b) => compareText(b.created_at, a.created_at),
+      created_asc: (a, b) => compareText(a.created_at, b.created_at),
+      requester_asc: (a, b) => compareText(a.created_by, b.created_by),
+      requester_desc: (a, b) => compareText(b.created_by, a.created_by),
+      submitted_by_asc: (a, b) => compareText(a.easyvista_submitted_by, b.easyvista_submitted_by),
+      submitted_by_desc: (a, b) => compareText(b.easyvista_submitted_by, a.easyvista_submitted_by),
+      policy_premium_impact_desc: (a, b) => compareNum(b.policy_premium_impact, a.policy_premium_impact),
+      policy_premium_impact_asc: (a, b) => compareNum(a.policy_premium_impact, b.policy_premium_impact),
+      direct_dollar_impact_desc: (a, b) => compareNum(b.direct_dollar_impact, a.direct_dollar_impact),
+      direct_dollar_impact_asc: (a, b) => compareNum(a.direct_dollar_impact, b.direct_dollar_impact),
+      policies_affected_count_desc: (a, b) => compareNum(b.policies_affected_count, a.policies_affected_count),
+      policies_affected_count_asc: (a, b) => compareNum(a.policies_affected_count, b.policies_affected_count),
+      logged_defect_desc: (a, b) => compareBool(b.logged_defect, a.logged_defect),
+      logged_defect_asc: (a, b) => compareBool(a.logged_defect, b.logged_defect),
+      jira_number_asc: (a, b) => compareText(a.jira_number, b.jira_number),
+      jira_number_desc: (a, b) => compareText(b.jira_number, a.jira_number),
+      type_asc: (a, b) => compareText(a.type, b.type),
+      type_desc: (a, b) => compareText(b.type, a.type),
+      summary_asc: (a, b) => compareText(a.summary_of_issue, b.summary_of_issue),
+      summary_desc: (a, b) => compareText(b.summary_of_issue, a.summary_of_issue),
+      status_asc: (a, b) => compareText(a.status, b.status),
+      status_desc: (a, b) => compareText(b.status, a.status),
+      public_asc: (a, b) => compareBool(a.is_public, b.is_public),
+      public_desc: (a, b) => compareBool(b.is_public, a.is_public),
+      release_number_asc: (a, b) => compareText(a.release_number, b.release_number),
+      release_number_desc: (a, b) => compareText(b.release_number, a.release_number),
+      easyvista_asc: (a, b) => compareText(a.easyvista_ticket_id, b.easyvista_ticket_id),
+      easyvista_desc: (a, b) => compareText(b.easyvista_ticket_id, a.easyvista_ticket_id),
     };
-    const orderBy = sortMap[String(sort || '')] || sortMap.updated_desc;
 
-    const rows = await db.all(
-      `
-        SELECT s.id, s.created_at, s.updated_at, s.created_by, s.created_by_email, s.type, s.application_name,
-                s.created_via_id, s.type_id, s.application_id, s.status_id, s.cleanup_status_id, s.cleanup_tag_type_id,
-                s.enhancement_request_type_id, s.priority_level_id,
-           s.policy_num, s.account_num, s.transaction_num, s.screen_title, s.summary_of_issue,
-           s.status, s.reviewer, s.decision_notes, s.easyvista_ticket_id, s.easyvista_submitted_by, s.is_public, s.is_retired,
-           s.impact_notes, s.policy_premium_impact, s.direct_dollar_impact, s.policies_affected_count,
-           s.jira_number, s.logged_defect, s.release_number, s.release_notes, s.is_cleanup, s.cleanup_status, s.cleanup_tag_type,
-           s.created_via,
-              ${SUBMISSION_LOOKUP_SELECT},
-           s.is_resubmission, s.resubmission_of_submission_id, s.resubmission_of_easyvista_ticket_id,
-           s.has_resubmission, s.latest_resubmission_submission_id, s.latest_resubmission_easyvista_ticket_id,
-                  (
-                    SELECT MAX(e.changed_at)
-                    FROM submission_status_events e
-                    WHERE e.submission_id = s.id
-                      AND (
-                        e.status = 'Retired'
-                        OR e.status = 'Unretired'
-                        OR e.status = s.status
-                        OR e.status = ('Defect/Enhancement Status: ' || s.status)
-                      )
-                  ) AS status_update_at
-      FROM submissions s
-      ${SUBMISSION_LOOKUP_JOINS}
-      ${where}
-      ORDER BY ${orderBy}
-    `,
-      params,
-    );
+    const comparator = comparatorMap[sortKey] || comparatorMap.updated_desc;
+    enrichedRows.sort(comparator);
 
-    return res.json(rows.map(mapSubmission));
+    return res.json(enrichedRows.map(mapSubmission));
   });
 });
 
 app.get('/api/admin/submissions/:id', ensureAdmin, async (req, res) => {
   return withDb(async (db) => {
+    const dbModels = dbApi.getModels() || {};
+    const Attachment = dbModels.Attachment;
+    const SubmissionStatusEvent = dbModels.SubmissionStatusEvent;
     const submission = await getSubmissionByIdWithLookups(db, req.params.id);
     if (!submission) {
       return res.status(404).json({ error: 'Submission not found' });
     }
 
-    const attachments = await db.all(
-      'SELECT * FROM attachments WHERE submission_id = ? ORDER BY uploaded_at DESC',
-      [req.params.id],
-    );
+    const attachments = Attachment
+      ? await Attachment.findAll({
+        where: { submission_id: Number(req.params.id) },
+        order: [['uploaded_at', 'DESC']],
+        raw: true,
+      })
+      : await db.all(
+        'SELECT * FROM attachments WHERE submission_id = ? ORDER BY uploaded_at DESC',
+        [req.params.id],
+      );
 
-    const status_events = await db.all(
-      `
+    const status_events = SubmissionStatusEvent
+      ? await SubmissionStatusEvent.findAll({
+        where: { submission_id: Number(req.params.id) },
+        attributes: ['id', 'submission_id', 'status', 'changed_at', 'changed_by'],
+        order: [['changed_at', 'DESC'], ['id', 'DESC']],
+        raw: true,
+      })
+      : await db.all(
+        `
       SELECT id, submission_id, status, changed_at, changed_by
       FROM submission_status_events
       WHERE submission_id = ?
       ORDER BY changed_at DESC, id DESC
     `,
-      [req.params.id],
-    );
+        [req.params.id],
+      );
 
     const timeline = buildStatusTimeline(submission, status_events);
 
@@ -1950,6 +2085,8 @@ app.post('/api/admin/submissions', ensureAdmin, async (req, res) => {
   }
 
   return withDb(async (db) => {
+    const dbModels = dbApi.getModels() || {};
+    const Submission = dbModels.Submission;
     const allowedStatuses = await getDefectEnhancementStatuses(db, { includeRetired: false });
     const historicalStatuses = await getDefectEnhancementStatuses(db, { includeRetired: true });
     const allowedSubmissionTypes = await getSubmissionTypes(db);
@@ -2072,12 +2209,21 @@ app.post('/api/admin/submissions', ensureAdmin, async (req, res) => {
       0,
       toBooleanSql(body.logged_defect),
     ];
-    const insert = await db.run(
-      `INSERT INTO submissions (${insertColumns.join(', ')}) VALUES (${insertColumns.map(() => '?').join(',')})`,
-      insertValues,
-    );
-
-    const subId = insert.lastID;
+    let subId = null;
+    if (Submission) {
+      const payload = insertColumns.reduce((acc, column, index) => {
+        acc[column] = insertValues[index];
+        return acc;
+      }, {});
+      const createdSubmission = await Submission.create(payload);
+      subId = Number(createdSubmission.id);
+    } else {
+      const insert = await db.run(
+        `INSERT INTO submissions (${insertColumns.join(', ')}) VALUES (${insertColumns.map(() => '?').join(',')})`,
+        insertValues,
+      );
+      subId = insert.lastID;
+    }
 
     // Insert backdated status events in chronological order
     const eventsToInsert = rawEvents
@@ -2169,12 +2315,16 @@ app.put('/api/admin/submissions/:id', ensureAdmin, async (req, res) => {
   const body = req.body || {};
 
   return withDb(async (db) => {
+    const dbModels = dbApi.getModels() || {};
+    const Submission = dbModels.Submission;
     const allowedStatuses = await getDefectEnhancementStatuses(db, { includeRetired: false });
     const allowedSubmissionTypes = await getSubmissionTypes(db);
     const allowedCleanupStatuses = await getCleanupStatuses(db);
     const allowedCleanupTagTypes = await getCleanupTagTypes(db);
 
-    const existing = await db.get('SELECT * FROM submissions WHERE id = ?', [req.params.id]);
+    const existing = Submission
+      ? await Submission.findByPk(Number(req.params.id), { raw: true })
+      : await db.get('SELECT * FROM submissions WHERE id = ?', [req.params.id]);
     if (!existing) {
       return res.status(404).json({ error: 'Submission not found' });
     }
@@ -2340,8 +2490,59 @@ app.put('/api/admin/submissions/:id', ensureAdmin, async (req, res) => {
     }
 
     const updatedAt = new Date().toISOString();
-    await db.run(
-      `
+    const updatePayload = {
+      updated_at: updatedAt,
+      type: next.type,
+      type_id: lookupIds.type_id,
+      application_name: next.application_name,
+      application_id: lookupIds.application_id,
+      policy_num: next.policy_num,
+      account_num: next.account_num,
+      transaction_num: next.transaction_num,
+      screen_title: next.screen_title,
+      summary_of_issue: next.summary_of_issue,
+      steps_to_reproduce: next.steps_to_reproduce,
+      what_happened_exact_details: next.what_happened_exact_details,
+      request: next.request,
+      date_time_of_error: next.date_time_of_error,
+      status: next.status,
+      status_id: lookupIds.status_id,
+      reviewer: next.reviewer,
+      decision_notes: next.decision_notes,
+      fingerprint: next.fingerprint,
+      desired_completion_date: next.desired_completion_date,
+      impact_details: next.impact_details,
+      impact_notes: next.impact_notes,
+      policy_premium_impact: next.policy_premium_impact,
+      direct_dollar_impact: next.direct_dollar_impact,
+      policies_affected_count: next.policies_affected_count,
+      logged_defect: toBooleanSql(next.logged_defect),
+      enhancement_request_type: next.enhancement_request_type,
+      enhancement_request_type_id: lookupIds.enhancement_request_type_id,
+      priority_level: next.priority_level,
+      priority_level_id: lookupIds.priority_level_id,
+      jira_number: next.jira_number,
+      release_number: next.release_number,
+      release_notes: next.release_notes,
+      is_cleanup: toBooleanSql(next.is_cleanup),
+      cleanup_status: next.cleanup_status,
+      cleanup_status_id: lookupIds.cleanup_status_id,
+      cleanup_tag_type: next.cleanup_tag_type,
+      cleanup_tag_type_id: lookupIds.cleanup_tag_type_id,
+      is_retired: toBooleanSql(next.is_retired),
+      duplicate_reference: next.duplicate_reference,
+      duplicate_of: next.duplicate_of,
+      is_public: toBooleanSql(next.is_public),
+      easyvista_submitted_by: next.easyvista_submitted_by,
+    };
+
+    if (Submission) {
+      await Submission.update(updatePayload, {
+        where: { id: Number(req.params.id) },
+      });
+    } else {
+      await db.run(
+        `
       UPDATE submissions
       SET
         updated_at = ?,
@@ -2389,53 +2590,54 @@ app.put('/api/admin/submissions/:id', ensureAdmin, async (req, res) => {
         easyvista_submitted_by = ?
       WHERE id = ?
     `,
-      [
-        updatedAt,
-        next.type,
-        lookupIds.type_id,
-        next.application_name,
-        lookupIds.application_id,
-        next.policy_num,
-        next.account_num,
-        next.transaction_num,
-        next.screen_title,
-        next.summary_of_issue,
-        next.steps_to_reproduce,
-        next.what_happened_exact_details,
-        next.request,
-        next.date_time_of_error,
-        next.status,
-        lookupIds.status_id,
-        next.reviewer,
-        next.decision_notes,
-        next.fingerprint,
-        next.desired_completion_date,
-        next.impact_details,
-        next.impact_notes,
-        next.policy_premium_impact,
-        next.direct_dollar_impact,
-        next.policies_affected_count,
-        toBooleanSql(next.logged_defect),
-        next.enhancement_request_type,
-        lookupIds.enhancement_request_type_id,
-        next.priority_level,
-        lookupIds.priority_level_id,
-        next.jira_number,
-        next.release_number,
-        next.release_notes,
-        toBooleanSql(next.is_cleanup),
-        next.cleanup_status,
-        lookupIds.cleanup_status_id,
-        next.cleanup_tag_type,
-        lookupIds.cleanup_tag_type_id,
-        toBooleanSql(next.is_retired),
-        next.duplicate_reference,
-        next.duplicate_of,
-        toBooleanSql(next.is_public),
-        next.easyvista_submitted_by,
-        req.params.id,
-      ],
-    );
+        [
+          updatePayload.updated_at,
+          updatePayload.type,
+          updatePayload.type_id,
+          updatePayload.application_name,
+          updatePayload.application_id,
+          updatePayload.policy_num,
+          updatePayload.account_num,
+          updatePayload.transaction_num,
+          updatePayload.screen_title,
+          updatePayload.summary_of_issue,
+          updatePayload.steps_to_reproduce,
+          updatePayload.what_happened_exact_details,
+          updatePayload.request,
+          updatePayload.date_time_of_error,
+          updatePayload.status,
+          updatePayload.status_id,
+          updatePayload.reviewer,
+          updatePayload.decision_notes,
+          updatePayload.fingerprint,
+          updatePayload.desired_completion_date,
+          updatePayload.impact_details,
+          updatePayload.impact_notes,
+          updatePayload.policy_premium_impact,
+          updatePayload.direct_dollar_impact,
+          updatePayload.policies_affected_count,
+          updatePayload.logged_defect,
+          updatePayload.enhancement_request_type,
+          updatePayload.enhancement_request_type_id,
+          updatePayload.priority_level,
+          updatePayload.priority_level_id,
+          updatePayload.jira_number,
+          updatePayload.release_number,
+          updatePayload.release_notes,
+          updatePayload.is_cleanup,
+          updatePayload.cleanup_status,
+          updatePayload.cleanup_status_id,
+          updatePayload.cleanup_tag_type,
+          updatePayload.cleanup_tag_type_id,
+          updatePayload.is_retired,
+          updatePayload.duplicate_reference,
+          updatePayload.duplicate_of,
+          updatePayload.is_public,
+          updatePayload.easyvista_submitted_by,
+          req.params.id,
+        ],
+      );
+    }
 
     const statusChanged = String(next.status || '') !== String(existing.status || '');
     const retiredStateChanged = Boolean(next.is_retired) !== Boolean(existing.is_retired);

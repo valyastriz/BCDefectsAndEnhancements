@@ -1,9 +1,11 @@
 const { QueryTypes } = require('sequelize');
 const { createSequelize } = require('./sequelize');
+const { defineModels } = require('./models');
 
 const { provider, sequelize } = createSequelize();
 const dbMode = (process.env.DB_MODE || 'local').toLowerCase();
 let initialized = false;
+let models = null;
 
 function withReturningIdForInsert(sql) {
   const normalized = String(sql || '').trim();
@@ -47,7 +49,12 @@ function normalizeExecuteResult(sql, rows, metadata) {
 async function init() {
   if (initialized) return;
   await sequelize.authenticate();
+  models = defineModels(sequelize);
   initialized = true;
+}
+
+function getModels() {
+  return models;
 }
 
 async function query(sql, params = []) {
@@ -106,6 +113,7 @@ module.exports = {
   dbMode,
   provider,
   init,
+  getModels,
   query,
   execute,
   close,
