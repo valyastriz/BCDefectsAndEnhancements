@@ -1704,10 +1704,10 @@ app.post('/api/submissions', tempUpload.array('attachments', 3), async (req, res
   }
 
   if (normalizedType === 'enhancement') {
-    if (isBlank(summary_of_issue) || isBlank(request) || isBlank(desired_completion_date)) {
+    if (isBlank(summary_of_issue) || isBlank(request)) {
       return res.status(400).json({
         error:
-          'Summary, Request Details, and Desired Completion Date are required for enhancements',
+          'Summary and Request Details are required for enhancements',
       });
     }
 
@@ -1721,7 +1721,7 @@ app.post('/api/submissions', tempUpload.array('attachments', 3), async (req, res
       steps_to_reproduce: '-',
       what_happened_exact_details: '-',
       date_time_of_error: toIsoOrNow(date_time_of_error),
-      desired_completion_date: toIsoOrNow(desired_completion_date),
+      desired_completion_date: desired_completion_date ? toIsoOrNow(desired_completion_date) : null,
       priority_level: '3 - Medium',
     };
   }

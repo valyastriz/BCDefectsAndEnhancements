@@ -92,7 +92,6 @@ export function RepSubmitPage() {
     }
     if (isEnhancement) {
       if (isBlank(form.request)) missing.push('Request Details');
-      if (isBlank(form.desired_completion_date)) missing.push('Desired Completion Date');
     }
 
     if (missing.length > 0) {
@@ -206,7 +205,6 @@ export function RepSubmitPage() {
               <p className="section-label">Enhancement Details</p>
               <div className="bs-grid two">
                 <Input label="Application Name" value="Billing Center" disabled />
-                <Input label="Desired Completion Date" type="date" required value={form.desired_completion_date} onChange={(e) => updateField('desired_completion_date', e.target.value)} />
               </div>
               <Input label="Summary" required value={form.summary_of_issue} onChange={(e) => updateField('summary_of_issue', e.target.value)} />
               <Textarea label="Request Details" rows={5} required value={form.request} onChange={(e) => updateField('request', e.target.value)} />

@@ -422,6 +422,7 @@ export function AdminDashboardPage({ user, onLogout }) {
   const [pendingAttachmentFiles, setPendingAttachmentFiles] = useState([]);
   const [pendingRemovedAttachmentIds, setPendingRemovedAttachmentIds] = useState([]);
   const [modalTopNotice, setModalTopNotice] = useState('');
+  const [modalBottomNotice, setModalBottomNotice] = useState('');
   const [detailError, setDetailError] = useState('');
   const [working, setWorking] = useState(false);
   const [previewAttachment, setPreviewAttachment] = useState(null);
@@ -837,7 +838,9 @@ export function AdminDashboardPage({ user, onLogout }) {
     const socket = getSocket();
     const onNotification = (payload) => {
       const message = payload?.event ? `Live update: ${payload.event}` : 'Live update received';
-      setNotice(message);
+      if (!isAnyAdminModalOpen) {
+        setNotice(message);
+      }
       loadRows();
       if (openId) {
         openDetail(openId, true);
@@ -848,7 +851,7 @@ export function AdminDashboardPage({ user, onLogout }) {
     return () => {
       socket.off('admin:notification', onNotification);
     };
-  }, [loadRows, openId, openDetail]);
+  }, [loadRows, openId, openDetail, isAnyAdminModalOpen]);
 
   const loadImportHistory = useCallback(async () => {
     try {
@@ -930,6 +933,9 @@ export function AdminDashboardPage({ user, onLogout }) {
       }
       if (!String(edit.enhancement_request_type || '').trim()) {
         missing.push('Request Type');
+      }
+      if (!String(edit.desired_completion_date || '').trim()) {
+        missing.push('Desired Completion Date');
       }
     }
 
@@ -1331,12 +1337,18 @@ export function AdminDashboardPage({ user, onLogout }) {
     }
   }
 
-  async function saveEdits() {
+  async function saveEdits(source = 'footer') {
     if (!openId || !edit) return;
     const hasFieldChanges = hasPendingModalChanges(detail, edit);
     const hasAttachmentChanges = pendingAttachmentFiles.length > 0 || pendingRemovedAttachmentIds.length > 0;
     if (!hasFieldChanges && !hasAttachmentChanges) {
-      setModalTopNotice('No changes to save.');
+      if (source === 'header') {
+        setModalTopNotice('No changes to save.');
+        setModalBottomNotice('');
+      } else {
+        setModalBottomNotice('No changes to save.');
+        setModalTopNotice('');
+      }
       return;
     }
     try {
@@ -1374,9 +1386,16 @@ export function AdminDashboardPage({ user, onLogout }) {
 
       await openDetail(targetSubmissionId);
       await loadRows();
-      setModalTopNotice('Saved successfully.');
+      if (source === 'header') {
+        setModalTopNotice('Saved successfully.');
+        setModalBottomNotice('');
+      } else {
+        setModalBottomNotice('Saved successfully.');
+        setModalTopNotice('');
+      }
     } catch (saveError) {
       setModalTopNotice('');
+      setModalBottomNotice('');
       setDetailError(saveError.message);
     } finally {
       setWorking(false);
@@ -1398,8 +1417,10 @@ export function AdminDashboardPage({ user, onLogout }) {
         await openDetail(saved.id);
       }
       setModalTopNotice('Item retired.');
+      setModalBottomNotice('');
     } catch (retireError) {
       setModalTopNotice('');
+      setModalBottomNotice('');
       setDetailError(retireError.message);
     } finally {
       setWorking(false);
@@ -1421,8 +1442,10 @@ export function AdminDashboardPage({ user, onLogout }) {
         await openDetail(saved.id);
       }
       setModalTopNotice('Item unretired.');
+      setModalBottomNotice('');
     } catch (unretireError) {
       setModalTopNotice('');
+      setModalBottomNotice('');
       setDetailError(unretireError.message);
     } finally {
       setWorking(false);
@@ -1440,6 +1463,7 @@ export function AdminDashboardPage({ user, onLogout }) {
     }));
     setPendingAttachmentFiles((prev) => [...prev, ...queuedFiles]);
     setModalTopNotice('Attachment changes are staged. Click Save Changes to apply.');
+    setModalBottomNotice('');
   }
 
   function removePendingAttachment(localId) {
@@ -1470,6 +1494,7 @@ export function AdminDashboardPage({ user, onLogout }) {
 
     toggleAttachmentRemoval(attachment.id);
     setModalTopNotice('Attachment changes are staged. Click Save Changes to apply.');
+    setModalBottomNotice('');
   }
 
   async function submitEasyVista() {
@@ -1523,6 +1548,7 @@ export function AdminDashboardPage({ user, onLogout }) {
     } catch (submitError) {
       setEasyVistaConfirmation('');
       setModalTopNotice('');
+      setModalBottomNotice('');
       setDetailError(submitError.message);
     } finally {
       setWorking(false);
@@ -3137,6 +3163,7 @@ export function AdminDashboardPage({ user, onLogout }) {
           clearPendingAttachmentDrafts();
           setOpenId(null);
           setModalTopNotice('');
+          setModalBottomNotice('');
           setDetailError('');
           setShowEasyVistaRequirements(false);
         }}
@@ -3148,7 +3175,7 @@ export function AdminDashboardPage({ user, onLogout }) {
             onMouseLeave={() => setShowHeaderSaveTooltip(false)}
           >
             <Button
-                  onClick={saveEdits}
+                  onClick={() => saveEdits('header')}
               disabled={working || !hasPendingChanges}
             >
               Save Changes
@@ -3534,7 +3561,7 @@ export function AdminDashboardPage({ user, onLogout }) {
                 onMouseLeave={() => setShowFooterSaveTooltip(false)}
               >
                 <Button
-                  onClick={saveEdits}
+                  onClick={() => saveEdits('footer')}
                   disabled={working || !hasPendingChanges}
                 >
                   Save Changes
@@ -3590,6 +3617,7 @@ export function AdminDashboardPage({ user, onLogout }) {
                 No unsaved changes.
               </p>
             )}
+            {modalBottomNotice && <Notice text={modalBottomNotice} kind="success" />}
             {easyVistaConfirmation && <Notice text={easyVistaConfirmation} kind="success" />}
             {detail.easyvista_ticket_id && (
               <p className="muted" style={{ fontSize: 13 }}>EasyVista ticket: <strong>{detail.easyvista_ticket_id}</strong></p>
