@@ -56,6 +56,7 @@
   --radius:    10px;
   --radius-lg: 14px;
   --radius-xl: 20px;
+  color-scheme: light;
 
   font-family: var(--font);
   font-size: 15px;
@@ -69,6 +70,22 @@
   -moz-osx-font-smoothing: grayscale;
 }
 
+:root[data-theme='dark'] {
+  --color-bg:            #0b1220;
+  --color-surface:       #111827;
+  --color-border:        #243041;
+  --color-text:          #e5e7eb;
+  --color-muted:         #9ca3af;
+  --color-primary:       #60a5fa;
+  --color-primary-hover: #93c5fd;
+  --color-danger:        #ef4444;
+  --color-danger-hover:  #f87171;
+  --shadow-sm: 0 1px 2px rgba(2,6,23,.45), 0 1px 3px rgba(2,6,23,.4);
+  --shadow-md: 0 4px 6px rgba(2,6,23,.45), 0 2px 16px rgba(2,6,23,.5);
+  --shadow-lg: 0 10px 32px rgba(2,6,23,.55);
+  color-scheme: dark;
+}
+
 *,
 *::before,
 *::after {
@@ -79,6 +96,8 @@ body {
   margin: 0;
   min-width: 320px;
   overflow-x: clip;
+  background: var(--color-bg);
+  color: var(--color-text);
 }
 
 a {
@@ -196,6 +215,25 @@ h1, h2, h3, h4, h5, h6 {
 .hamburger-menu-btn span {
   font-size: 18px;
   line-height: 1;
+}
+
+.theme-toggle-btn {
+  border: 1px solid rgba(255,255,255,.2);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  padding: 8px 10px;
+  cursor: pointer;
+  transition: background .15s, color .15s, border-color .15s;
+  white-space: nowrap;
+}
+
+.theme-toggle-btn:hover {
+  background: rgba(255,255,255,.09);
+  border-color: rgba(255,255,255,.35);
 }
 
 .app-nav-links {
@@ -1208,4 +1246,128 @@ tr.clickable:hover td { background: var(--blue-50); }
   font-size: clamp(10px, 0.9vw, 12px);
   color: var(--color-muted);
   margin-top: 2px;
+}
+
+/* ─────────────────────────────────────────────
+   Dark theme readability overrides
+   ───────────────────────────────────────────── */
+:root[data-theme='dark'] .bs-card.inner,
+:root[data-theme='dark'] .thumb-item,
+:root[data-theme='dark'] .public-item,
+:root[data-theme='dark'] .import-history-item {
+  background: #0f172a;
+  border-color: var(--color-border);
+}
+
+:root[data-theme='dark'] .bs-card-header h3,
+:root[data-theme='dark'] .section-label,
+:root[data-theme='dark'] .bs-field > span,
+:root[data-theme='dark'] .thumb-name,
+:root[data-theme='dark'] .pub-label,
+:root[data-theme='dark'] .public-item h4,
+:root[data-theme='dark'] .stat-tile .stat-num {
+  color: var(--color-text);
+}
+
+:root[data-theme='dark'] .section-label,
+:root[data-theme='dark'] .bs-card-header,
+:root[data-theme='dark'] .bs-modal-head,
+:root[data-theme='dark'] .table-wrap,
+:root[data-theme='dark'] th,
+:root[data-theme='dark'] td,
+:root[data-theme='dark'] .thumb-item,
+:root[data-theme='dark'] .public-item,
+:root[data-theme='dark'] .file-link {
+  border-color: var(--color-border);
+}
+
+:root[data-theme='dark'] .bs-field input,
+:root[data-theme='dark'] .bs-field textarea,
+:root[data-theme='dark'] .bs-field select,
+:root[data-theme='dark'] .bs-inline-select,
+:root[data-theme='dark'] .bs-inline-input,
+:root[data-theme='dark'] .bs-multiselect-trigger {
+  background: #0f172a;
+  color: var(--color-text);
+  border-color: var(--color-border);
+}
+
+:root[data-theme='dark'] .bs-field input::placeholder,
+:root[data-theme='dark'] .bs-field textarea::placeholder,
+:root[data-theme='dark'] .bs-inline-input::placeholder {
+  color: var(--color-muted);
+}
+
+:root[data-theme='dark'] .bs-field input:disabled,
+:root[data-theme='dark'] .bs-field textarea:disabled,
+:root[data-theme='dark'] .bs-field select:disabled {
+  background: #1f2937;
+  color: var(--color-muted);
+}
+
+:root[data-theme='dark'] .bs-multiselect-menu {
+  background: #111827;
+  border-color: var(--color-border);
+}
+
+:root[data-theme='dark'] .bs-multiselect-option,
+:root[data-theme='dark'] .bs-multiselect-action {
+  color: var(--color-text);
+}
+
+:root[data-theme='dark'] .bs-multiselect-action {
+  background: #1f2937;
+}
+
+:root[data-theme='dark'] .bs-modal {
+  background: var(--color-surface);
+  border-color: var(--color-border);
+}
+
+:root[data-theme='dark'] .bs-modal-head h3,
+:root[data-theme='dark'] .bs-close {
+  color: var(--color-text);
+}
+
+:root[data-theme='dark'] .bs-close {
+  background: #1f2937;
+}
+
+:root[data-theme='dark'] .bs-close:hover {
+  background: #334155;
+}
+
+:root[data-theme='dark'] th {
+  background: #111827;
+  color: var(--color-muted);
+}
+
+:root[data-theme='dark'] tr.clickable:hover td {
+  background: #0f1d36;
+}
+
+:root[data-theme='dark'] .file-link {
+  color: #93c5fd;
+  background: #0f1d36;
+}
+
+:root[data-theme='dark'] .file-link:hover {
+  background: #132648;
+}
+
+:root[data-theme='dark'] .type-picker {
+  border-color: var(--color-border);
+}
+
+:root[data-theme='dark'] .type-picker button {
+  color: var(--color-text);
+}
+
+:root[data-theme='dark'] .type-picker button:not(.active):hover {
+  background: #1f2937;
+}
+
+:root[data-theme='dark'] select option {
+  background: #111827;
+  color: var(--color-text);
 }

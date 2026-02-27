@@ -12,10 +12,12 @@ function TicketIcon() {
 export function AppShell({ children }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [useHamburger, setUseHamburger] = useState(false);
+  const [theme, setTheme] = useState('light');
   const location = useLocation();
   const headerTopRef = useRef(null);
   const brandRef = useRef(null);
   const desktopNavRef = useRef(null);
+  const themeToggleRef = useRef(null);
   // Natural (unstretched) widths captured once at mount
   const navNaturalWidth = useRef(0);
   const brandNaturalWidth = useRef(0);
@@ -44,6 +46,25 @@ export function AppShell({ children }) {
   }, [location.pathname]);
 
   useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const saved = window.localStorage.getItem('bc-theme');
+    if (saved === 'light' || saved === 'dark') {
+      setTheme(saved);
+      return;
+    }
+    const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+    setTheme(prefersDark ? 'dark' : 'light');
+  }, []);
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    document.documentElement.setAttribute('data-theme', theme);
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem('bc-theme', theme);
+    }
+  }, [theme]);
+
+  useEffect(() => {
     const measure = () => {
       const headerTop = headerTopRef.current;
       if (!headerTop) return;
@@ -55,7 +76,8 @@ export function AppShell({ children }) {
 
       const brandW = brandNaturalWidth.current;
       const navW = navNaturalWidth.current;
-      const needed = pl + brandW + gap + navW + pr;
+      const toggleW = themeToggleRef.current?.offsetWidth || 44;
+      const needed = pl + brandW + gap + navW + gap + toggleW + pr;
 
       const next = needed > headerTop.clientWidth + 1;
       setUseHamburger((prev) => (prev === next ? prev : next));
@@ -96,6 +118,17 @@ export function AppShell({ children }) {
               <NavLink key={item.to} to={item.to}>{item.label}</NavLink>
             ))}
           </nav>
+
+          <button
+            type="button"
+            ref={themeToggleRef}
+            className="theme-toggle-btn"
+            aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+            title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+            onClick={() => setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'))}
+          >
+            {theme === 'dark' ? '☀️ Light' : '🌙 Dark'}
+          </button>
 
           <button
             type="button"
