@@ -786,8 +786,51 @@ tr.clickable:hover td { background: var(--blue-50); }
 }
 
 .bs-modal-body {
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: auto;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
   padding: 20px 24px 24px;
+}
+
+.import-mapping-scroll {
+  max-height: 44vh;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 2px;
+  overscroll-behavior: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.import-history-list {
+  max-height: 32vh;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.import-history-item {
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  background: var(--slate-50);
+}
+
+.import-history-item summary {
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--slate-700);
+  font-weight: 600;
+}
+
+.import-history-item[open] summary {
+  margin-bottom: 8px;
+}
+
+.import-history-errors {
+  max-height: 180px;
+  overflow-y: auto;
+  padding-right: 2px;
 }
 
 /* ─────────────────────────────────────────────

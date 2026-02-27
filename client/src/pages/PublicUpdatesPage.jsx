@@ -10,9 +10,48 @@ import {
   Select,
 } from '../components/bite-size/BitsizeUI';
 
-const publicStatuses = ['New', 'Approved', 'Rejected', 'Duplicate', 'Submitted', 'Deployed'];
+const publicStatuses = [
+  'New',
+  'Approved',
+  'Backlog - Monitoring Impact',
+  'Future Consideration',
+  'Deferred – Not in Current Scope',
+  'Rejected',
+  'Duplicate',
+  'Submitted',
+  'Deployed',
+];
 const publicFiltersStorageKey = 'bc.public.filters';
 const publicRetiredFilterStorageKey = 'bc.public.retiredFilter';
+
+function areAllStatusesSelected(values, options) {
+  if (!Array.isArray(values) || !Array.isArray(options) || values.length !== options.length) {
+    return false;
+  }
+  const selected = new Set(values);
+  return options.every((value) => selected.has(value));
+}
+
+function normalizeSavedPublicStatuses(statusesValue, statusSelectionMode = 'legacy') {
+  if (statusSelectionMode === 'all') {
+    return [...publicStatuses];
+  }
+
+  if (!Array.isArray(statusesValue)) {
+    return [...publicStatuses];
+  }
+
+  const normalized = statusesValue.filter((value) => publicStatuses.includes(value));
+  if (normalized.length === 0) {
+    return [...publicStatuses];
+  }
+
+  if (statusSelectionMode === 'legacy') {
+    return [...publicStatuses];
+  }
+
+  return normalized;
+}
 
 function readSavedPublicFilters() {
   const defaults = {
@@ -37,9 +76,10 @@ function readSavedPublicFilters() {
 
   try {
     const parsed = JSON.parse(raw);
-    const selectedStatuses = Array.isArray(parsed?.selectedStatuses)
-      ? parsed.selectedStatuses.filter((value) => publicStatuses.includes(value))
-      : defaults.selectedStatuses;
+    const statusSelectionMode = parsed?.statusSelectionMode === 'all'
+      ? 'all'
+      : (parsed?.statusSelectionMode === 'custom' ? 'custom' : 'legacy');
+    const selectedStatuses = normalizeSavedPublicStatuses(parsed?.selectedStatuses, statusSelectionMode);
     const retiredFilter = ['non_retired', 'retired_only', 'all'].includes(parsed?.retiredFilter)
       ? parsed.retiredFilter
       : normalizedRetiredFilter;
@@ -89,9 +129,19 @@ export function PublicUpdatesPage() {
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
+    const statusSelectionMode = areAllStatusesSelected(selectedStatuses, publicStatuses)
+      ? 'all'
+      : 'custom';
     window.localStorage.setItem(
       publicFiltersStorageKey,
-      JSON.stringify({ search, typeFilter, selectedStatuses, retiredFilter, sortBy }),
+      JSON.stringify({
+        search,
+        typeFilter,
+        selectedStatuses,
+        retiredFilter,
+        sortBy,
+        statusSelectionMode,
+      }),
     );
     window.localStorage.setItem(publicRetiredFilterStorageKey, retiredFilter || 'non_retired');
   }, [search, typeFilter, selectedStatuses, retiredFilter, sortBy]);

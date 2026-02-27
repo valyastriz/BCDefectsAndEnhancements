@@ -7,6 +7,7 @@ const multer = require('multer');
 const bcrypt = require('bcrypt');
 const cors = require('cors');
 const dotenv = require('dotenv');
+const XLSX = require('xlsx');
 const { Server } = require('socket.io');
 const { ensureAdmin } = require('./auth');
 const { submitToEasyVista } = require('./easyvista');
@@ -98,6 +99,76 @@ const ENHANCEMENT_REQUEST_TYPES = [
   'Build-Small Project (Not PPM Funded)',
   'Run-Compliance/Regulatory/Rate Revision',
   'Run-Other Operational Work',
+];
+
+const DEFECT_ENHANCEMENT_STATUSES = [
+  'New',
+  'Approved',
+  'Backlog - Monitoring Impact',
+  'Future Consideration',
+  'Deferred – Not in Current Scope',
+  'Rejected',
+  'Duplicate',
+  'Submitted',
+  'Deployed',
+];
+const DEFECT_ENHANCEMENT_STATUSES_WITH_RETIRED = [...DEFECT_ENHANCEMENT_STATUSES, 'Retired'];
+
+const IMPORT_COLUMN_TARGETS = [
+  { key: 'created_by', label: 'Requester Name', aliases: ['created_by', 'requester_name', 'requester', 'submitted_by_name'] },
+  { key: 'created_by_email', label: 'Requester Email', aliases: ['created_by_email', 'requester_email', 'email'] },
+  { key: 'summary_of_issue', label: 'Summary', aliases: ['summary_of_issue', 'summary', 'title', 'issue_summary'] },
+  { key: 'status', label: 'Status', aliases: ['status', 'defect_enhancement_status'] },
+  { key: 'policy_num', label: 'Policy # Column', aliases: ['policy_num', 'policy_number'] },
+  { key: 'account_num', label: 'Account # Column', aliases: ['account_num', 'account_number'] },
+  {
+    key: 'combined_policy_account',
+    label: 'Combined Policy/Account Column',
+    aliases: ['policy_account', 'policy_account_num', 'policy_account_number', 'policy_or_account'],
+  },
+  { key: 'transaction_num', label: 'Transaction #', aliases: ['transaction_num', 'transaction_number'] },
+  { key: 'screen_title', label: 'Screen Title', aliases: ['screen_title', 'screen'] },
+  { key: 'steps_to_reproduce', label: 'Steps to Reproduce', aliases: ['steps_to_reproduce', 'steps'] },
+  {
+    key: 'what_happened_exact_details',
+    label: 'Description',
+    aliases: ['what_happened_exact_details', 'description', 'details'],
+  },
+  { key: 'request', label: 'Request', aliases: ['request', 'requested_change'] },
+  {
+    key: 'date_time_of_error',
+    label: 'Date/Time of Error',
+    aliases: ['date_time_of_error', 'error_datetime', 'error_date_time', 'date_of_error'],
+  },
+  {
+    key: 'desired_completion_date',
+    label: 'Desired Completion Date',
+    aliases: ['desired_completion_date', 'target_date'],
+  },
+  { key: 'impact_details', label: 'Impact Details', aliases: ['impact_details'] },
+  { key: 'impact_notes', label: 'Impact Notes', aliases: ['impact_notes'] },
+  { key: 'policy_premium_impact', label: 'Policy Premium Impact', aliases: ['policy_premium_impact'] },
+  { key: 'direct_dollar_impact', label: 'Direct Dollar Impact', aliases: ['direct_dollar_impact'] },
+  { key: 'policies_affected_count', label: 'Policies Affected Count', aliases: ['policies_affected_count'] },
+  { key: 'jira_number', label: 'JIRA Number', aliases: ['jira_number', 'jira'] },
+  { key: 'release_number', label: 'Release Number', aliases: ['release_number', 'release'] },
+  { key: 'release_notes', label: 'Release Notes', aliases: ['release_notes'] },
+  { key: 'easyvista_ticket_id', label: 'EASYVISTA Number', aliases: ['easyvista_ticket_id', 'easyvista_ticket', 'easyvista_number', 'easyvista_id', 'ticket_id'] },
+  { key: 'reviewer', label: 'Reviewer', aliases: ['reviewer'] },
+  { key: 'decision_notes', label: 'Decision Notes', aliases: ['decision_notes'] },
+  { key: 'enhancement_request_type', label: 'Enhancement Request Type', aliases: ['enhancement_request_type', 'request_type'] },
+  { key: 'priority_level', label: 'Priority', aliases: ['priority_level', 'priority'] },
+  { key: 'application_name', label: 'Application', aliases: ['application_name', 'application'] },
+  { key: 'easyvista_submitted_by', label: 'EasyVista Submitted By', aliases: ['easyvista_submitted_by', 'submitted_by_easyvista'] },
+  { key: 'is_public', label: 'Public', aliases: ['is_public', 'public'] },
+  { key: 'is_retired', label: 'Retired', aliases: ['is_retired', 'retired'] },
+  { key: 'is_cleanup', label: 'Cleanup', aliases: ['is_cleanup', 'cleanup'] },
+  { key: 'cleanup_status', label: 'Cleanup Status', aliases: ['cleanup_status'] },
+  { key: 'cleanup_tag_type', label: 'Cleanup Tag Type', aliases: ['cleanup_tag_type', 'cleanup_type'] },
+  { key: 'type', label: 'Type', aliases: ['type', 'ticket_type', 'defect_or_enhancement'] },
+  { key: 'created_at', label: 'Created At', aliases: ['created_at', 'reported_at', 'submitted_at', 'date_submitted'] },
+  { key: 'closed_date', label: 'Closed Date', aliases: ['closed_date', 'closed_at', 'date_closed'] },
+  { key: 'updated_at', label: 'Updated At', aliases: ['updated_at', 'status_update_at', 'last_updated_at'] },
 ];
 
 const CLEANUP_STATUSES = ['Not Started', 'In Progress', 'Completed'];
@@ -250,6 +321,261 @@ function normalizeCleanupTagType(value) {
   return CLEANUP_TAG_TYPES.includes(normalized) ? normalized : null;
 }
 
+function normalizeImportHeader(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+}
+
+function normalizeStatusToken(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ');
+}
+
+function normalizeImportRow(raw) {
+  const normalized = {};
+  for (const [key, value] of Object.entries(raw || {})) {
+    const normalizedKey = normalizeImportHeader(key);
+    if (!normalizedKey || Object.prototype.hasOwnProperty.call(normalized, normalizedKey)) {
+      continue;
+    }
+    normalized[normalizedKey] = value;
+  }
+  return normalized;
+}
+
+function suggestImportMappings(headers = []) {
+  const normalizedLookup = new Map();
+  for (const header of headers) {
+    normalizedLookup.set(normalizeImportHeader(header), header);
+  }
+
+  const suggested = {};
+  for (const target of IMPORT_COLUMN_TARGETS) {
+    const matchedAlias = target.aliases.find((alias) => normalizedLookup.has(alias));
+    suggested[target.key] = matchedAlias ? normalizedLookup.get(matchedAlias) : '';
+  }
+  return suggested;
+}
+
+function normalizeColumnMappings(columnMappings) {
+  if (!columnMappings || typeof columnMappings !== 'object') return {};
+  const normalized = {};
+  for (const target of IMPORT_COLUMN_TARGETS) {
+    const raw = columnMappings[target.key];
+    if (typeof raw !== 'string') continue;
+    const trimmed = raw.trim();
+    if (!trimmed) continue;
+    normalized[target.key] = normalizeImportHeader(trimmed);
+  }
+  return normalized;
+}
+
+function getMappedImportValue(row, targetKey, aliases, columnMappings, fallback = null) {
+  const mappedHeader = columnMappings?.[targetKey];
+  const keys = [];
+  if (mappedHeader) keys.push(mappedHeader);
+  if (Array.isArray(aliases)) keys.push(...aliases);
+  return getImportValue(row, keys, fallback);
+}
+
+function getImportValue(row, aliases, fallback = null) {
+  const keys = Array.isArray(aliases) ? aliases : [aliases];
+  for (const key of keys) {
+    if (!Object.prototype.hasOwnProperty.call(row, key)) continue;
+    const value = row[key];
+    if (value === null || value === undefined) continue;
+    if (typeof value === 'string' && value.trim() === '') continue;
+    return value;
+  }
+  return fallback;
+}
+
+function parseImportBoolean(value, fallback = false) {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') return value !== 0;
+  const normalized = String(value || '').trim().toLowerCase();
+  if (!normalized) return fallback;
+  if (['1', 'true', 'yes', 'y'].includes(normalized)) return true;
+  if (['0', 'false', 'no', 'n'].includes(normalized)) return false;
+  return fallback;
+}
+
+function parseImportNumber(value) {
+  if (value === null || value === undefined || String(value).trim() === '') return null;
+  const parsed = Number(String(value).replace(/,/g, '').trim());
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function splitIdentifierTokens(value) {
+  if (value === null || value === undefined) return [];
+  return String(value)
+    .replace(/\r\n?/g, '\n')
+    .split(/[\n,;\t|]+/)
+    .map((token) => token.trim())
+    .filter(Boolean);
+}
+
+function classifyIdentifierToken(token) {
+  const normalized = String(token || '').trim().replace(/\s+/g, '');
+  if (!normalized) return { kind: 'unknown', value: '' };
+  if (/^\d{7}(-\d{2})?$/.test(normalized)) {
+    return { kind: 'policy', value: normalized };
+  }
+  const accountDigits = normalized.replace(/[^\d]/g, '');
+  if (accountDigits.length === 10) {
+    return { kind: 'account', value: accountDigits };
+  }
+  return { kind: 'unknown', value: normalized };
+}
+
+function dedupeValues(values) {
+  const seen = new Set();
+  const result = [];
+  for (const value of values) {
+    if (!value) continue;
+    if (seen.has(value)) continue;
+    seen.add(value);
+    result.push(value);
+  }
+  return result;
+}
+
+function parsePolicyAndAccountNumbers(row, options = {}) {
+  const columnMappings = normalizeColumnMappings(options?.columnMappings || {});
+  const combinedValue = getMappedImportValue(
+    row,
+    'combined_policy_account',
+    ['policy_account', 'policy_account_num', 'policy_account_number', 'policy_or_account'],
+    columnMappings,
+    '',
+  );
+
+  const policyCandidates = [
+    getMappedImportValue(row, 'policy_num', ['policy_num', 'policy_number'], columnMappings, ''),
+    combinedValue,
+  ];
+  const accountCandidates = [
+    getMappedImportValue(row, 'account_num', ['account_num', 'account_number'], columnMappings, ''),
+    combinedValue,
+  ];
+
+  const policyValues = [];
+  const accountValues = [];
+
+  for (const candidate of policyCandidates) {
+    for (const token of splitIdentifierTokens(candidate)) {
+      const parsed = classifyIdentifierToken(token);
+      if (parsed.kind === 'policy') {
+        policyValues.push(parsed.value);
+      } else if (parsed.kind === 'account') {
+        accountValues.push(parsed.value);
+      }
+    }
+  }
+
+  for (const candidate of accountCandidates) {
+    for (const token of splitIdentifierTokens(candidate)) {
+      const parsed = classifyIdentifierToken(token);
+      if (parsed.kind === 'account') {
+        accountValues.push(parsed.value);
+      } else if (parsed.kind === 'policy') {
+        policyValues.push(parsed.value);
+      }
+    }
+  }
+
+  const uniquePolicies = dedupeValues(policyValues);
+  const uniqueAccounts = dedupeValues(accountValues);
+
+  return {
+    policyNum: uniquePolicies.length > 0 ? uniquePolicies.join(', ') : null,
+    accountNum: uniqueAccounts.length > 0 ? uniqueAccounts.join(', ') : null,
+  };
+}
+
+app.post('/api/admin/submissions/import-xlsx/analyze', ensureAdmin, tempUpload.single('file'), async (req, res) => {
+  const uploadedFile = req.file;
+  if (!uploadedFile) {
+    return res.status(400).json({ error: 'Please upload an Excel file (.xlsx or .xls).' });
+  }
+
+  const extension = path.extname(uploadedFile.originalname || '').toLowerCase();
+  if (!['.xlsx', '.xls'].includes(extension)) {
+    fs.rmSync(uploadedFile.path, { force: true });
+    return res.status(400).json({ error: 'Unsupported file type. Please upload .xlsx or .xls.' });
+  }
+
+  try {
+    const workbook = XLSX.readFile(uploadedFile.path, { cellDates: true, cellText: true });
+    const requestedSheet = String(req.body?.sheet || req.query?.sheet || '').trim();
+    const sheetName = requestedSheet && workbook.SheetNames.includes(requestedSheet)
+      ? requestedSheet
+      : workbook.SheetNames[0];
+
+    if (!sheetName) {
+      return res.status(400).json({ error: 'No worksheet found in the uploaded file.' });
+    }
+
+    const worksheet = workbook.Sheets[sheetName];
+    const rawRows = XLSX.utils.sheet_to_json(worksheet, {
+      defval: '',
+      raw: false,
+      blankrows: false,
+    });
+
+    if (!Array.isArray(rawRows) || rawRows.length === 0) {
+      return res.status(400).json({ error: 'The worksheet is empty. Add header row and data rows.' });
+    }
+
+    const headers = Object.keys(rawRows[0] || {});
+    const normalizedHeaders = headers.map((header) => normalizeImportHeader(header));
+    const suggestedMappings = suggestImportMappings(headers);
+    const normalizedSuggestedMappings = normalizeColumnMappings(suggestedMappings);
+
+    const applicationAliases = ['application_name', 'application'];
+    const mappedApplicationHeader = normalizedSuggestedMappings.application_name || '';
+    const hasApplicationColumn = Boolean(mappedApplicationHeader)
+      || applicationAliases.some((alias) => normalizedHeaders.includes(alias));
+
+    const unknownStatusesSet = new Set();
+    rawRows.forEach((rawRow) => {
+      const row = normalizeImportRow(rawRow);
+      const rawStatus = String(
+        getMappedImportValue(
+          row,
+          'status',
+          ['status', 'defect_enhancement_status'],
+          normalizedSuggestedMappings,
+          '',
+        ) || '',
+      ).trim();
+      if (!rawStatus) return;
+      if (!DEFECT_ENHANCEMENT_STATUSES_WITH_RETIRED.includes(rawStatus)) {
+        unknownStatusesSet.add(rawStatus);
+      }
+    });
+
+    return res.json({
+      sheet: sheetName,
+      headers,
+      mappingTargets: IMPORT_COLUMN_TARGETS.map((target) => ({ key: target.key, label: target.label })),
+      suggestedMappings,
+      requiresApplicationDefault: !hasApplicationColumn,
+      unknownStatuses: Array.from(unknownStatusesSet),
+      allowedStatuses: DEFECT_ENHANCEMENT_STATUSES_WITH_RETIRED,
+      previewRows: Math.min(rawRows.length, 5),
+      totalRows: rawRows.length,
+    });
+  } finally {
+    fs.rmSync(uploadedFile.path, { force: true });
+  }
+});
+
 function defectDateTimeIso(body) {
   if (!isBlank(body.date_time_of_error)) {
     return toIsoOrNow(body.date_time_of_error);
@@ -289,6 +615,36 @@ async function withDb(handler) {
   };
 
   return handler(db);
+}
+
+function parseErrorsJson(value) {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(String(value));
+    return Array.isArray(parsed) ? parsed.filter((item) => typeof item === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+function mapExcelImportRun(row) {
+  if (!row) return null;
+  return {
+    id: Number(row.id),
+    created_at: row.created_at,
+    created_by: row.created_by || null,
+    file_name: row.file_name || '',
+    sheet_name: row.sheet_name || '',
+    import_mode: row.import_mode || '',
+    total_rows: Number(row.total_rows || 0),
+    valid_rows: Number(row.valid_rows || 0),
+    invalid_rows: Number(row.invalid_rows || 0),
+    inserted_rows: Number(row.inserted_rows || 0),
+    dry_run: Boolean(row.dry_run),
+    status: row.status || 'partial',
+    summary_message: row.summary_message || '',
+    errors: parseErrorsJson(row.errors_json),
+  };
 }
 
 async function persistUploadedFiles(db, submissionId, files, uploadedByRole) {
@@ -393,6 +749,27 @@ app.get('/api/auth/me', (req, res) => {
   return res.json({ user: req.session.user });
 });
 
+app.get('/api/admin/submissions/import-xlsx/history', ensureAdmin, async (req, res) => {
+  const requestedLimit = Number.parseInt(String(req.query?.limit || '10'), 10);
+  const limit = Number.isFinite(requestedLimit)
+    ? Math.min(Math.max(requestedLimit, 1), 50)
+    : 10;
+
+  return withDb(async (db) => {
+    const rows = await db.all(
+      `
+      SELECT *
+      FROM excel_import_runs
+      ORDER BY datetime(created_at) DESC, id DESC
+      LIMIT ?
+    `,
+      [limit],
+    );
+
+    return res.json(rows.map(mapExcelImportRun));
+  });
+});
+
 app.post('/api/submissions', tempUpload.array('attachments', 3), async (req, res) => {
   const {
     created_by,
@@ -493,16 +870,17 @@ app.post('/api/submissions', tempUpload.array('attachments', 3), async (req, res
     const insert = await db.run(
       `
       INSERT INTO submissions (
-        created_at, updated_at, created_by, created_by_email, type, application_name,
+        created_at, updated_at, created_via, created_by, created_by_email, type, application_name,
         policy_num, account_num, transaction_num, screen_title, summary_of_issue,
         steps_to_reproduce, what_happened_exact_details, request, date_time_of_error,
         status, reviewer, decision_notes, fingerprint, duplicate_of, easyvista_ticket_id,
         desired_completion_date, impact_details, enhancement_request_type, priority_level, jira_number, is_public
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'New', NULL, NULL, NULL, NULL, NULL, ?, NULL, NULL, ?, NULL, 0)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'New', NULL, NULL, NULL, NULL, NULL, ?, NULL, NULL, ?, NULL, 0)
     `,
       [
         now,
         now,
+        'rep_form',
         normalized.created_by,
         normalized.created_by_email,
         normalized.type,
@@ -619,6 +997,7 @@ app.get('/api/admin/submissions', ensureAdmin, async (req, res) => {
     search,
     requester,
     submittedBy,
+    createdVia,
     retiredFilter,
     year,
     inJira,
@@ -689,6 +1068,21 @@ app.get('/api/admin/submissions', ensureAdmin, async (req, res) => {
       clauses.push('COALESCE(easyvista_submitted_by, \'\') LIKE ?');
       params.push(`%${submittedBy}%`);
     }
+    if (createdVia) {
+      const normalizedCreatedVia = String(createdVia || '').trim().toLowerCase();
+      const allowedCreatedVia = [
+        'rep_form',
+        'admin_excel_import',
+        'admin_backdated',
+        'admin_cleanup',
+        'admin_manual',
+        'admin_easyvista_resubmission',
+      ];
+      if (allowedCreatedVia.includes(normalizedCreatedVia)) {
+        clauses.push('created_via = ?');
+        params.push(normalizedCreatedVia);
+      }
+    }
     if (retiredFilter === 'retired_only') {
       clauses.push("(COALESCE(is_retired, 0) = 1 OR status = 'Retired')");
     } else if (retiredFilter === 'non_retired') {
@@ -754,6 +1148,7 @@ app.get('/api/admin/submissions', ensureAdmin, async (req, res) => {
               status, reviewer, decision_notes, easyvista_ticket_id, easyvista_submitted_by, is_public, is_retired,
                   impact_notes, policy_premium_impact, direct_dollar_impact, policies_affected_count,
                   jira_number, logged_defect, release_number, release_notes, is_cleanup, cleanup_status, cleanup_tag_type,
+              created_via,
                   is_resubmission, resubmission_of_submission_id, resubmission_of_easyvista_ticket_id,
                   has_resubmission, latest_resubmission_submission_id, latest_resubmission_easyvista_ticket_id,
                   (
@@ -811,7 +1206,7 @@ app.get('/api/admin/submissions/:id', ensureAdmin, async (req, res) => {
 });
 
 app.post('/api/admin/submissions', ensureAdmin, async (req, res) => {
-  const allowedStatuses = ['New', 'Approved', 'Rejected', 'Duplicate', 'Submitted', 'Deployed'];
+  const allowedStatuses = DEFECT_ENHANCEMENT_STATUSES;
   const historicalStatuses = [...allowedStatuses, 'Retired'];
   const body = req.body || {};
   const isCleanup = Boolean(body.is_cleanup);
@@ -821,6 +1216,10 @@ app.post('/api/admin/submissions', ensureAdmin, async (req, res) => {
   const effectiveType = isCleanup
     ? (cleanupTagType === 'enhancement' ? 'enhancement' : (normalizedRequestedType || 'defect'))
     : normalizedRequestedType;
+  const requestedCreatedVia = String(body.created_via || '').trim().toLowerCase();
+  const createdVia = ['admin_backdated', 'admin_cleanup', 'admin_manual'].includes(requestedCreatedVia)
+    ? requestedCreatedVia
+    : 'admin_manual';
 
   if (!['defect', 'enhancement'].includes(effectiveType)) {
     return res.status(400).json({ error: 'Invalid submission type' });
@@ -847,16 +1246,17 @@ app.post('/api/admin/submissions', ensureAdmin, async (req, res) => {
   return withDb(async (db) => {
     const insert = await db.run(
       `INSERT INTO submissions (
-        created_at, updated_at, created_by, created_by_email, type, application_name,
+        created_at, updated_at, created_via, created_by, created_by_email, type, application_name,
         policy_num, account_num, transaction_num, screen_title, summary_of_issue,
         steps_to_reproduce, what_happened_exact_details, request, date_time_of_error,
         status, reviewer, decision_notes, fingerprint, duplicate_of, easyvista_ticket_id,
         desired_completion_date, impact_details, enhancement_request_type, priority_level,
         jira_number, release_number, release_notes, is_cleanup, cleanup_status, cleanup_tag_type, easyvista_submitted_by, is_public, is_retired, logged_defect
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
         createdAt,
         updatedAt,
+        createdVia,
         String(body.created_by).trim(),
         String(body.created_by_email || '-').trim() || '-',
         effectiveType,
@@ -982,7 +1382,7 @@ app.post('/api/admin/submissions', ensureAdmin, async (req, res) => {
 });
 
 app.put('/api/admin/submissions/:id', ensureAdmin, async (req, res) => {
-  const allowedStatuses = ['New', 'Approved', 'Rejected', 'Duplicate', 'Submitted', 'Deployed'];
+  const allowedStatuses = DEFECT_ENHANCEMENT_STATUSES;
   const body = req.body || {};
 
   return withDb(async (db) => {
@@ -1401,6 +1801,455 @@ app.delete('/api/admin/attachments/:id', ensureAdmin, async (req, res) => {
   });
 });
 
+app.post('/api/admin/submissions/import-xlsx', ensureAdmin, tempUpload.single('file'), async (req, res) => {
+  const uploadedFile = req.file;
+  if (!uploadedFile) {
+    return res.status(400).json({ error: 'Please upload an Excel file (.xlsx or .xls).' });
+  }
+
+  const extension = path.extname(uploadedFile.originalname || '').toLowerCase();
+  if (!['.xlsx', '.xls'].includes(extension)) {
+    fs.rmSync(uploadedFile.path, { force: true });
+    return res.status(400).json({ error: 'Unsupported file type. Please upload .xlsx or .xls.' });
+  }
+
+  const requestedImportMode = String(req.body?.importMode || req.query?.importMode || '').trim().toLowerCase();
+  const importMode = ['defect', 'enhancement', 'cleanup'].includes(requestedImportMode)
+    ? requestedImportMode
+    : null;
+  if (!importMode) {
+    fs.rmSync(uploadedFile.path, { force: true });
+    return res.status(400).json({
+      error: 'Choose import type: Defect, Enhancement, or Cleanup.',
+    });
+  }
+
+  let columnMappings = {};
+  try {
+    if (req.body?.columnMappings) {
+      columnMappings = typeof req.body.columnMappings === 'string'
+        ? JSON.parse(req.body.columnMappings)
+        : req.body.columnMappings;
+    }
+  } catch {
+    columnMappings = {};
+  }
+  const normalizedColumnMappings = normalizeColumnMappings(columnMappings);
+
+  const defaultApplicationNameRaw = String(req.body?.defaultApplicationName || '').trim();
+  const defaultApplicationName = ['Billing Center', 'Policy Center'].includes(defaultApplicationNameRaw)
+    ? defaultApplicationNameRaw
+    : '';
+
+  let statusValueMappings = {};
+  try {
+    if (req.body?.statusValueMappings) {
+      statusValueMappings = typeof req.body.statusValueMappings === 'string'
+        ? JSON.parse(req.body.statusValueMappings)
+        : req.body.statusValueMappings;
+    }
+  } catch {
+    statusValueMappings = {};
+  }
+  const normalizedStatusValueMappings = {};
+  if (statusValueMappings && typeof statusValueMappings === 'object') {
+    for (const [rawKey, rawValue] of Object.entries(statusValueMappings)) {
+      const fromKey = normalizeStatusToken(rawKey);
+      const toStatus = String(rawValue || '').trim();
+      if (!fromKey) continue;
+      if (!DEFECT_ENHANCEMENT_STATUSES_WITH_RETIRED.includes(toStatus)) continue;
+      normalizedStatusValueMappings[fromKey] = toStatus;
+    }
+  }
+
+  try {
+    const workbook = XLSX.readFile(uploadedFile.path, {
+      cellDates: true,
+      cellText: true,
+    });
+
+    const requestedSheet = String(req.body?.sheet || req.query?.sheet || '').trim();
+    const sheetName = requestedSheet && workbook.SheetNames.includes(requestedSheet)
+      ? requestedSheet
+      : workbook.SheetNames[0];
+
+    if (!sheetName) {
+      return res.status(400).json({ error: 'No worksheet found in the uploaded file.' });
+    }
+
+    const worksheet = workbook.Sheets[sheetName];
+    const rawRows = XLSX.utils.sheet_to_json(worksheet, {
+      defval: '',
+      raw: false,
+      blankrows: false,
+    });
+
+    if (!Array.isArray(rawRows) || rawRows.length === 0) {
+      return res.status(400).json({ error: 'The worksheet is empty. Add header row and data rows.' });
+    }
+
+    const availableHeaders = Object.keys(rawRows[0] || {});
+    const normalizedHeaders = availableHeaders.map((header) => normalizeImportHeader(header));
+    const knownIdentifierHeaders = [
+      'policy_num',
+      'policy_number',
+      'account_num',
+      'account_number',
+      'policy_account',
+      'policy_account_num',
+      'policy_account_number',
+      'policy_or_account',
+    ];
+    const hasAutoIdentifierMapping = knownIdentifierHeaders.some((header) => normalizedHeaders.includes(header));
+    const normalizedMappedCombinedHeader = normalizedColumnMappings.combined_policy_account || '';
+    const normalizedMappedApplicationHeader = normalizedColumnMappings.application_name || '';
+    const hasAutoApplicationMapping = ['application_name', 'application'].some((header) => normalizedHeaders.includes(header));
+
+    if (normalizedMappedApplicationHeader && !normalizedHeaders.includes(normalizedMappedApplicationHeader)) {
+      return res.status(400).json({
+        error: 'Mapped Application column was not found in this file. Please select a valid column name.',
+        mappingRequired: true,
+        mappingField: 'applicationColumn',
+        availableHeaders,
+      });
+    }
+
+    if (!hasAutoApplicationMapping && !normalizedMappedApplicationHeader && !defaultApplicationName) {
+      return res.status(400).json({
+        error: 'No Application column was detected. Please choose a default application before importing.',
+        mappingRequired: true,
+        mappingField: 'defaultApplicationName',
+        availableApplications: ['Billing Center', 'Policy Center'],
+      });
+    }
+
+    if (normalizedMappedCombinedHeader && !normalizedHeaders.includes(normalizedMappedCombinedHeader)) {
+      return res.status(400).json({
+        error: 'Mapped combined Policy/Account column was not found in this file. Please select a valid column name.',
+        mappingRequired: true,
+        mappingField: 'combinedPolicyAccountColumn',
+        availableHeaders,
+      });
+    }
+
+    if (!hasAutoIdentifierMapping && !normalizedMappedCombinedHeader) {
+      return res.status(400).json({
+        error: 'Could not auto-map Policy/Account columns. Please choose the combined Policy/Account column and retry.',
+        mappingRequired: true,
+        mappingField: 'combinedPolicyAccountColumn',
+        availableHeaders,
+      });
+    }
+
+    const dryRun = ['1', 'true', 'yes'].includes(String(req.body?.dryRun || req.query?.dryRun || '').trim().toLowerCase());
+    const preparedRows = [];
+    const errors = [];
+    const unknownStatusesDetected = new Set();
+
+    rawRows.forEach((rawRow, index) => {
+      const rowNumber = index + 2;
+      const row = normalizeImportRow(rawRow);
+      const identifiers = parsePolicyAndAccountNumbers(row, {
+        columnMappings: normalizedColumnMappings,
+      });
+
+      const createdByRaw = String(getMappedImportValue(row, 'created_by', ['created_by', 'requester_name', 'requester', 'submitted_by_name'], normalizedColumnMappings, '') || '').trim();
+      const summaryOfIssueRaw = String(getMappedImportValue(row, 'summary_of_issue', ['summary_of_issue', 'summary', 'title', 'issue_summary'], normalizedColumnMappings, '') || '').trim();
+      const createdBy = createdByRaw || '-';
+      const summaryOfIssue = summaryOfIssueRaw || '-';
+      const requestedType = String(getMappedImportValue(row, 'type', ['type', 'ticket_type', 'defect_or_enhancement'], normalizedColumnMappings, 'defect') || 'defect').trim().toLowerCase();
+
+      const statusInput = String(getMappedImportValue(row, 'status', ['status', 'defect_enhancement_status'], normalizedColumnMappings, '') || '').trim();
+      let importedStatus = 'New';
+      if (!statusInput) {
+        importedStatus = 'New';
+      } else if (DEFECT_ENHANCEMENT_STATUSES_WITH_RETIRED.includes(statusInput)) {
+        importedStatus = statusInput;
+      } else {
+        const mappedStatus = normalizedStatusValueMappings[normalizeStatusToken(statusInput)] || '';
+        if (mappedStatus && DEFECT_ENHANCEMENT_STATUSES_WITH_RETIRED.includes(mappedStatus)) {
+          importedStatus = mappedStatus;
+        } else {
+          unknownStatusesDetected.add(statusInput);
+          errors.push(`Row ${rowNumber}: unrecognized status "${statusInput}". Map this status before importing.`);
+          return;
+        }
+      }
+      const importedIsRetired = parseImportBoolean(getMappedImportValue(row, 'is_retired', ['is_retired', 'retired'], normalizedColumnMappings, false), false)
+        || importedStatus === 'Retired';
+      const finalStatus = importedStatus === 'Retired' ? 'New' : importedStatus;
+
+      const rowCleanupTagType = normalizeCleanupTagType(getMappedImportValue(row, 'cleanup_tag_type', ['cleanup_tag_type', 'cleanup_type'], normalizedColumnMappings, null));
+      const inferredCleanup = parseImportBoolean(getMappedImportValue(row, 'is_cleanup', ['is_cleanup', 'cleanup'], normalizedColumnMappings, false), false) || Boolean(rowCleanupTagType);
+      const isCleanup = importMode === 'cleanup' ? true : inferredCleanup;
+      const requestedCleanupStatus = String(getMappedImportValue(row, 'cleanup_status', ['cleanup_status'], normalizedColumnMappings, '') || '').trim();
+      const cleanupStatus = isCleanup
+        ? (CLEANUP_STATUSES.includes(requestedCleanupStatus) ? requestedCleanupStatus : 'Not Started')
+        : null;
+      const effectiveCleanupTagType = isCleanup
+        ? (importMode === 'cleanup' ? 'cleanup_only' : (rowCleanupTagType || 'cleanup_only'))
+        : null;
+
+      let effectiveType = ['defect', 'enhancement'].includes(requestedType) ? requestedType : 'defect';
+      if (importMode === 'defect') {
+        effectiveType = 'defect';
+      } else if (importMode === 'enhancement') {
+        effectiveType = 'enhancement';
+      } else if (isCleanup) {
+        effectiveType = effectiveCleanupTagType === 'enhancement' ? 'enhancement' : 'defect';
+      }
+
+      const finalIsCleanup = importMode === 'cleanup' ? true : isCleanup;
+      const finalCleanupTagType = finalIsCleanup ? effectiveCleanupTagType : null;
+      const finalCleanupStatus = finalIsCleanup ? cleanupStatus : null;
+
+      const applicationValue = String(getMappedImportValue(row, 'application_name', ['application_name', 'application'], normalizedColumnMappings, '') || '').trim();
+      let applicationName = applicationValue;
+      if (!applicationName) {
+        applicationName = defaultApplicationName || 'Billing Center';
+      }
+      const createdAt = toIsoOrNow(getMappedImportValue(row, 'created_at', ['created_at', 'reported_at', 'submitted_at', 'date_submitted'], normalizedColumnMappings, null));
+      const closedDateRaw = getMappedImportValue(row, 'closed_date', ['closed_date', 'closed_at', 'date_closed'], normalizedColumnMappings, null);
+      const updatedAtRaw = getMappedImportValue(row, 'updated_at', ['updated_at', 'status_update_at', 'last_updated_at'], normalizedColumnMappings, null);
+      const updatedAtSource = closedDateRaw || updatedAtRaw || createdAt;
+      const updatedAt = toIsoOrNow(updatedAtSource);
+
+      const dateTimeOfErrorRaw = getMappedImportValue(row, 'date_time_of_error', ['date_time_of_error', 'error_datetime', 'error_date_time', 'date_of_error'], normalizedColumnMappings, null);
+      const dateTimeOfError = dateTimeOfErrorRaw ? toIsoOrNow(dateTimeOfErrorRaw) : createdAt;
+
+      const enhancementRequestTypeRaw = getMappedImportValue(
+        row,
+        'enhancement_request_type',
+        ['enhancement_request_type', 'request_type'],
+        normalizedColumnMappings,
+        null,
+      );
+      const enhancementRequestType = isBlank(enhancementRequestTypeRaw)
+        ? null
+        : String(enhancementRequestTypeRaw).trim();
+      const priorityLevelRaw = getMappedImportValue(row, 'priority_level', ['priority_level', 'priority'], normalizedColumnMappings, null);
+      const priorityLevel = isBlank(priorityLevelRaw)
+        ? (effectiveType === 'enhancement' ? '3 - Medium' : null)
+        : String(priorityLevelRaw).trim();
+
+      preparedRows.push({
+        rowNumber,
+        created_at: createdAt,
+        updated_at: updatedAt,
+        created_by: createdBy,
+        created_by_email: String(getMappedImportValue(row, 'created_by_email', ['created_by_email', 'requester_email', 'email'], normalizedColumnMappings, '-') || '-').trim() || '-',
+        type: effectiveType,
+        application_name: applicationName,
+        policy_num: identifiers.policyNum,
+        account_num: identifiers.accountNum,
+        transaction_num: isBlank(getMappedImportValue(row, 'transaction_num', ['transaction_num', 'transaction_number'], normalizedColumnMappings, null)) ? null : String(getMappedImportValue(row, 'transaction_num', ['transaction_num', 'transaction_number'], normalizedColumnMappings, '')).trim(),
+        screen_title: String(getMappedImportValue(row, 'screen_title', ['screen_title', 'screen'], normalizedColumnMappings, '-') || '-').trim() || '-',
+        summary_of_issue: summaryOfIssue,
+        steps_to_reproduce: String(getMappedImportValue(row, 'steps_to_reproduce', ['steps_to_reproduce', 'steps'], normalizedColumnMappings, '-') || '-').trim() || '-',
+        what_happened_exact_details: String(getMappedImportValue(row, 'what_happened_exact_details', ['what_happened_exact_details', 'description', 'details'], normalizedColumnMappings, '-') || '-').trim() || '-',
+        request: String(getMappedImportValue(row, 'request', ['request', 'requested_change'], normalizedColumnMappings, '-') || '-').trim() || '-',
+        date_time_of_error: dateTimeOfError,
+        status: finalStatus,
+        reviewer: isBlank(getMappedImportValue(row, 'reviewer', ['reviewer'], normalizedColumnMappings, null)) ? null : String(getMappedImportValue(row, 'reviewer', ['reviewer'], normalizedColumnMappings, '')).trim(),
+        decision_notes: isBlank(getMappedImportValue(row, 'decision_notes', ['decision_notes'], normalizedColumnMappings, null)) ? null : String(getMappedImportValue(row, 'decision_notes', ['decision_notes'], normalizedColumnMappings, '')).trim(),
+        desired_completion_date: isBlank(getMappedImportValue(row, 'desired_completion_date', ['desired_completion_date', 'target_date'], normalizedColumnMappings, null))
+          ? null
+          : toIsoOrNow(getMappedImportValue(row, 'desired_completion_date', ['desired_completion_date', 'target_date'], normalizedColumnMappings, null)),
+        impact_details: isBlank(getMappedImportValue(row, 'impact_details', ['impact_details'], normalizedColumnMappings, null)) ? null : String(getMappedImportValue(row, 'impact_details', ['impact_details'], normalizedColumnMappings, '')).trim(),
+        impact_notes: isBlank(getMappedImportValue(row, 'impact_notes', ['impact_notes'], normalizedColumnMappings, null)) ? null : String(getMappedImportValue(row, 'impact_notes', ['impact_notes'], normalizedColumnMappings, '')).trim(),
+        policy_premium_impact: parseImportNumber(getMappedImportValue(row, 'policy_premium_impact', ['policy_premium_impact'], normalizedColumnMappings, null)),
+        direct_dollar_impact: parseImportNumber(getMappedImportValue(row, 'direct_dollar_impact', ['direct_dollar_impact'], normalizedColumnMappings, null)),
+        policies_affected_count: parseImportNumber(getMappedImportValue(row, 'policies_affected_count', ['policies_affected_count'], normalizedColumnMappings, null)),
+        logged_defect: parseImportBoolean(getMappedImportValue(row, 'logged_defect', ['logged_defect', 'in_jira'], normalizedColumnMappings, false), false),
+        enhancement_request_type: enhancementRequestType,
+        priority_level: priorityLevel,
+        jira_number: isBlank(getMappedImportValue(row, 'jira_number', ['jira_number', 'jira'], normalizedColumnMappings, null)) ? null : String(getMappedImportValue(row, 'jira_number', ['jira_number', 'jira'], normalizedColumnMappings, '')).trim(),
+        release_number: isBlank(getMappedImportValue(row, 'release_number', ['release_number', 'release'], normalizedColumnMappings, null)) ? null : String(getMappedImportValue(row, 'release_number', ['release_number', 'release'], normalizedColumnMappings, '')).trim(),
+        release_notes: isBlank(getMappedImportValue(row, 'release_notes', ['release_notes'], normalizedColumnMappings, null)) ? null : String(getMappedImportValue(row, 'release_notes', ['release_notes'], normalizedColumnMappings, '')).trim(),
+        easyvista_ticket_id: isBlank(getMappedImportValue(row, 'easyvista_ticket_id', ['easyvista_ticket_id', 'easyvista_ticket', 'easyvista_number', 'easyvista_id', 'ticket_id'], normalizedColumnMappings, null))
+          ? null
+          : String(getMappedImportValue(row, 'easyvista_ticket_id', ['easyvista_ticket_id', 'easyvista_ticket', 'easyvista_number', 'easyvista_id', 'ticket_id'], normalizedColumnMappings, '')).trim(),
+        is_cleanup: finalIsCleanup,
+        cleanup_status: finalCleanupStatus,
+        cleanup_tag_type: finalCleanupTagType,
+        easyvista_submitted_by: String(getMappedImportValue(row, 'easyvista_submitted_by', ['easyvista_submitted_by', 'submitted_by_easyvista'], normalizedColumnMappings, 'Unknown') || 'Unknown').trim() || 'Unknown',
+        is_public: parseImportBoolean(getMappedImportValue(row, 'is_public', ['is_public', 'public'], normalizedColumnMappings, false), false),
+        is_retired: importedIsRetired,
+        imported_status_label: importedStatus,
+      });
+    });
+
+    const responseBase = {
+      importMode,
+      sheet: sheetName,
+      totalRows: rawRows.length,
+      validRows: preparedRows.length,
+      invalidRows: errors.length,
+      insertedRows: 0,
+      dryRun,
+      errors: errors.slice(0, 100),
+      unknownStatuses: Array.from(unknownStatusesDetected),
+    };
+
+    if (unknownStatusesDetected.size > 0) {
+      return res.status(400).json({
+        error: 'Some status values do not match available statuses. Please map them and retry.',
+        mappingRequired: true,
+        mappingField: 'statusValueMappings',
+        unknownStatuses: Array.from(unknownStatusesDetected),
+        allowedStatuses: DEFECT_ENHANCEMENT_STATUSES_WITH_RETIRED,
+      });
+    }
+
+    return withDb(async (db) => {
+      const changedBy = req.session?.user?.username || 'admin';
+      let insertedRows = 0;
+      const insertionErrors = [];
+
+      if (!dryRun && preparedRows.length > 0) {
+        for (const row of preparedRows) {
+          try {
+            const insertColumns = [
+              'created_at', 'updated_at', 'created_via', 'created_by', 'created_by_email', 'type', 'application_name',
+              'policy_num', 'account_num', 'transaction_num', 'screen_title', 'summary_of_issue',
+              'steps_to_reproduce', 'what_happened_exact_details', 'request', 'date_time_of_error',
+              'status', 'reviewer', 'decision_notes', 'fingerprint', 'duplicate_of', 'easyvista_ticket_id',
+              'desired_completion_date', 'impact_details', 'enhancement_request_type', 'priority_level',
+              'jira_number', 'release_number', 'release_notes', 'is_cleanup', 'cleanup_status', 'cleanup_tag_type',
+              'easyvista_submitted_by', 'is_public', 'is_retired', 'logged_defect',
+            ];
+            const insertValues = [
+              row.created_at,
+              row.updated_at,
+              'admin_excel_import',
+              row.created_by,
+              row.created_by_email,
+              row.type,
+              row.application_name,
+              row.policy_num,
+              row.account_num,
+              row.transaction_num,
+              row.screen_title,
+              row.summary_of_issue,
+              row.steps_to_reproduce,
+              row.what_happened_exact_details,
+              row.request,
+              row.date_time_of_error,
+              row.status,
+              row.reviewer,
+              row.decision_notes,
+              null,
+              null,
+              row.easyvista_ticket_id,
+              row.desired_completion_date,
+              row.impact_details,
+              row.enhancement_request_type,
+              row.priority_level,
+              row.jira_number,
+              row.release_number,
+              row.release_notes,
+              toBooleanSql(row.is_cleanup),
+              row.cleanup_status,
+              row.cleanup_tag_type,
+              row.easyvista_submitted_by,
+              toBooleanSql(row.is_public),
+              toBooleanSql(row.is_retired),
+              toBooleanSql(row.logged_defect),
+            ];
+            const placeholders = insertColumns.map(() => '?').join(',');
+
+            const insert = await db.run(
+              `INSERT INTO submissions (
+                ${insertColumns.join(', ')}
+              ) VALUES (${placeholders})`,
+              insertValues,
+            );
+
+            const submissionId = insert.lastID;
+            await logStatusChange(db, submissionId, 'New', changedBy, row.created_at);
+            if (row.status !== 'New') {
+              await logStatusChange(db, submissionId, row.status, changedBy, row.updated_at);
+            }
+            if (row.is_retired) {
+              await logStatusChange(db, submissionId, 'Retired', changedBy, row.updated_at);
+            }
+
+            insertedRows += 1;
+          } catch (rowError) {
+            const rawMessage = String(rowError?.message || 'Unable to import this row.');
+            const normalizedMessage = rawMessage.toLowerCase();
+            if (normalizedMessage.includes('values for') && normalizedMessage.includes('columns')) {
+              insertionErrors.push(
+                `Row ${row.rowNumber}: import template mismatch (field count vs value count). Please contact support; this row was skipped.`,
+              );
+              continue;
+            }
+            insertionErrors.push(
+              `Row ${row.rowNumber}: ${rawMessage}`,
+            );
+          }
+        }
+      }
+
+      if (!dryRun && insertedRows > 0) {
+        emitAdminNotification('submissions:bulk-imported', {
+          insertedRows,
+          totalRows: rawRows.length,
+        });
+      }
+
+      const combinedErrors = [...responseBase.errors, ...insertionErrors].slice(0, 100);
+      const invalidRows = responseBase.invalidRows + insertionErrors.length;
+      const status = dryRun
+        ? (invalidRows > 0 ? 'partial' : 'success')
+        : insertedRows === 0
+          ? 'error'
+          : invalidRows > 0
+            ? 'partial'
+            : 'success';
+      const summaryMessage = dryRun
+        ? `Dry run complete: ${responseBase.validRows} valid row(s), ${invalidRows} invalid row(s).`
+        : `Import complete: ${insertedRows} of ${responseBase.totalRows} row(s) added.${invalidRows > 0 ? ` Skipped ${invalidRows} invalid row(s).` : ''}`;
+
+      const historyInsert = await db.run(
+        `
+        INSERT INTO excel_import_runs (
+          created_at, created_by, file_name, sheet_name, import_mode,
+          total_rows, valid_rows, invalid_rows, inserted_rows, dry_run,
+          status, summary_message, errors_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `,
+        [
+          new Date().toISOString(),
+          changedBy,
+          String(uploadedFile.originalname || 'upload.xlsx'),
+          sheetName,
+          importMode,
+          responseBase.totalRows,
+          responseBase.validRows,
+          invalidRows,
+          insertedRows,
+          toBooleanSql(dryRun),
+          status,
+          summaryMessage,
+          JSON.stringify(combinedErrors),
+        ],
+      );
+      const historyEntry = await db.get('SELECT * FROM excel_import_runs WHERE id = ?', [historyInsert.lastID]);
+
+      return res.json({
+        ...responseBase,
+        invalidRows,
+        insertedRows,
+        errors: combinedErrors,
+        historyEntry: mapExcelImportRun(historyEntry),
+      });
+    });
+  } finally {
+    fs.rmSync(uploadedFile.path, { force: true });
+  }
+});
+
 app.post('/api/admin/submissions/:id/submit-easyvista', ensureAdmin, async (req, res) => {
   return withDb(async (db) => {
     const submission = await db.get('SELECT * FROM submissions WHERE id = ?', [req.params.id]);
@@ -1417,7 +2266,7 @@ app.post('/api/admin/submissions/:id/submit-easyvista', ensureAdmin, async (req,
     };
 
     if (isResubmissionRequest && draftPayload) {
-      const allowedStatuses = ['New', 'Approved', 'Rejected', 'Duplicate', 'Submitted', 'Deployed'];
+      const allowedStatuses = DEFECT_ENHANCEMENT_STATUSES;
       const hasCleanupTagType = Object.prototype.hasOwnProperty.call(draftPayload, 'cleanup_tag_type');
       const incomingCleanupTagType = normalizeCleanupTagType(draftPayload.cleanup_tag_type);
       const existingCleanupTagType = normalizeCleanupTagType(submission.cleanup_tag_type);
@@ -1592,7 +2441,7 @@ app.post('/api/admin/submissions/:id/submit-easyvista', ensureAdmin, async (req,
     const created = await db.run(
       `
       INSERT INTO submissions (
-        created_at, updated_at, created_by, created_by_email, type, application_name,
+        created_at, updated_at, created_via, created_by, created_by_email, type, application_name,
         policy_num, account_num, transaction_num, screen_title, summary_of_issue,
         steps_to_reproduce, what_happened_exact_details, request, date_time_of_error,
         status, reviewer, decision_notes, fingerprint, duplicate_reference, duplicate_of,
@@ -1603,11 +2452,12 @@ app.post('/api/admin/submissions/:id/submit-easyvista', ensureAdmin, async (req,
         is_resubmission, resubmission_of_submission_id, resubmission_of_easyvista_ticket_id,
         has_resubmission, latest_resubmission_submission_id, latest_resubmission_easyvista_ticket_id,
         is_public, is_retired
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     `,
       [
         updatedAt,
         updatedAt,
+        'admin_easyvista_resubmission',
         source.created_by,
         source.created_by_email,
         effectiveType,

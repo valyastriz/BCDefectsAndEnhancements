@@ -14,11 +14,20 @@ import {
 } from '../components/bite-size/BitsizeUI';
 
 const retiredStatus = 'Retired';
-const statuses = ['New', 'Approved', 'Rejected', 'Duplicate', 'Submitted', 'Deployed'];
+const statuses = [
+  'New',
+  'Approved',
+  'Backlog - Monitoring Impact',
+  'Future Consideration',
+  'Deferred – Not in Current Scope',
+  'Rejected',
+  'Duplicate',
+  'Submitted',
+  'Deployed',
+];
 const cleanupOnlyStatus = 'Cleanup Only';
 const cleanupMarkedStatus = 'Cleanup Marked';
-const statusFilterStatuses = [...statuses, retiredStatus];
-const statusFilterOptions = [...statusFilterStatuses, cleanupOnlyStatus, cleanupMarkedStatus];
+const statusFilterOptions = [...statuses, cleanupOnlyStatus, cleanupMarkedStatus];
 const statusOptions = [...statuses, cleanupOnlyStatus];
 const cleanupStatuses = ['Not Started', 'In Progress', 'Completed'];
 const cleanupInlineStatuses = ['No Cleanup', ...cleanupStatuses];
@@ -43,6 +52,13 @@ const adminRetiredFilterStorageKey = 'bc.admin.retiredFilter';
 
 const coreStatusSet = new Set([...statuses]);
 const cleanupStatusSet = new Set(['No Cleanup', ...cleanupStatuses]);
+function areAllStatusesSelected(values, options) {
+  if (!Array.isArray(values) || !Array.isArray(options) || values.length !== options.length) {
+    return false;
+  }
+  const selected = new Set(values);
+  return options.every((value) => selected.has(value));
+}
 
 function buildDefaultFilters() {
   return {
@@ -52,6 +68,7 @@ function buildDefaultFilters() {
     search: '',
     requester: '',
     submittedBy: '',
+    createdVia: '',
     year: '',
     inJira: '',
     jiraNumber: '',
@@ -60,16 +77,24 @@ function buildDefaultFilters() {
   };
 }
 
-function ensureRetiredStatusForAllMode(statusesValue, retiredFilterValue) {
-  const normalized = Array.isArray(statusesValue)
-    ? statusesValue.filter((value) => statusFilterOptions.includes(value))
-    : [];
+function normalizeSavedAdminStatuses(statusesValue, statusSelectionMode = 'legacy') {
+  if (statusSelectionMode === 'all') {
+    return [...statusFilterOptions];
+  }
+
+  if (!Array.isArray(statusesValue)) {
+    return [...statusFilterOptions];
+  }
+
+  const normalized = statusesValue.filter((value) => statusFilterOptions.includes(value));
   if (normalized.length === 0) {
     return [...statusFilterOptions];
   }
-  if (retiredFilterValue === 'all' && !normalized.includes(retiredStatus)) {
-    return [...normalized, retiredStatus];
+
+  if (statusSelectionMode === 'legacy') {
+    return [...statusFilterOptions];
   }
+
   return normalized;
 }
 
@@ -92,7 +117,10 @@ function readSavedAdminFilters() {
     const retiredFilter = ['non_retired', 'retired_only', 'all'].includes(parsed?.retiredFilter)
       ? parsed.retiredFilter
       : normalizedRetiredFilter;
-    const statusesFromStorage = ensureRetiredStatusForAllMode(parsed?.statuses, retiredFilter);
+    const statusSelectionMode = parsed?.statusSelectionMode === 'all'
+      ? 'all'
+      : (parsed?.statusSelectionMode === 'custom' ? 'custom' : 'legacy');
+    const statusesFromStorage = normalizeSavedAdminStatuses(parsed?.statuses, statusSelectionMode);
 
     return {
       ...defaults,
@@ -102,6 +130,7 @@ function readSavedAdminFilters() {
       search: typeof parsed?.search === 'string' ? parsed.search : defaults.search,
       requester: typeof parsed?.requester === 'string' ? parsed.requester : defaults.requester,
       submittedBy: typeof parsed?.submittedBy === 'string' ? parsed.submittedBy : defaults.submittedBy,
+      createdVia: typeof parsed?.createdVia === 'string' ? parsed.createdVia : defaults.createdVia,
       year: typeof parsed?.year === 'string' ? parsed.year : defaults.year,
       inJira: typeof parsed?.inJira === 'string' ? parsed.inJira : defaults.inJira,
       jiraNumber: typeof parsed?.jiraNumber === 'string' ? parsed.jiraNumber : defaults.jiraNumber,
@@ -345,9 +374,81 @@ export function AdminDashboardPage({ user, onLogout }) {
   const [cleanupFiles, setCleanupFiles] = useState([]);
   const [cleanupPreviewIndex, setCleanupPreviewIndex] = useState(null);
   const cleanupFileInputRef = useRef(null);
+  const importFileInputRef = useRef(null);
+  const [importModalOpen, setImportModalOpen] = useState(false);
+  const [importWorking, setImportWorking] = useState(false);
+  const [importMode, setImportMode] = useState('');
+  const [importAvailableHeaders, setImportAvailableHeaders] = useState([]);
+  const [importMappingTargets, setImportMappingTargets] = useState([]);
+  const [importColumnMappings, setImportColumnMappings] = useState({});
+  const [pendingImportFile, setPendingImportFile] = useState(null);
+  const [importStatusText, setImportStatusText] = useState('');
+  const [importStatusKind, setImportStatusKind] = useState('');
+  const [importResultErrors, setImportResultErrors] = useState([]);
+  const [importSummary, setImportSummary] = useState(null);
+  const [importAction, setImportAction] = useState('');
+  const [importHistory, setImportHistory] = useState([]);
+  const [importRequiresApplicationDefault, setImportRequiresApplicationDefault] = useState(false);
+  const [importDefaultApplicationName, setImportDefaultApplicationName] = useState('');
+  const [importUnknownStatuses, setImportUnknownStatuses] = useState([]);
+  const [importAllowedStatuses, setImportAllowedStatuses] = useState([]);
+  const [importStatusValueMappings, setImportStatusValueMappings] = useState({});
   const [showHeaderSaveTooltip, setShowHeaderSaveTooltip] = useState(false);
   const [showFooterSaveTooltip, setShowFooterSaveTooltip] = useState(false);
   const [showEasyVistaRequirements, setShowEasyVistaRequirements] = useState(false);
+
+  const importTargetByHeader = useMemo(() => {
+    const inverse = {};
+    for (const [targetKey, headerName] of Object.entries(importColumnMappings || {})) {
+      const normalizedHeader = String(headerName || '').trim();
+      if (!normalizedHeader) continue;
+      if (!inverse[normalizedHeader]) {
+        inverse[normalizedHeader] = targetKey;
+      }
+    }
+    return inverse;
+  }, [importColumnMappings]);
+
+  const sortedImportMappingTargets = useMemo(
+    () => [...(importMappingTargets || [])].sort((left, right) => String(left?.label || '').localeCompare(String(right?.label || ''))),
+    [importMappingTargets],
+  );
+
+  const visibleImportMappingTargets = useMemo(() => {
+    if (importMode === 'cleanup') {
+      return sortedImportMappingTargets;
+    }
+
+    const enhancementOnlyKeys = new Set([
+      'enhancement_request_type',
+      'priority_level',
+      'impact_details',
+      'desired_completion_date',
+    ]);
+    const defectOnlyKeys = new Set([
+      'policy_num',
+      'account_num',
+      'combined_policy_account',
+      'transaction_num',
+      'screen_title',
+      'steps_to_reproduce',
+      'what_happened_exact_details',
+      'date_time_of_error',
+    ]);
+
+    if (importMode === 'defect') {
+      return sortedImportMappingTargets.filter((target) => !enhancementOnlyKeys.has(target.key));
+    }
+    if (importMode === 'enhancement') {
+      return sortedImportMappingTargets.filter((target) => !defectOnlyKeys.has(target.key));
+    }
+    return sortedImportMappingTargets;
+  }, [importMode, sortedImportMappingTargets]);
+
+  const sortedImportAvailableHeaders = useMemo(
+    () => [...(importAvailableHeaders || [])].sort((left, right) => String(left || '').localeCompare(String(right || ''))),
+    [importAvailableHeaders],
+  );
 
   const loadRows = useCallback(async (filtersParam) => {
     const f = filtersParam ?? filtersRef.current;
@@ -398,7 +499,13 @@ export function AdminDashboardPage({ user, onLogout }) {
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    window.localStorage.setItem(adminFiltersStorageKey, JSON.stringify(filters));
+    const statusSelectionMode = areAllStatusesSelected(filters.statuses, statusFilterOptions)
+      ? 'all'
+      : 'custom';
+    window.localStorage.setItem(
+      adminFiltersStorageKey,
+      JSON.stringify({ ...filters, statusSelectionMode }),
+    );
     window.localStorage.setItem(adminRetiredFilterStorageKey, filters.retiredFilter || 'non_retired');
   }, [filters]);
 
@@ -418,6 +525,20 @@ export function AdminDashboardPage({ user, onLogout }) {
       socket.off('admin:notification', onNotification);
     };
   }, [loadRows, openId, openDetail]);
+
+  const loadImportHistory = useCallback(async () => {
+    try {
+      const history = await api.listAdminSubmissionsImportHistory({ limit: 5 });
+      setImportHistory(Array.isArray(history) ? history : []);
+    } catch {
+      setImportHistory([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!importModalOpen) return;
+    loadImportHistory();
+  }, [importModalOpen, loadImportHistory]);
 
   const modalTitle = useMemo(() => {
     if (!detail) return 'Submission Details';
@@ -644,6 +765,168 @@ export function AdminDashboardPage({ user, onLogout }) {
     }
   }
 
+  async function importBackdatedExcel(file) {
+    if (!file) return;
+    if (!importMode) {
+      setImportStatusText('Choose Import As (Defect, Enhancement, or Cleanup) before uploading.');
+      setImportStatusKind('error');
+      if (importFileInputRef.current) {
+        importFileInputRef.current.value = '';
+      }
+      return;
+    }
+    try {
+      setImportWorking(true);
+      setImportAction('importing');
+      setImportStatusText('Importing rows...');
+      setImportStatusKind('');
+      setImportResultErrors([]);
+
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append(
+        'columnMappings',
+        JSON.stringify(importColumnMappings || {}),
+      );
+      if (importDefaultApplicationName) {
+        formData.append('defaultApplicationName', importDefaultApplicationName);
+      }
+      formData.append('statusValueMappings', JSON.stringify(importStatusValueMappings || {}));
+
+      const result = await api.importAdminSubmissionsXlsx(formData, { importMode });
+
+      await loadRows();
+      const imported = Number(result?.insertedRows || 0);
+      const total = Number(result?.totalRows || 0);
+      const invalid = Number(result?.invalidRows || 0);
+      const resultErrors = Array.isArray(result?.errors) ? result.errors : [];
+      const fileName = String(file?.name || 'uploaded-file.xlsx');
+      const summaryMessage = `Import complete: ${imported} of ${total} rows added.${invalid > 0 ? ` Skipped ${invalid} invalid row(s).` : ''}`;
+
+      setImportSummary({ imported, total, invalid });
+      setImportResultErrors(resultErrors.slice(0, 20));
+      setImportStatusText(summaryMessage);
+      setImportStatusKind(invalid > 0 ? '' : 'success');
+      if (result?.historyEntry) {
+        setImportHistory((prev) => [result.historyEntry, ...prev].slice(0, 5));
+      } else {
+        await loadImportHistory();
+      }
+      setImportAvailableHeaders([]);
+      setImportMappingTargets([]);
+      setImportColumnMappings({});
+      setPendingImportFile(null);
+      setImportRequiresApplicationDefault(false);
+      setImportDefaultApplicationName('');
+      setImportUnknownStatuses([]);
+      setImportStatusValueMappings({});
+    } catch (importError) {
+      const failureMessage = importError.message || 'Import failed.';
+      const fileName = String(file?.name || 'uploaded-file.xlsx');
+      setImportStatusText(failureMessage);
+      setImportStatusKind('error');
+      const responseBody = importError?.body;
+      if (responseBody?.mappingRequired && responseBody?.mappingField === 'statusValueMappings') {
+        setImportUnknownStatuses(Array.isArray(responseBody.unknownStatuses) ? responseBody.unknownStatuses : []);
+        setImportAllowedStatuses(Array.isArray(responseBody.allowedStatuses) ? responseBody.allowedStatuses : []);
+      }
+      if (responseBody?.mappingRequired && responseBody?.mappingField === 'defaultApplicationName') {
+        setImportRequiresApplicationDefault(true);
+      }
+      setImportHistory((prev) => ([
+        {
+          id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          createdAt: new Date().toISOString(),
+          mode: importMode,
+          fileName,
+          imported: 0,
+          total: 0,
+          invalid: 0,
+          errors: [failureMessage],
+          message: failureMessage,
+          kind: 'error',
+        },
+        ...prev,
+      ].slice(0, 5)));
+    } finally {
+      setImportWorking(false);
+      setImportAction('');
+      if (importFileInputRef.current) {
+        importFileInputRef.current.value = '';
+      }
+    }
+  }
+
+  async function analyzeImportFile(file) {
+    if (!file) return;
+    if (!importMode) {
+      setImportStatusText('Choose Import As (Defect, Enhancement, or Cleanup) before selecting a file.');
+      setImportStatusKind('error');
+      if (importFileInputRef.current) {
+        importFileInputRef.current.value = '';
+      }
+      return;
+    }
+
+    try {
+      setImportWorking(true);
+      setImportAction('analyzing');
+      setImportStatusText('Analyzing file and detecting column mappings...');
+      setImportStatusKind('');
+      setImportSummary(null);
+      setImportResultErrors([]);
+
+      const formData = new FormData();
+      formData.append('file', file);
+      const analysis = await api.analyzeAdminSubmissionsXlsx(formData);
+
+      setPendingImportFile(file);
+      setImportAvailableHeaders(Array.isArray(analysis?.headers) ? analysis.headers : []);
+      setImportMappingTargets(Array.isArray(analysis?.mappingTargets) ? analysis.mappingTargets : []);
+      setImportColumnMappings(analysis?.suggestedMappings && typeof analysis.suggestedMappings === 'object'
+        ? analysis.suggestedMappings
+        : {});
+      setImportRequiresApplicationDefault(Boolean(analysis?.requiresApplicationDefault));
+      setImportAllowedStatuses(Array.isArray(analysis?.allowedStatuses) ? analysis.allowedStatuses : []);
+      setImportUnknownStatuses(Array.isArray(analysis?.unknownStatuses) ? analysis.unknownStatuses : []);
+      setImportStatusValueMappings((prev) => {
+        const next = { ...(prev || {}) };
+        const unknowns = Array.isArray(analysis?.unknownStatuses) ? analysis.unknownStatuses : [];
+        unknowns.forEach((statusValue) => {
+          if (!Object.prototype.hasOwnProperty.call(next, statusValue)) {
+            next[statusValue] = '';
+          }
+        });
+        Object.keys(next).forEach((key) => {
+          if (!unknowns.includes(key)) {
+            delete next[key];
+          }
+        });
+        return next;
+      });
+      setImportStatusText(`Detected ${Number(analysis?.totalRows || 0)} row(s). Review mappings and click Import File.`);
+      setImportStatusKind('success');
+    } catch (analysisError) {
+      setImportStatusText(analysisError.message || 'Failed to analyze file.');
+      setImportStatusKind('error');
+      setPendingImportFile(null);
+      setImportAvailableHeaders([]);
+      setImportMappingTargets([]);
+      setImportColumnMappings({});
+      setImportRequiresApplicationDefault(false);
+      setImportDefaultApplicationName('');
+      setImportUnknownStatuses([]);
+      setImportAllowedStatuses([]);
+      setImportStatusValueMappings({});
+    } finally {
+      setImportWorking(false);
+      setImportAction('');
+      if (importFileInputRef.current) {
+        importFileInputRef.current.value = '';
+      }
+    }
+  }
+
   async function saveEdits(source = 'footer') {
     if (!openId || !edit) return;
     if (!hasPendingModalChanges(detail, edit)) {
@@ -850,6 +1133,7 @@ export function AdminDashboardPage({ user, onLogout }) {
       }
 
       const payload = {
+        created_via: 'admin_backdated',
         type: backdatedForm.type,
         status: backdatedForm.status,
         created_by: createdBy,
@@ -977,6 +1261,7 @@ export function AdminDashboardPage({ user, onLogout }) {
         : '';
 
       const payload = {
+        created_via: 'admin_cleanup',
         type: isEnhancementTagged ? 'enhancement' : 'defect',
         is_cleanup: true,
         cleanup_status: cleanupForm.cleanup_status,
@@ -1220,6 +1505,26 @@ export function AdminDashboardPage({ user, onLogout }) {
           <p>Signed in as <strong>{user.username}</strong></p>
         </div>
         <div className="bs-actions">
+          <input
+            ref={importFileInputRef}
+            type="file"
+            accept=".xlsx,.xls"
+            style={{ display: 'none' }}
+            onChange={(event) => {
+              const file = event.target.files?.[0] || null;
+              analyzeImportFile(file);
+            }}
+          />
+          <Button
+            kind="secondary"
+            disabled={importWorking}
+            onClick={() => {
+              setError('');
+              setImportModalOpen(true);
+            }}
+          >
+            {importWorking ? 'Importing…' : 'Import Excel (.xlsx)'}
+          </Button>
           <Button
             kind="secondary"
             onClick={() => {
@@ -1299,7 +1604,6 @@ export function AdminDashboardPage({ user, onLogout }) {
               setFilters((prev) => ({
                 ...prev,
                 retiredFilter: nextRetiredFilter,
-                statuses: ensureRetiredStatusForAllMode(prev.statuses, nextRetiredFilter),
               }));
             }}
           >
@@ -1335,6 +1639,19 @@ export function AdminDashboardPage({ user, onLogout }) {
             value={filters.submittedBy}
             onChange={(e) => setFilters((prev) => ({ ...prev, submittedBy: e.target.value }))}
           />
+          <Select
+            label="Created Via"
+            value={filters.createdVia}
+            onChange={(e) => setFilters((prev) => ({ ...prev, createdVia: e.target.value }))}
+          >
+            <option value="">All sources</option>
+            <option value="rep_form">Submit Request Form</option>
+            <option value="admin_excel_import">Excel Import</option>
+            <option value="admin_backdated">Backdated Button</option>
+            <option value="admin_cleanup">Cleanup Button</option>
+            <option value="admin_manual">Admin Manual</option>
+            <option value="admin_easyvista_resubmission">EasyVista Resubmission</option>
+          </Select>
           <Input
             label="Year"
             placeholder="YYYY"
@@ -1907,6 +2224,251 @@ export function AdminDashboardPage({ user, onLogout }) {
                 resetCleanupForm();
               }}
               disabled={cleanupWorking}
+            >
+              Cancel
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        open={importModalOpen}
+        onClose={() => {
+          if (importWorking) return;
+          setImportModalOpen(false);
+          setImportAvailableHeaders([]);
+          setImportMappingTargets([]);
+          setImportColumnMappings({});
+          setPendingImportFile(null);
+          setImportStatusText('');
+          setImportStatusKind('');
+          setImportResultErrors([]);
+          setImportSummary(null);
+          setImportAction('');
+          setImportRequiresApplicationDefault(false);
+          setImportDefaultApplicationName('');
+          setImportUnknownStatuses([]);
+          setImportAllowedStatuses([]);
+          setImportStatusValueMappings({});
+        }}
+        title="Import Excel (.xlsx)"
+      >
+        <div className="stack">
+          {importStatusText && <Notice text={importStatusText} kind={importStatusKind === 'success' ? 'success' : undefined} />}
+
+          <p className="muted" style={{ marginTop: 0 }}>
+            Choose import type, upload file, then review detected column mappings before importing.
+          </p>
+
+          {importHistory.length > 0 && (
+            <Card title="Recent Upload Results">
+              <div className="stack import-history-list" style={{ gap: 10 }}>
+                {importHistory.map((entry) => (
+                  <details key={entry.id} className="import-history-item">
+                    <summary>
+                      {new Date(entry.created_at || entry.createdAt || Date.now()).toLocaleString()} · {String(entry.import_mode || entry.mode || '').toUpperCase()} · {entry.file_name || entry.fileName}
+                    </summary>
+                    <div className="stack" style={{ gap: 6 }}>
+                      <p style={{ margin: 0 }}>{entry.summary_message || entry.message}</p>
+                      {entry.errors?.length > 0 && (
+                        <div className="import-history-errors">
+                          <ul style={{ marginTop: 0, marginBottom: 0, paddingLeft: 18 }}>
+                            {entry.errors.map((line, idx) => (
+                              <li key={`${entry.id}-err-${idx}`}>{line}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+                  </details>
+                ))}
+              </div>
+            </Card>
+          )}
+
+          <Select
+            label="Import As"
+            value={importMode}
+            onChange={(event) => setImportMode(event.target.value)}
+          >
+            <option value="">Select type</option>
+            <option value="defect">Defect</option>
+            <option value="enhancement">Enhancement</option>
+            <option value="cleanup">Cleanup</option>
+          </Select>
+
+          {pendingImportFile && (
+            <p className="muted" style={{ marginTop: 0 }}>
+              Selected file: <strong>{pendingImportFile.name}</strong>
+            </p>
+          )}
+
+          {importAvailableHeaders.length > 0 && (
+            <p className="muted" style={{ marginTop: 0 }}>
+              Detected columns: {importAvailableHeaders.join(', ')}
+            </p>
+          )}
+
+          {importRequiresApplicationDefault && (
+            <Select
+              label="Default Application (required)"
+              value={importDefaultApplicationName}
+              onChange={(event) => setImportDefaultApplicationName(event.target.value)}
+            >
+              <option value="">Select application</option>
+              <option value="Billing Center">Billing Center</option>
+              <option value="Policy Center">Policy Center</option>
+            </Select>
+          )}
+
+          {importUnknownStatuses.length > 0 && (
+            <Card title="Map Unknown Status Values">
+              <div className="bs-grid two">
+                {importUnknownStatuses.map((statusValue) => (
+                  <Select
+                    key={statusValue}
+                    label={`Status in file: ${statusValue}`}
+                    value={importStatusValueMappings[statusValue] || ''}
+                    onChange={(event) => {
+                      const mappedStatus = event.target.value;
+                      setImportStatusValueMappings((prev) => ({
+                        ...(prev || {}),
+                        [statusValue]: mappedStatus,
+                      }));
+                    }}
+                  >
+                    <option value="">Select DB status</option>
+                    {[...(importAllowedStatuses.length > 0 ? importAllowedStatuses : [...statuses, retiredStatus])]
+                      .sort((left, right) => String(left || '').localeCompare(String(right || '')))
+                      .map((allowedStatus) => (
+                      <option key={`${statusValue}-${allowedStatus}`} value={allowedStatus}>{allowedStatus}</option>
+                      ))}
+                  </Select>
+                ))}
+              </div>
+            </Card>
+          )}
+
+          {importAction && (
+            <p className="muted" style={{ marginTop: 0 }}>
+              {importAction === 'analyzing' ? 'Analyzing file...' : 'Importing records...'}
+            </p>
+          )}
+
+          {importSummary && (
+            <p className="muted" style={{ marginTop: 0 }}>
+              Result: Imported {importSummary.imported} of {importSummary.total}; Skipped {importSummary.invalid}.
+            </p>
+          )}
+
+          {importResultErrors.length > 0 && (
+            <div>
+              <p className="muted" style={{ marginTop: 0, marginBottom: 6 }}>Row errors (first {importResultErrors.length}):</p>
+              <ul style={{ marginTop: 0, paddingLeft: 18 }}>
+                {importResultErrors.map((line, index) => (
+                  <li key={`${line}-${index}`} style={{ marginBottom: 4 }}>{line}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {importMappingTargets.length > 0 && (
+            <div className="import-mapping-scroll">
+              <div className="bs-grid two">
+                {sortedImportAvailableHeaders.map((header) => (
+                <Select
+                  key={header}
+                  label={`Column: ${header}`}
+                  value={importTargetByHeader[header] || ''}
+                  onChange={(event) => {
+                    const selectedTargetKey = event.target.value;
+                    setImportColumnMappings((prev) => {
+                      const next = { ...(prev || {}) };
+                      let currentTargetForHeader = '';
+
+                      for (const [targetKey, mappedHeader] of Object.entries(next)) {
+                        if (String(mappedHeader || '').trim() === header) {
+                          currentTargetForHeader = targetKey;
+                          break;
+                        }
+                      }
+
+                      if (currentTargetForHeader) {
+                        delete next[currentTargetForHeader];
+                      }
+
+                      if (!selectedTargetKey) {
+                        return next;
+                      }
+
+                      for (const [targetKey, mappedHeader] of Object.entries(next)) {
+                        if (targetKey !== selectedTargetKey && String(mappedHeader || '').trim() === header) {
+                          delete next[targetKey];
+                        }
+                      }
+
+                      next[selectedTargetKey] = header;
+                      return next;
+                    });
+                  }}
+                >
+                  <option value="">Not mapped</option>
+                  {visibleImportMappingTargets.map((target) => (
+                    <option key={`${header}-${target.key}`} value={target.key}>{target.label}</option>
+                  ))}
+                </Select>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="bs-actions">
+            <Button
+              type="button"
+              onClick={() => {
+                setImportStatusText('');
+                setImportStatusKind('');
+                if (pendingImportFile) {
+                  if (importRequiresApplicationDefault && !importDefaultApplicationName) {
+                    setImportStatusText('Select a default application before importing.');
+                    setImportStatusKind('error');
+                    return;
+                  }
+                  if (importUnknownStatuses.some((statusValue) => !String(importStatusValueMappings[statusValue] || '').trim())) {
+                    setImportStatusText('Map all unknown statuses before importing.');
+                    setImportStatusKind('error');
+                    return;
+                  }
+                  importBackdatedExcel(pendingImportFile);
+                  return;
+                }
+                importFileInputRef.current?.click();
+              }}
+              disabled={importWorking || !importMode}
+            >
+              {importWorking ? 'Working…' : (pendingImportFile ? 'Import File' : 'Choose Excel File')}
+            </Button>
+            <Button
+              type="button"
+              kind="ghost"
+              onClick={() => {
+                setImportModalOpen(false);
+                setImportAvailableHeaders([]);
+                setImportMappingTargets([]);
+                setImportColumnMappings({});
+                setPendingImportFile(null);
+                setImportStatusText('');
+                setImportStatusKind('');
+                setImportResultErrors([]);
+                setImportSummary(null);
+                setImportAction('');
+                setImportRequiresApplicationDefault(false);
+                setImportDefaultApplicationName('');
+                setImportUnknownStatuses([]);
+                setImportAllowedStatuses([]);
+                setImportStatusValueMappings({});
+              }}
+              disabled={importWorking}
             >
               Cancel
             </Button>

@@ -11,14 +11,25 @@ async function request(path, options = {}) {
 
   if (!response.ok && !isAllowedStatus) {
     let message = `Request failed (${response.status})`;
-    try {
-      const body = await response.json();
-      if (body.error) message = body.error;
-    } catch {
-      const text = await response.text();
-      if (text) message = text;
+    let errorBody = null;
+    const text = await response.text();
+    if (text) {
+      try {
+        const body = JSON.parse(text);
+        errorBody = body;
+        if (body?.error) {
+          message = body.error;
+        } else {
+          message = text;
+        }
+      } catch {
+        message = text;
+      }
     }
-    throw new Error(message);
+    const error = new Error(message);
+    error.status = response.status;
+    error.body = errorBody;
+    throw error;
   }
 
   const contentType = response.headers.get('content-type') || '';
@@ -51,6 +62,7 @@ export const api = {
     search = '',
     requester = '',
     submittedBy = '',
+    createdVia = '',
     retiredFilter = 'non_retired',
     year = '',
     inJira = '',
@@ -68,6 +80,7 @@ export const api = {
     if (search) params.set('search', search);
     if (requester) params.set('requester', requester);
     if (submittedBy) params.set('submittedBy', submittedBy);
+    if (createdVia) params.set('createdVia', createdVia);
     if (retiredFilter) params.set('retiredFilter', retiredFilter);
     if (year) params.set('year', year);
     if (inJira) params.set('inJira', inJira);
@@ -90,6 +103,32 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
     }),
+  analyzeAdminSubmissionsXlsx: (formData) =>
+    request('/api/admin/submissions/import-xlsx/analyze', {
+      method: 'POST',
+      body: formData,
+    }),
+  listAdminSubmissionsImportHistory: ({ limit = 10 } = {}) => {
+    const params = new URLSearchParams();
+    if (limit) params.set('limit', String(limit));
+    const query = params.toString() ? `?${params.toString()}` : '';
+    return request(`/api/admin/submissions/import-xlsx/history${query}`);
+  },
+  importAdminSubmissionsXlsx: (formData, {
+    dryRun = false,
+    sheet = '',
+    importMode = '',
+  } = {}) => {
+    const params = new URLSearchParams();
+    if (dryRun) params.set('dryRun', 'true');
+    if (sheet) params.set('sheet', sheet);
+    if (importMode) params.set('importMode', importMode);
+    const query = params.toString() ? `?${params.toString()}` : '';
+    return request(`/api/admin/submissions/import-xlsx${query}`, {
+      method: 'POST',
+      body: formData,
+    });
+  },
   uploadAdminAttachment: (id, formData) =>
     request(`/api/admin/submissions/${id}/attachments`, {
       method: 'POST',
