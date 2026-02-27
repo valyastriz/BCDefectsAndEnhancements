@@ -16,79 +16,84 @@ function boolSql(value) {
 }
 
 async function insertSubmission(entry) {
-  const result = await db.execute(
-    `INSERT INTO submissions (
-      created_at, updated_at, created_by, created_by_email, type, application_name,
-      policy_num, account_num, transaction_num, screen_title, summary_of_issue,
-      steps_to_reproduce, what_happened_exact_details, request, date_time_of_error,
-      status, reviewer, decision_notes, fingerprint, duplicate_reference, duplicate_of,
-      easyvista_ticket_id, desired_completion_date, impact_details, impact_notes,
-      policy_premium_impact, direct_dollar_impact, policies_affected_count,
-      logged_defect, enhancement_request_type, priority_level, jira_number,
-      release_number, release_notes, is_cleanup, cleanup_status, cleanup_tag_type,
-      easyvista_submitted_by, is_retired, is_public
-    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-    [
-      entry.created_at,
-      entry.updated_at,
-      entry.created_by,
-      entry.created_by_email,
-      entry.type,
-      entry.application_name,
-      entry.policy_num,
-      entry.account_num,
-      entry.transaction_num,
-      entry.screen_title,
-      entry.summary_of_issue,
-      entry.steps_to_reproduce,
-      entry.what_happened_exact_details,
-      entry.request,
-      entry.date_time_of_error,
-      entry.status,
-      entry.reviewer,
-      entry.decision_notes,
-      null,
-      null,
-      null,
-      entry.easyvista_ticket_id,
-      entry.desired_completion_date,
-      entry.impact_details,
-      entry.impact_notes,
-      entry.policy_premium_impact,
-      entry.direct_dollar_impact,
-      entry.policies_affected_count,
-      boolSql(entry.logged_defect),
-      entry.enhancement_request_type,
-      entry.priority_level,
-      entry.jira_number,
-      entry.release_number,
-      entry.release_notes,
-      boolSql(entry.is_cleanup),
-      entry.cleanup_status,
-      entry.cleanup_tag_type,
-      entry.easyvista_submitted_by,
-      boolSql(entry.is_retired),
-      boolSql(entry.is_public),
-    ],
-  );
+  const dbModels = db.getModels() || {};
+  const Submission = dbModels.Submission;
+  if (!Submission) {
+    throw new Error('Submission model is not initialized');
+  }
 
-  return Number(result.lastInsertId);
+  const createdSubmission = await Submission.create({
+    created_at: entry.created_at,
+    updated_at: entry.updated_at,
+    created_by: entry.created_by,
+    created_by_email: entry.created_by_email,
+    type: entry.type,
+    application_name: entry.application_name,
+    policy_num: entry.policy_num,
+    account_num: entry.account_num,
+    transaction_num: entry.transaction_num,
+    screen_title: entry.screen_title,
+    summary_of_issue: entry.summary_of_issue,
+    steps_to_reproduce: entry.steps_to_reproduce,
+    what_happened_exact_details: entry.what_happened_exact_details,
+    request: entry.request,
+    date_time_of_error: entry.date_time_of_error,
+    status: entry.status,
+    reviewer: entry.reviewer,
+    decision_notes: entry.decision_notes,
+    fingerprint: null,
+    duplicate_reference: null,
+    duplicate_of: null,
+    easyvista_ticket_id: entry.easyvista_ticket_id,
+    desired_completion_date: entry.desired_completion_date,
+    impact_details: entry.impact_details,
+    impact_notes: entry.impact_notes,
+    policy_premium_impact: entry.policy_premium_impact,
+    direct_dollar_impact: entry.direct_dollar_impact,
+    policies_affected_count: entry.policies_affected_count,
+    logged_defect: boolSql(entry.logged_defect),
+    enhancement_request_type: entry.enhancement_request_type,
+    priority_level: entry.priority_level,
+    jira_number: entry.jira_number,
+    release_number: entry.release_number,
+    release_notes: entry.release_notes,
+    is_cleanup: boolSql(entry.is_cleanup),
+    cleanup_status: entry.cleanup_status,
+    cleanup_tag_type: entry.cleanup_tag_type,
+    easyvista_submitted_by: entry.easyvista_submitted_by,
+    is_retired: boolSql(entry.is_retired),
+    is_public: boolSql(entry.is_public),
+  });
+
+  return Number(createdSubmission.id);
 }
 
 async function insertEvent(submissionId, status, changedAt, changedBy = 'seed-script') {
-  await db.execute(
-    `INSERT INTO submission_status_events (submission_id, status, changed_at, changed_by)
-     VALUES (?, ?, ?, ?)`,
-    [submissionId, status, changedAt, changedBy],
-  );
+  const dbModels = db.getModels() || {};
+  const SubmissionStatusEvent = dbModels.SubmissionStatusEvent;
+  if (!SubmissionStatusEvent) {
+    throw new Error('SubmissionStatusEvent model is not initialized');
+  }
+
+  await SubmissionStatusEvent.create({
+    submission_id: submissionId,
+    status,
+    changed_at: changedAt,
+    changed_by: changedBy,
+  });
 }
 
 async function seedSampleData() {
   await db.init();
 
   try {
-    const existingRows = await db.query('SELECT COUNT(*) AS count FROM submissions');
-    const existingCount = Number(existingRows[0]?.count || 0);
+    const dbModels = db.getModels() || {};
+    const Submission = dbModels.Submission;
+    if (!Submission) {
+      throw new Error('Submission model is not initialized');
+    }
+
+    const existingCount = Number(await Submission.count());
     if (existingCount > 0) {
       console.log(`Skipped sample seed: submissions table already has ${existingCount} row(s).`);
       return;

@@ -25,21 +25,30 @@ async function seedAdmin() {
   await db.init();
 
   try {
+    const dbModels = db.getModels() || {};
+    const User = dbModels.User;
+    if (!User) {
+      throw new Error('User model is not initialized');
+    }
     const passwordHash = await bcrypt.hash(password, 10);
 
     for (const username of usernames) {
-      const existingRows = await db.query('SELECT id FROM users WHERE username = ?', [username]);
-      const existing = existingRows[0] || null;
+      const existing = await User.findOne({
+        where: { username },
+        attributes: ['id'],
+        raw: true,
+      });
 
       if (existing) {
         console.log(`Admin user '${username}' already exists.`);
         continue;
       }
 
-      await db.execute(
-        'INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)',
-        [username, passwordHash, 'admin'],
-      );
+      await User.create({
+        username,
+        password_hash: passwordHash,
+        role: 'admin',
+      });
 
       console.log(`Seeded admin user '${username}'.`);
     }
