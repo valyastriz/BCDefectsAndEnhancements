@@ -1184,6 +1184,9 @@ function mapExcelImportRun(row) {
 async function persistUploadedFiles(db, submissionId, files, uploadedByRole) {
   if (!files || files.length === 0) return [];
 
+  const dbModels = dbApi.getModels() || {};
+  const Attachment = dbModels.Attachment;
+
   const destDir = path.join(uploadsRoot, String(submissionId));
   fs.mkdirSync(destDir, { recursive: true });
 
@@ -1196,27 +1199,43 @@ async function persistUploadedFiles(db, submissionId, files, uploadedByRole) {
     fs.renameSync(file.path, finalPath);
 
     const uploadedAt = new Date().toISOString();
-    const result = await db.run(
-      `
+    const relativePath = path.relative(path.join(__dirname, '..'), finalPath).replaceAll('\\', '/');
+    let insertedId = null;
+
+    if (Attachment) {
+      const createdAttachment = await Attachment.create({
+        submission_id: submissionId,
+        filename: file.originalname,
+        mime_type: file.mimetype || 'application/octet-stream',
+        file_path: relativePath,
+        uploaded_at: uploadedAt,
+        uploaded_by_role: uploadedByRole,
+      });
+      insertedId = Number(createdAttachment.id);
+    } else {
+      const result = await db.run(
+        `
       INSERT INTO attachments (submission_id, filename, mime_type, file_path, uploaded_at, uploaded_by_role)
       VALUES (?, ?, ?, ?, ?, ?)
     `,
-      [
-        submissionId,
-        file.originalname,
-        file.mimetype || 'application/octet-stream',
-        path.relative(path.join(__dirname, '..'), finalPath).replaceAll('\\\\', '/'),
-        uploadedAt,
-        uploadedByRole,
-      ],
-    );
+        [
+          submissionId,
+          file.originalname,
+          file.mimetype || 'application/octet-stream',
+          relativePath,
+          uploadedAt,
+          uploadedByRole,
+        ],
+      );
+      insertedId = result.lastID;
+    }
 
     inserted.push({
-      id: result.lastID,
+      id: insertedId,
       submission_id: submissionId,
       filename: file.originalname,
       mime_type: file.mimetype || 'application/octet-stream',
-      file_path: path.relative(path.join(__dirname, '..'), finalPath).replaceAll('\\\\', '/'),
+      file_path: relativePath,
       uploaded_at: uploadedAt,
       uploaded_by_role: uploadedByRole,
     });
@@ -1226,6 +1245,19 @@ async function persistUploadedFiles(db, submissionId, files, uploadedByRole) {
 }
 
 async function logStatusChange(db, submissionId, status, changedBy, changedAt) {
+  const dbModels = dbApi.getModels() || {};
+  const SubmissionStatusEvent = dbModels.SubmissionStatusEvent;
+
+  if (SubmissionStatusEvent) {
+    await SubmissionStatusEvent.create({
+      submission_id: submissionId,
+      status,
+      changed_at: changedAt || new Date().toISOString(),
+      changed_by: changedBy || null,
+    });
+    return;
+  }
+
   await db.run(
     `
     INSERT INTO submission_status_events (submission_id, status, changed_at, changed_by)
@@ -1801,16 +1833,24 @@ app.get('/api/public/submissions', async (_req, res) => {
 
 app.get('/api/public/submissions/:id', async (req, res) => {
   return withDb(async (db) => {
+    const dbModels = dbApi.getModels() || {};
+    const Attachment = dbModels.Attachment;
     const submission = await getSubmissionByIdWithLookups(db, req.params.id, { publicOnly: true });
 
     if (!submission) {
       return res.status(404).json({ error: 'Submission not found' });
     }
 
-    const attachments = await db.all(
-      'SELECT * FROM attachments WHERE submission_id = ? ORDER BY uploaded_at DESC',
-      [req.params.id],
-    );
+    const attachments = Attachment
+      ? await Attachment.findAll({
+        where: { submission_id: Number(req.params.id) },
+        order: [['uploaded_at', 'DESC']],
+        raw: true,
+      })
+      : await db.all(
+        'SELECT * FROM attachments WHERE submission_id = ? ORDER BY uploaded_at DESC',
+        [req.params.id],
+      );
 
     return res.json({
       ...mapSubmission(submission),
@@ -2795,17 +2835,28 @@ app.post(
   tempUpload.array('attachments', 10),
   async (req, res) => {
     return withDb(async (db) => {
-      const existing = await db.get('SELECT * FROM submissions WHERE id = ?', [req.params.id]);
+      const dbModels = dbApi.getModels() || {};
+      const Submission = dbModels.Submission;
+      const existing = Submission
+        ? await Submission.findByPk(Number(req.params.id), { raw: true })
+        : await db.get('SELECT * FROM submissions WHERE id = ?', [req.params.id]);
       if (!existing) {
         return res.status(404).json({ error: 'Submission not found' });
       }
 
       const created = await persistUploadedFiles(db, existing.id, req.files || [], 'admin');
 
-      await db.run('UPDATE submissions SET updated_at = ? WHERE id = ?', [
-        new Date().toISOString(),
-        existing.id,
-      ]);
+      if (Submission) {
+        await Submission.update(
+          { updated_at: new Date().toISOString() },
+          { where: { id: Number(existing.id) } },
+        );
+      } else {
+        await db.run('UPDATE submissions SET updated_at = ? WHERE id = ?', [
+          new Date().toISOString(),
+          existing.id,
+        ]);
+      }
 
       emitAdminNotification('attachment:added', {
         submission_id: existing.id,
@@ -2819,7 +2870,12 @@ app.post(
 
 app.delete('/api/admin/attachments/:id', ensureAdmin, async (req, res) => {
   return withDb(async (db) => {
-    const attachment = await db.get('SELECT * FROM attachments WHERE id = ?', [req.params.id]);
+    const dbModels = dbApi.getModels() || {};
+    const Attachment = dbModels.Attachment;
+    const Submission = dbModels.Submission;
+    const attachment = Attachment
+      ? await Attachment.findByPk(Number(req.params.id), { raw: true })
+      : await db.get('SELECT * FROM attachments WHERE id = ?', [req.params.id]);
     if (!attachment) {
       return res.status(404).json({ error: 'Attachment not found' });
     }
@@ -2829,11 +2885,23 @@ app.delete('/api/admin/attachments/:id', ensureAdmin, async (req, res) => {
       fs.rmSync(absolute, { force: true });
     }
 
-    await db.run('DELETE FROM attachments WHERE id = ?', [req.params.id]);
-    await db.run('UPDATE submissions SET updated_at = ? WHERE id = ?', [
-      new Date().toISOString(),
-      attachment.submission_id,
-    ]);
+    if (Attachment) {
+      await Attachment.destroy({ where: { id: Number(req.params.id) } });
+    } else {
+      await db.run('DELETE FROM attachments WHERE id = ?', [req.params.id]);
+    }
+
+    if (Submission) {
+      await Submission.update(
+        { updated_at: new Date().toISOString() },
+        { where: { id: Number(attachment.submission_id) } },
+      );
+    } else {
+      await db.run('UPDATE submissions SET updated_at = ? WHERE id = ?', [
+        new Date().toISOString(),
+        attachment.submission_id,
+      ]);
+    }
 
     emitAdminNotification('attachment:removed', {
       id: attachment.id,
@@ -3356,7 +3424,12 @@ app.post('/api/admin/submissions/import-xlsx', ensureAdmin, tempUpload.single('f
 
 app.post('/api/admin/submissions/:id/submit-easyvista', ensureAdmin, async (req, res) => {
   return withDb(async (db) => {
-    const submission = await db.get('SELECT * FROM submissions WHERE id = ?', [req.params.id]);
+    const dbModels = dbApi.getModels() || {};
+    const Submission = dbModels.Submission;
+    const Attachment = dbModels.Attachment;
+    const submission = Submission
+      ? await Submission.findByPk(Number(req.params.id), { raw: true })
+      : await db.get('SELECT * FROM submissions WHERE id = ?', [req.params.id]);
     if (!submission) {
       return res.status(404).json({ error: 'Submission not found' });
     }
@@ -3522,14 +3595,25 @@ app.post('/api/admin/submissions/:id/submit-easyvista', ensureAdmin, async (req,
     const easyVistaSubmittedBy = `Automatic (System API by ${easyVistaReporter})`;
 
     if (!isResubmissionRequest) {
-      await db.run(
-        `
+      if (Submission) {
+        await Submission.update({
+          easyvista_ticket_id: result.ticketId,
+          status: 'Submitted',
+          updated_at: updatedAt,
+          easyvista_submitted_by: easyVistaSubmittedBy,
+        }, {
+          where: { id: Number(submission.id) },
+        });
+      } else {
+        await db.run(
+          `
         UPDATE submissions
         SET easyvista_ticket_id = ?, status = 'Submitted', updated_at = ?, easyvista_submitted_by = ?
         WHERE id = ?
       `,
-        [result.ticketId, updatedAt, easyVistaSubmittedBy, submission.id],
-      );
+          [result.ticketId, updatedAt, easyVistaSubmittedBy, submission.id],
+        );
+      }
 
       if (submission.status !== 'Submitted') {
         await logStatusChange(db, submission.id, 'Submitted', easyVistaSubmittedBy, updatedAt);
@@ -3616,12 +3700,21 @@ app.post('/api/admin/submissions/:id/submit-easyvista', ensureAdmin, async (req,
       toBooleanSql(source.is_public),
       toBooleanSql(source.is_retired),
     ];
-    const created = await db.run(
-      `INSERT INTO submissions (${resubmissionInsertColumns.join(', ')}) VALUES (${resubmissionInsertColumns.map(() => '?').join(',')})`,
-      resubmissionInsertValues,
-    );
-
-    const resubmissionId = Number(created.lastID);
+    let resubmissionId = null;
+    if (Submission) {
+      const payload = resubmissionInsertColumns.reduce((acc, column, index) => {
+        acc[column] = resubmissionInsertValues[index];
+        return acc;
+      }, {});
+      const createdSubmission = await Submission.create(payload);
+      resubmissionId = Number(createdSubmission.id);
+    } else {
+      const created = await db.run(
+        `INSERT INTO submissions (${resubmissionInsertColumns.join(', ')}) VALUES (${resubmissionInsertColumns.map(() => '?').join(',')})`,
+        resubmissionInsertValues,
+      );
+      resubmissionId = Number(created.lastID);
+    }
     const createdLookupIds = await resolveSubmissionLookupIds(db, {
       created_via: 'admin_easyvista_resubmission',
       type: effectiveType,
@@ -3661,50 +3754,92 @@ app.post('/api/admin/submissions/:id/submit-easyvista', ensureAdmin, async (req,
     if (missingLookupFields.length > 0) {
       return res.status(400).json({ error: formatMissingLookupError(missingLookupFields) });
     }
-    await db.run(
-      `
+    if (Submission) {
+      await Submission.update({
+        created_via_id: createdLookupIds.created_via_id,
+        type_id: createdLookupIds.type_id,
+        application_id: createdLookupIds.application_id,
+        status_id: createdLookupIds.status_id,
+        cleanup_status_id: createdLookupIds.cleanup_status_id,
+        cleanup_tag_type_id: createdLookupIds.cleanup_tag_type_id,
+        enhancement_request_type_id: createdLookupIds.enhancement_request_type_id,
+        priority_level_id: createdLookupIds.priority_level_id,
+      }, {
+        where: { id: Number(resubmissionId) },
+      });
+    } else {
+      await db.run(
+        `
       UPDATE submissions
       SET created_via_id = ?, type_id = ?, application_id = ?, status_id = ?, cleanup_status_id = ?,
           cleanup_tag_type_id = ?, enhancement_request_type_id = ?, priority_level_id = ?
       WHERE id = ?
     `,
-      [
-        createdLookupIds.created_via_id,
-        createdLookupIds.type_id,
-        createdLookupIds.application_id,
-        createdLookupIds.status_id,
-        createdLookupIds.cleanup_status_id,
-        createdLookupIds.cleanup_tag_type_id,
-        createdLookupIds.enhancement_request_type_id,
-        createdLookupIds.priority_level_id,
-        resubmissionId,
-      ],
-    );
-
-    const existingAttachments = await db.all(
-      'SELECT filename, mime_type, file_path, uploaded_by_role FROM attachments WHERE submission_id = ?',
-      [submission.id],
-    );
-    for (const attachment of existingAttachments) {
-      await db.run(
-        `
-        INSERT INTO attachments (
-          submission_id, filename, mime_type, file_path, uploaded_at, uploaded_by_role
-        ) VALUES (?, ?, ?, ?, ?, ?)
-      `,
         [
+          createdLookupIds.created_via_id,
+          createdLookupIds.type_id,
+          createdLookupIds.application_id,
+          createdLookupIds.status_id,
+          createdLookupIds.cleanup_status_id,
+          createdLookupIds.cleanup_tag_type_id,
+          createdLookupIds.enhancement_request_type_id,
+          createdLookupIds.priority_level_id,
           resubmissionId,
-          attachment.filename,
-          attachment.mime_type,
-          attachment.file_path,
-          updatedAt,
-          attachment.uploaded_by_role,
         ],
       );
     }
 
-    await db.run(
-      `
+    const existingAttachments = Attachment
+      ? await Attachment.findAll({
+        where: { submission_id: Number(submission.id) },
+        attributes: ['filename', 'mime_type', 'file_path', 'uploaded_by_role'],
+        raw: true,
+      })
+      : await db.all(
+        'SELECT filename, mime_type, file_path, uploaded_by_role FROM attachments WHERE submission_id = ?',
+        [submission.id],
+      );
+    for (const attachment of existingAttachments) {
+      if (Attachment) {
+        await Attachment.create({
+          submission_id: resubmissionId,
+          filename: attachment.filename,
+          mime_type: attachment.mime_type,
+          file_path: attachment.file_path,
+          uploaded_at: updatedAt,
+          uploaded_by_role: attachment.uploaded_by_role,
+        });
+      } else {
+        await db.run(
+          `
+        INSERT INTO attachments (
+          submission_id, filename, mime_type, file_path, uploaded_at, uploaded_by_role
+        ) VALUES (?, ?, ?, ?, ?, ?)
+      `,
+          [
+            resubmissionId,
+            attachment.filename,
+            attachment.mime_type,
+            attachment.file_path,
+            updatedAt,
+            attachment.uploaded_by_role,
+          ],
+        );
+      }
+    }
+
+    if (Submission) {
+      await Submission.update({
+        has_resubmission: 1,
+        latest_resubmission_submission_id: resubmissionId,
+        latest_resubmission_easyvista_ticket_id: result.ticketId,
+        updated_at: updatedAt,
+      }, {
+        where: { id: Number(submission.id) },
+      });
+    } else {
+      await db.run(
+        `
       UPDATE submissions
       SET
         has_resubmission = 1,
@@ -3713,8 +3848,9 @@ app.post('/api/admin/submissions/:id/submit-easyvista', ensureAdmin, async (req,
         updated_at = ?
       WHERE id = ?
     `,
-      [resubmissionId, result.ticketId, updatedAt, submission.id],
-    );
+        [resubmissionId, result.ticketId, updatedAt, submission.id],
+      );
+    }
 
     await logStatusChange(
       db,
