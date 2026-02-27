@@ -1229,6 +1229,9 @@ async function persistUploadedFiles(db, submissionId, files, uploadedByRole) {
 
   const dbModels = dbApi.getModels() || {};
   const Attachment = dbModels.Attachment;
+  if (!Attachment) {
+    throw new Error('Attachment model is not initialized');
+  }
 
   const destDir = path.join(uploadsRoot, String(submissionId));
   fs.mkdirSync(destDir, { recursive: true });
@@ -1243,35 +1246,15 @@ async function persistUploadedFiles(db, submissionId, files, uploadedByRole) {
 
     const uploadedAt = new Date().toISOString();
     const relativePath = path.relative(path.join(__dirname, '..'), finalPath).replaceAll('\\', '/');
-    let insertedId = null;
-
-    if (Attachment) {
-      const createdAttachment = await Attachment.create({
-        submission_id: submissionId,
-        filename: file.originalname,
-        mime_type: file.mimetype || 'application/octet-stream',
-        file_path: relativePath,
-        uploaded_at: uploadedAt,
-        uploaded_by_role: uploadedByRole,
-      });
-      insertedId = Number(createdAttachment.id);
-    } else {
-      const result = await db.run(
-        `
-      INSERT INTO attachments (submission_id, filename, mime_type, file_path, uploaded_at, uploaded_by_role)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `,
-        [
-          submissionId,
-          file.originalname,
-          file.mimetype || 'application/octet-stream',
-          relativePath,
-          uploadedAt,
-          uploadedByRole,
-        ],
-      );
-      insertedId = result.lastID;
-    }
+    const createdAttachment = await Attachment.create({
+      submission_id: submissionId,
+      filename: file.originalname,
+      mime_type: file.mimetype || 'application/octet-stream',
+      file_path: relativePath,
+      uploaded_at: uploadedAt,
+      uploaded_by_role: uploadedByRole,
+    });
+    const insertedId = Number(createdAttachment.id);
 
     inserted.push({
       id: insertedId,
@@ -1746,6 +1729,9 @@ app.post('/api/submissions', tempUpload.array('attachments', 3), async (req, res
   return withDb(async (db) => {
     const dbModels = dbApi.getModels() || {};
     const Submission = dbModels.Submission;
+    if (!Submission) {
+      return res.status(500).json({ error: 'Submission model is not available' });
+    }
     const now = new Date().toISOString();
     const lookupIds = await resolveSubmissionLookupIds(db, {
       created_via: 'rep_form',
@@ -1808,60 +1794,8 @@ app.post('/api/submissions', tempUpload.array('attachments', 3), async (req, res
       is_public: 0,
     };
 
-    let submissionId = null;
-    if (Submission) {
-      const createdSubmission = await Submission.create(createPayload);
-      submissionId = Number(createdSubmission.id);
-    } else {
-      const insert = await db.run(
-        `
-      INSERT INTO submissions (
-        created_at, updated_at, created_via, created_via_id, created_by, created_by_email, type, type_id, application_name, application_id,
-        policy_num, account_num, transaction_num, screen_title, summary_of_issue,
-        steps_to_reproduce, what_happened_exact_details, request, date_time_of_error,
-        status, status_id, reviewer, decision_notes, fingerprint, duplicate_of, easyvista_ticket_id,
-        desired_completion_date, impact_details, enhancement_request_type, enhancement_request_type_id, priority_level, priority_level_id, jira_number, is_public
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `,
-        [
-          createPayload.created_at,
-          createPayload.updated_at,
-          createPayload.created_via,
-          createPayload.created_via_id,
-          createPayload.created_by,
-          createPayload.created_by_email,
-          createPayload.type,
-          createPayload.type_id,
-          createPayload.application_name,
-          createPayload.application_id,
-          createPayload.policy_num,
-          createPayload.account_num,
-          createPayload.transaction_num,
-          createPayload.screen_title,
-          createPayload.summary_of_issue,
-          createPayload.steps_to_reproduce,
-          createPayload.what_happened_exact_details,
-          createPayload.request,
-          createPayload.date_time_of_error,
-          createPayload.status,
-          createPayload.status_id,
-          createPayload.reviewer,
-          createPayload.decision_notes,
-          createPayload.fingerprint,
-          createPayload.duplicate_of,
-          createPayload.easyvista_ticket_id,
-          createPayload.desired_completion_date,
-          createPayload.impact_details,
-          createPayload.enhancement_request_type,
-          createPayload.enhancement_request_type_id,
-          createPayload.priority_level,
-          createPayload.priority_level_id,
-          createPayload.jira_number,
-          createPayload.is_public,
-        ],
-      );
-      submissionId = Number(insert.lastID);
-    }
+    const createdSubmission = await Submission.create(createPayload);
+    const submissionId = Number(createdSubmission.id);
 
     await persistUploadedFiles(db, submissionId, req.files || [], 'rep');
     await logStatusChange(db, submissionId, 'New', normalized.created_by || 'rep', now);
@@ -2339,21 +2273,12 @@ app.post('/api/admin/submissions', ensureAdmin, async (req, res) => {
       0,
       toBooleanSql(body.logged_defect),
     ];
-    let subId = null;
-    if (Submission) {
-      const payload = insertColumns.reduce((acc, column, index) => {
-        acc[column] = insertValues[index];
-        return acc;
-      }, {});
-      const createdSubmission = await Submission.create(payload);
-      subId = Number(createdSubmission.id);
-    } else {
-      const insert = await db.run(
-        `INSERT INTO submissions (${insertColumns.join(', ')}) VALUES (${insertColumns.map(() => '?').join(',')})`,
-        insertValues,
-      );
-      subId = insert.lastID;
-    }
+    const payload = insertColumns.reduce((acc, column, index) => {
+      acc[column] = insertValues[index];
+      return acc;
+    }, {});
+    const createdSubmission = await Submission.create(payload);
+    const subId = Number(createdSubmission.id);
 
     // Insert backdated status events in chronological order
     const eventsToInsert = rawEvents
@@ -3566,25 +3491,14 @@ app.post('/api/admin/submissions/:id/submit-easyvista', ensureAdmin, async (req,
     const easyVistaSubmittedBy = `Automatic (System API by ${easyVistaReporter})`;
 
     if (!isResubmissionRequest) {
-      if (Submission) {
-        await Submission.update({
-          easyvista_ticket_id: result.ticketId,
-          status: 'Submitted',
-          updated_at: updatedAt,
-          easyvista_submitted_by: easyVistaSubmittedBy,
-        }, {
-          where: { id: Number(submission.id) },
-        });
-      } else {
-        await db.run(
-          `
-        UPDATE submissions
-        SET easyvista_ticket_id = ?, status = 'Submitted', updated_at = ?, easyvista_submitted_by = ?
-        WHERE id = ?
-      `,
-          [result.ticketId, updatedAt, easyVistaSubmittedBy, submission.id],
-        );
-      }
+      await Submission.update({
+        easyvista_ticket_id: result.ticketId,
+        status: 'Submitted',
+        updated_at: updatedAt,
+        easyvista_submitted_by: easyVistaSubmittedBy,
+      }, {
+        where: { id: Number(submission.id) },
+      });
 
       if (submission.status !== 'Submitted') {
         await logStatusChange(db, submission.id, 'Submitted', easyVistaSubmittedBy, updatedAt);
@@ -3671,21 +3585,12 @@ app.post('/api/admin/submissions/:id/submit-easyvista', ensureAdmin, async (req,
       toBooleanSql(source.is_public),
       toBooleanSql(source.is_retired),
     ];
-    let resubmissionId = null;
-    if (Submission) {
-      const payload = resubmissionInsertColumns.reduce((acc, column, index) => {
-        acc[column] = resubmissionInsertValues[index];
-        return acc;
-      }, {});
-      const createdSubmission = await Submission.create(payload);
-      resubmissionId = Number(createdSubmission.id);
-    } else {
-      const created = await db.run(
-        `INSERT INTO submissions (${resubmissionInsertColumns.join(', ')}) VALUES (${resubmissionInsertColumns.map(() => '?').join(',')})`,
-        resubmissionInsertValues,
-      );
-      resubmissionId = Number(created.lastID);
-    }
+    const payload = resubmissionInsertColumns.reduce((acc, column, index) => {
+      acc[column] = resubmissionInsertValues[index];
+      return acc;
+    }, {});
+    const createdSubmission = await Submission.create(payload);
+    const resubmissionId = Number(createdSubmission.id);
     const createdLookupIds = await resolveSubmissionLookupIds(db, {
       created_via: 'admin_easyvista_resubmission',
       type: effectiveType,
