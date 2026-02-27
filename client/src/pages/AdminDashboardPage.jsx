@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
 import { getSocket } from '../lib/socket';
 import {
@@ -17,6 +18,7 @@ const retiredStatus = 'Retired';
 const statuses = [
   'New',
   'Approved',
+  'Redirected',
   'Backlog - Monitoring Impact',
   'Future Consideration',
   'Deferred – Not in Current Scope',
@@ -28,9 +30,7 @@ const statuses = [
 const cleanupOnlyStatus = 'Cleanup Only';
 const cleanupMarkedStatus = 'Cleanup Marked';
 const statusFilterOptions = [...statuses, cleanupOnlyStatus, cleanupMarkedStatus];
-const statusOptions = [...statuses, cleanupOnlyStatus];
 const cleanupStatuses = ['Not Started', 'In Progress', 'Completed'];
-const cleanupInlineStatuses = ['No Cleanup', ...cleanupStatuses];
 const statusToCleanup = {
   New: 'Not Started',
   Approved: 'In Progress',
@@ -47,11 +47,19 @@ const enhancementRequestTypes = [
 ];
 const enhancementPriorityLevels = ['1 - Urgent', '2 - High', '3 - Medium', '4 - Low'];
 const applications = ['Billing Center', 'Policy Center'];
+const adminMetaCategories = [
+  { key: 'statuses', label: 'Defect/Enhancement Statuses', endpointCategory: 'statuses', optionsKey: 'statuses', supportsRetired: true },
+  { key: 'types', label: 'Submission Types', endpointCategory: 'types', optionsKey: 'types', supportsRetired: false },
+  { key: 'cleanupStatuses', label: 'Cleanup Statuses', endpointCategory: 'cleanup-statuses', optionsKey: 'cleanupStatuses', supportsRetired: false },
+  { key: 'cleanupTagTypes', label: 'Cleanup Tag Types', endpointCategory: 'cleanup-tag-types', optionsKey: 'cleanupTagTypes', supportsRetired: false },
+  { key: 'applications', label: 'Applications', endpointCategory: 'applications', optionsKey: 'applications', supportsRetired: false },
+  { key: 'enhancementRequestTypes', label: 'Enhancement Request Types', endpointCategory: 'enhancement-request-types', optionsKey: 'enhancementRequestTypes', supportsRetired: false },
+  { key: 'priorityLevels', label: 'Priority Levels', endpointCategory: 'priority-levels', optionsKey: 'priorityLevels', supportsRetired: false },
+  { key: 'submissionSources', label: 'Submission Sources', endpointCategory: 'submission-sources', optionsKey: 'submissionSources', supportsRetired: false },
+];
 const adminFiltersStorageKey = 'bc.admin.filters';
 const adminRetiredFilterStorageKey = 'bc.admin.retiredFilter';
 
-const coreStatusSet = new Set([...statuses]);
-const cleanupStatusSet = new Set(['No Cleanup', ...cleanupStatuses]);
 function areAllStatusesSelected(values, options) {
   if (!Array.isArray(values) || !Array.isArray(options) || values.length !== options.length) {
     return false;
@@ -72,6 +80,7 @@ function buildDefaultFilters() {
     year: '',
     inJira: '',
     jiraNumber: '',
+    easyvistaNumber: '',
     releaseNumber: '',
     sort: 'updated_desc',
   };
@@ -134,6 +143,7 @@ function readSavedAdminFilters() {
       year: typeof parsed?.year === 'string' ? parsed.year : defaults.year,
       inJira: typeof parsed?.inJira === 'string' ? parsed.inJira : defaults.inJira,
       jiraNumber: typeof parsed?.jiraNumber === 'string' ? parsed.jiraNumber : defaults.jiraNumber,
+      easyvistaNumber: typeof parsed?.easyvistaNumber === 'string' ? parsed.easyvistaNumber : defaults.easyvistaNumber,
       releaseNumber: typeof parsed?.releaseNumber === 'string' ? parsed.releaseNumber : defaults.releaseNumber,
       sort: typeof parsed?.sort === 'string' && parsed.sort.trim() ? parsed.sort : defaults.sort,
     };
@@ -148,6 +158,7 @@ function defaultFilters() {
 
 function defaultBackdatedForm(defaultRequester = '') {
   return {
+    created_via: 'admin_backdated',
     type: 'defect',
     status: 'New',
     is_cleanup: false,
@@ -181,6 +192,7 @@ function defaultBackdatedForm(defaultRequester = '') {
 
 function defaultCleanupForm(currentUser) {
   return {
+    created_via: 'admin_cleanup',
     type: 'defect',
     is_cleanup: true,
     cleanup_status: 'Not Started',
@@ -284,6 +296,7 @@ function editableFromDetail(detail) {
     enhancement_request_type: normalizedEnhancementRequestType,
     priority_level: detail.priority_level || '3 - Medium',
     jira_number: detail.jira_number || '',
+    easyvista_submitted_by: detail.easyvista_submitted_by || '',
     release_number: detail.release_number || '',
     release_notes: detail.release_notes || '',
     logged_defect: Boolean(detail.logged_defect),
@@ -336,9 +349,14 @@ function buildAdminUpdatePayload(editValue) {
     ...editValue,
     is_retired: Boolean(editValue.is_retired),
     duplicate_of: editValue.duplicate_of,
+    easyvista_submitted_by: editValue.easyvista_submitted_by,
     date_time_of_error: editValue.date_time_of_error || null,
     desired_completion_date: editValue.desired_completion_date || null,
   };
+}
+
+function isAutoEasyVistaReporter(value) {
+  return String(value || '').trim().toLowerCase().startsWith('automatic (system api');
 }
 
 function hasPendingModalChanges(detailValue, editValue) {
@@ -349,7 +367,40 @@ function hasPendingModalChanges(detailValue, editValue) {
   return JSON.stringify(currentPayload) !== JSON.stringify(draftPayload);
 }
 
+function formatMetaTypeLabel(value) {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (normalized === 'cleanup_only') return 'Cleanup Only';
+  if (!normalized) return '';
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1);
+}
+
+function formatCreatedViaLabel(value) {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (!normalized) return '';
+  const knownLabels = {
+    rep_form: 'Submit Request Form',
+    admin_excel_import: 'Excel Import',
+    admin_backdated: 'Backdated Button',
+    admin_cleanup: 'Cleanup Button',
+    admin_manual: 'Admin Manual',
+    admin_easyvista_resubmission: 'EasyVista Resubmission',
+  };
+  if (knownLabels[normalized]) return knownLabels[normalized];
+  return normalized
+    .split('_')
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
+function isProtectedRetiredStatusMetaItem(categoryKey, item) {
+  if (String(categoryKey || '') !== 'statuses') return false;
+  const itemName = String(item?.name || '').trim().toLowerCase();
+  return itemName === 'retired' || Boolean(item?.isRetired);
+}
+
 export function AdminDashboardPage({ user, onLogout }) {
+  const navigate = useNavigate();
   const [filters, setFilters] = useState(defaultFilters);
   const filtersRef = useRef(filters);
   filtersRef.current = filters;
@@ -396,6 +447,229 @@ export function AdminDashboardPage({ user, onLogout }) {
   const [showHeaderSaveTooltip, setShowHeaderSaveTooltip] = useState(false);
   const [showFooterSaveTooltip, setShowFooterSaveTooltip] = useState(false);
   const [showEasyVistaRequirements, setShowEasyVistaRequirements] = useState(false);
+  const [dynamicStatuses, setDynamicStatuses] = useState(statuses);
+  const [dynamicFilterStatuses, setDynamicFilterStatuses] = useState(statuses);
+  const [dynamicCleanupStatuses, setDynamicCleanupStatuses] = useState(cleanupStatuses);
+  const [dynamicSubmissionTypes, setDynamicSubmissionTypes] = useState(['defect', 'enhancement']);
+  const [dynamicCleanupTagTypes, setDynamicCleanupTagTypes] = useState(['cleanup_only', 'defect', 'enhancement']);
+  const [adminMetaOptions, setAdminMetaOptions] = useState({
+    statuses: [],
+    types: [],
+    cleanupStatuses: [],
+    cleanupTagTypes: [],
+    applications: [],
+    enhancementRequestTypes: [],
+    priorityLevels: [],
+    submissionSources: [],
+  });
+  const [adminMetaLoading, setAdminMetaLoading] = useState(false);
+  const [adminMetaSaving, setAdminMetaSaving] = useState(false);
+  const [adminMetaError, setAdminMetaError] = useState('');
+  const [selectedMetaCategory, setSelectedMetaCategory] = useState('statuses');
+  const [newMetaName, setNewMetaName] = useState('');
+  const [metaDraftNames, setMetaDraftNames] = useState({});
+
+  const runtimeStatusFilterOptions = useMemo(
+    () => [...dynamicFilterStatuses, cleanupOnlyStatus, cleanupMarkedStatus],
+    [dynamicFilterStatuses],
+  );
+
+  const runtimeStatusOptions = useMemo(
+    () => [...dynamicStatuses, cleanupOnlyStatus],
+    [dynamicStatuses],
+  );
+
+  const runtimeCleanupInlineStatuses = useMemo(
+    () => ['No Cleanup', ...dynamicCleanupStatuses],
+    [dynamicCleanupStatuses],
+  );
+  const runtimeCreatedViaOptions = useMemo(() => {
+    const dynamicSources = Array.isArray(adminMetaOptions?.submissionSources)
+      ? adminMetaOptions.submissionSources
+        .filter((item) => item?.isActive)
+        .map((item) => String(item.name || '').trim().toLowerCase())
+        .filter(Boolean)
+      : [];
+    if (dynamicSources.length > 0) {
+      return dynamicSources;
+    }
+    return [
+      'rep_form',
+      'admin_excel_import',
+      'admin_backdated',
+      'admin_cleanup',
+      'admin_manual',
+      'admin_easyvista_resubmission',
+    ];
+  }, [adminMetaOptions]);
+  const statusFilterOptionsRef = useRef(runtimeStatusFilterOptions);
+
+  const dynamicCoreStatusSet = useMemo(() => new Set(dynamicStatuses), [dynamicStatuses]);
+  const dynamicCleanupStatusSet = useMemo(
+    () => new Set(['No Cleanup', ...dynamicCleanupStatuses]),
+    [dynamicCleanupStatuses],
+  );
+
+  const activeMetaCategoryConfig = useMemo(
+    () => adminMetaCategories.find((category) => category.key === selectedMetaCategory) || adminMetaCategories[0],
+    [selectedMetaCategory],
+  );
+
+  const activeMetaItems = useMemo(
+    () => Array.isArray(adminMetaOptions?.[activeMetaCategoryConfig.optionsKey])
+      ? adminMetaOptions[activeMetaCategoryConfig.optionsKey]
+      : [],
+    [adminMetaOptions, activeMetaCategoryConfig],
+  );
+
+  const syncRuntimeOptionsFromMeta = useCallback((meta) => {
+    const nextStatuses = Array.isArray(meta?.statuses)
+      ? meta.statuses
+        .filter((item) => item?.isActive && !item?.isRetired)
+        .map((item) => String(item.name || '').trim())
+        .filter(Boolean)
+      : [];
+    const nextFilterStatuses = Array.isArray(meta?.statuses)
+      ? meta.statuses
+        .filter((item) => !item?.isRetired)
+        .map((item) => String(item.name || '').trim())
+        .filter(Boolean)
+      : [];
+    const nextCleanupStatuses = Array.isArray(meta?.cleanupStatuses)
+      ? meta.cleanupStatuses
+        .filter((item) => item?.isActive)
+        .map((item) => String(item.name || '').trim())
+        .filter(Boolean)
+      : [];
+    const nextSubmissionTypes = Array.isArray(meta?.types)
+      ? meta.types
+        .filter((item) => item?.isActive)
+        .map((item) => String(item.name || '').trim().toLowerCase())
+        .filter(Boolean)
+      : [];
+    const nextCleanupTagTypes = Array.isArray(meta?.cleanupTagTypes)
+      ? meta.cleanupTagTypes
+        .filter((item) => item?.isActive)
+        .map((item) => String(item.name || '').trim().toLowerCase())
+        .filter(Boolean)
+      : [];
+
+    if (nextStatuses.length > 0) {
+      setDynamicStatuses(nextStatuses);
+    }
+
+    if (nextFilterStatuses.length > 0) {
+      setDynamicFilterStatuses(nextFilterStatuses);
+      const nextStatusFilterOptions = [...nextFilterStatuses, cleanupOnlyStatus, cleanupMarkedStatus];
+      setFilters((prev) => ({
+        ...prev,
+        statuses:
+          areAllStatusesSelected(prev.statuses, statusFilterOptionsRef.current)
+            ? nextStatusFilterOptions
+            : prev.statuses.filter((value) => nextStatusFilterOptions.includes(value)),
+      }));
+    }
+    if (nextCleanupStatuses.length > 0) {
+      setDynamicCleanupStatuses(nextCleanupStatuses);
+    }
+    if (nextSubmissionTypes.length > 0) {
+      setDynamicSubmissionTypes(nextSubmissionTypes);
+    }
+    if (nextCleanupTagTypes.length > 0) {
+      setDynamicCleanupTagTypes(nextCleanupTagTypes);
+    }
+  }, []);
+
+  const loadAdminMeta = useCallback(async () => {
+    try {
+      setAdminMetaLoading(true);
+      setAdminMetaError('');
+      const meta = await api.getAdminMetaOptions();
+      const normalizedMeta = {
+        statuses: Array.isArray(meta?.statuses) ? meta.statuses : [],
+        types: Array.isArray(meta?.types) ? meta.types : [],
+        cleanupStatuses: Array.isArray(meta?.cleanupStatuses) ? meta.cleanupStatuses : [],
+        cleanupTagTypes: Array.isArray(meta?.cleanupTagTypes) ? meta.cleanupTagTypes : [],
+        applications: Array.isArray(meta?.applications) ? meta.applications : [],
+        enhancementRequestTypes: Array.isArray(meta?.enhancementRequestTypes) ? meta.enhancementRequestTypes : [],
+        priorityLevels: Array.isArray(meta?.priorityLevels) ? meta.priorityLevels : [],
+        submissionSources: Array.isArray(meta?.submissionSources) ? meta.submissionSources : [],
+      };
+      setAdminMetaOptions(normalizedMeta);
+      syncRuntimeOptionsFromMeta(normalizedMeta);
+    } catch (loadError) {
+      setAdminMetaError(loadError.message || 'Failed to load metadata options.');
+    } finally {
+      setAdminMetaLoading(false);
+    }
+  }, [syncRuntimeOptionsFromMeta]);
+
+  const saveMetaItem = useCallback(async (item) => {
+    if (!item || !activeMetaCategoryConfig) return;
+    const draftName = String(metaDraftNames[item.id] ?? item.name ?? '').trim();
+    try {
+      setAdminMetaSaving(true);
+      setAdminMetaError('');
+      await api.updateAdminMetaOption(activeMetaCategoryConfig.endpointCategory, item.id, {
+        name: draftName,
+        isActive: Boolean(item.isActive),
+        isRetired: Boolean(item.isRetired),
+        sortOrder: Number(item.sortOrder || 0),
+      });
+      await loadAdminMeta();
+      setNotice('Metadata value saved.');
+    } catch (saveError) {
+      setAdminMetaError(saveError.message || 'Failed to save metadata value.');
+    } finally {
+      setAdminMetaSaving(false);
+    }
+  }, [activeMetaCategoryConfig, metaDraftNames, loadAdminMeta]);
+
+  const addMetaItem = useCallback(async () => {
+    const name = String(newMetaName || '').trim();
+    if (!name || !activeMetaCategoryConfig) return;
+    try {
+      setAdminMetaSaving(true);
+      setAdminMetaError('');
+      await api.createAdminMetaOption(activeMetaCategoryConfig.endpointCategory, { name });
+      setNewMetaName('');
+      await loadAdminMeta();
+      setNotice('Metadata value added.');
+    } catch (createError) {
+      setAdminMetaError(createError.message || 'Failed to add metadata value.');
+    } finally {
+      setAdminMetaSaving(false);
+    }
+  }, [newMetaName, activeMetaCategoryConfig, loadAdminMeta]);
+
+  const moveMetaItem = useCallback(async (itemId, direction) => {
+    if (!activeMetaCategoryConfig || !Array.isArray(activeMetaItems) || activeMetaItems.length <= 1) {
+      return;
+    }
+    const currentIndex = activeMetaItems.findIndex((item) => Number(item.id) === Number(itemId));
+    if (currentIndex === -1) return;
+    const targetIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
+    if (targetIndex < 0 || targetIndex >= activeMetaItems.length) return;
+
+    const reordered = [...activeMetaItems];
+    const [moved] = reordered.splice(currentIndex, 1);
+    reordered.splice(targetIndex, 0, moved);
+
+    try {
+      setAdminMetaSaving(true);
+      setAdminMetaError('');
+      await api.reorderAdminMetaOptions(
+        activeMetaCategoryConfig.endpointCategory,
+        reordered.map((item) => item.id),
+      );
+      await loadAdminMeta();
+      setNotice('Metadata order updated.');
+    } catch (reorderError) {
+      setAdminMetaError(reorderError.message || 'Failed to update metadata order.');
+    } finally {
+      setAdminMetaSaving(false);
+    }
+  }, [activeMetaCategoryConfig, activeMetaItems, loadAdminMeta]);
 
   const importTargetByHeader = useMemo(() => {
     const inverse = {};
@@ -498,8 +772,12 @@ export function AdminDashboardPage({ user, onLogout }) {
   }, [filters]);
 
   useEffect(() => {
+    loadAdminMeta();
+  }, [loadAdminMeta]);
+
+  useEffect(() => {
     if (typeof window === 'undefined') return;
-    const statusSelectionMode = areAllStatusesSelected(filters.statuses, statusFilterOptions)
+    const statusSelectionMode = areAllStatusesSelected(filters.statuses, runtimeStatusFilterOptions)
       ? 'all'
       : 'custom';
     window.localStorage.setItem(
@@ -507,7 +785,19 @@ export function AdminDashboardPage({ user, onLogout }) {
       JSON.stringify({ ...filters, statusSelectionMode }),
     );
     window.localStorage.setItem(adminRetiredFilterStorageKey, filters.retiredFilter || 'non_retired');
-  }, [filters]);
+  }, [filters, runtimeStatusFilterOptions]);
+
+  useEffect(() => {
+    statusFilterOptionsRef.current = runtimeStatusFilterOptions;
+  }, [runtimeStatusFilterOptions]);
+
+  useEffect(() => {
+    const nextDrafts = {};
+    activeMetaItems.forEach((item) => {
+      nextDrafts[item.id] = String(item.name || '');
+    });
+    setMetaDraftNames(nextDrafts);
+  }, [activeMetaItems]);
 
   useEffect(() => {
     const socket = getSocket();
@@ -720,21 +1010,6 @@ export function AdminDashboardPage({ user, onLogout }) {
     }
   }
 
-  async function updateLoggedDefectQuick(submissionId, loggedDefect) {
-    try {
-      setError('');
-      await api.updateAdminSubmission(submissionId, { logged_defect: loggedDefect });
-      await loadRows();
-      if (openId === submissionId) {
-        await openDetail(submissionId, true);
-        setEdit((prev) => (prev ? { ...prev, logged_defect: loggedDefect } : prev));
-      }
-      setNotice(`In JIRA updated to ${loggedDefect ? 'Yes' : 'No'}.`);
-    } catch (updateError) {
-      setError(updateError.message);
-    }
-  }
-
   async function updateJiraQuick(submissionId, jiraNumber) {
     try {
       setError('');
@@ -745,21 +1020,6 @@ export function AdminDashboardPage({ user, onLogout }) {
         setEdit((prev) => (prev ? { ...prev, jira_number: jiraNumber || '' } : prev));
       }
       setNotice('JIRA card number updated.');
-    } catch (updateError) {
-      setError(updateError.message);
-    }
-  }
-
-  async function updateReleaseNumberQuick(submissionId, releaseNumber) {
-    try {
-      setError('');
-      await api.updateAdminSubmission(submissionId, { release_number: releaseNumber || null });
-      await loadRows();
-      if (openId === submissionId) {
-        await openDetail(submissionId, true);
-        setEdit((prev) => (prev ? { ...prev, release_number: releaseNumber || '' } : prev));
-      }
-      setNotice('Release number updated.');
     } catch (updateError) {
       setError(updateError.message);
     }
@@ -800,7 +1060,6 @@ export function AdminDashboardPage({ user, onLogout }) {
       const total = Number(result?.totalRows || 0);
       const invalid = Number(result?.invalidRows || 0);
       const resultErrors = Array.isArray(result?.errors) ? result.errors : [];
-      const fileName = String(file?.name || 'uploaded-file.xlsx');
       const summaryMessage = `Import complete: ${imported} of ${total} rows added.${invalid > 0 ? ` Skipped ${invalid} invalid row(s).` : ''}`;
 
       setImportSummary({ imported, total, invalid });
@@ -1133,7 +1392,7 @@ export function AdminDashboardPage({ user, onLogout }) {
       }
 
       const payload = {
-        created_via: 'admin_backdated',
+        created_via: String(backdatedForm.created_via || '').trim() || 'admin_backdated',
         type: backdatedForm.type,
         status: backdatedForm.status,
         created_by: createdBy,
@@ -1261,7 +1520,7 @@ export function AdminDashboardPage({ user, onLogout }) {
         : '';
 
       const payload = {
-        created_via: 'admin_cleanup',
+        created_via: String(cleanupForm.created_via || '').trim() || 'admin_cleanup',
         type: isEnhancementTagged ? 'enhancement' : 'defect',
         is_cleanup: true,
         cleanup_status: cleanupForm.cleanup_status,
@@ -1445,10 +1704,10 @@ export function AdminDashboardPage({ user, onLogout }) {
     if (value.startsWith('Defect/Enhancement Status:') || value.startsWith('Cleanup Status:')) {
       return value;
     }
-    if (coreStatusSet.has(value)) {
+    if (dynamicCoreStatusSet.has(value)) {
       return `Defect/Enhancement Status: ${value}`;
     }
-    if (cleanupStatusSet.has(value)) {
+    if (dynamicCleanupStatusSet.has(value)) {
       return `Cleanup Status: ${value}`;
     }
     if (value === cleanupOnlyStatus) {
@@ -1545,6 +1804,7 @@ export function AdminDashboardPage({ user, onLogout }) {
           >
             Add Cleanup Task
           </Button>
+          <Button kind="secondary" onClick={() => navigate('/admin/metadata')}>Manage Metadata</Button>
           <Button kind="ghost" onClick={logout}>Sign Out</Button>
         </div>
       </div>
@@ -1591,7 +1851,7 @@ export function AdminDashboardPage({ user, onLogout }) {
         <div className="filters-bar">
           <MultiSelectDropdown
             label="Status"
-            options={statusFilterOptions}
+            options={runtimeStatusFilterOptions}
             selectedValues={filters.statuses}
             onChange={(nextStatuses) => setFilters((prev) => ({ ...prev, statuses: nextStatuses }))}
             placeholder="Select statuses"
@@ -1617,8 +1877,9 @@ export function AdminDashboardPage({ user, onLogout }) {
             onChange={(e) => setFilters((prev) => ({ ...prev, type: e.target.value }))}
           >
             <option value="">All types</option>
-            <option value="defect">Defect</option>
-            <option value="enhancement">Enhancement</option>
+            {dynamicSubmissionTypes.map((typeValue) => (
+              <option key={typeValue} value={typeValue}>{formatMetaTypeLabel(typeValue)}</option>
+            ))}
             <option value="cleanup">Clean Up</option>
           </Select>
           <Input
@@ -1645,12 +1906,9 @@ export function AdminDashboardPage({ user, onLogout }) {
             onChange={(e) => setFilters((prev) => ({ ...prev, createdVia: e.target.value }))}
           >
             <option value="">All sources</option>
-            <option value="rep_form">Submit Request Form</option>
-            <option value="admin_excel_import">Excel Import</option>
-            <option value="admin_backdated">Backdated Button</option>
-            <option value="admin_cleanup">Cleanup Button</option>
-            <option value="admin_manual">Admin Manual</option>
-            <option value="admin_easyvista_resubmission">EasyVista Resubmission</option>
+            {runtimeCreatedViaOptions.map((sourceOption) => (
+              <option key={sourceOption} value={sourceOption}>{formatCreatedViaLabel(sourceOption)}</option>
+            ))}
           </Select>
           <Input
             label="Year"
@@ -1667,6 +1925,12 @@ export function AdminDashboardPage({ user, onLogout }) {
             <option value="yes">Yes</option>
             <option value="no">No</option>
           </Select>
+          <Input
+            label="EASYVISTA #"
+            placeholder="e.g. EV-123456"
+            value={filters.easyvistaNumber}
+            onChange={(e) => setFilters((prev) => ({ ...prev, easyvistaNumber: e.target.value }))}
+          />
           <Input
             label="JIRA #"
             placeholder="e.g. JIRA-123"
@@ -1707,17 +1971,16 @@ export function AdminDashboardPage({ user, onLogout }) {
                 {sortTh('status',           'Defect/Enhancement Status', { width: 210, minWidth: 210 })}
                 <th style={{ width: 170, minWidth: 170 }}>Cleanup Status</th>
                 {sortTh('isPublic',         'Public',             { width: 110, minWidth: 110 })}
-                {sortTh('jiraCard',         'JIRA Card #',        { width: 170, minWidth: 170 })}
-                {sortTh('releaseNum',       'Release #',          { width: 150, minWidth: 150 })}
+                {sortTh('easyvista',        'EasyVista',          { width: 110 })}
+                {sortTh('jiraCard',         'JIRA Card #',        { width: 140, minWidth: 140 })}
                 {sortTh('policyPremium',    'Policy Premium ($)', { width: 160 })}
                 {sortTh('directImpact',     'Direct Impact ($)',  { width: 160 })}
                 {sortTh('policiesImpacted', 'Policies Impacted',  { width: 140 })}
-                {sortTh('easyvista',        'EasyVista',          { width: 110 })}
               </tr>
             </thead>
             <tbody>
               {rows.length === 0 && !loading && (
-                <tr><td colSpan={13} style={{ textAlign: 'center', color: 'var(--color-muted)', padding: '28px 12px' }}>No submissions match the current filters.</td></tr>
+                <tr><td colSpan={12} style={{ textAlign: 'center', color: 'var(--color-muted)', padding: '28px 12px' }}>No submissions match the current filters.</td></tr>
               )}
               {rows.map((row) => (
                 <tr
@@ -1759,7 +2022,7 @@ export function AdminDashboardPage({ user, onLogout }) {
                         updateStatusQuick(row.id, e.target.value, row);
                       }}
                     >
-                      {statusOptions.map((s) => <option key={s} value={s}>{s}</option>)}
+                      {runtimeStatusOptions.map((s) => <option key={s} value={s}>{s}</option>)}
                     </select>
                   </td>
                   <td style={{ minWidth: 170 }}>
@@ -1777,7 +2040,7 @@ export function AdminDashboardPage({ user, onLogout }) {
                         updateCleanupStatusQuick(row.id, e.target.value, row);
                       }}
                     >
-                      {cleanupInlineStatuses.map((s) => <option key={s} value={s}>{s}</option>)}
+                      {runtimeCleanupInlineStatuses.map((s) => <option key={s} value={s}>{s}</option>)}
                     </select>
                   </td>
                   <td style={{ minWidth: 110 }}>
@@ -1797,7 +2060,8 @@ export function AdminDashboardPage({ user, onLogout }) {
                       <option value="no">No</option>
                     </select>
                   </td>
-                  <td style={{ minWidth: 170 }}>
+                  <td className="muted">{row.easyvista_ticket_id || '—'}</td>
+                  <td style={{ minWidth: 140 }}>
                     <input
                       className="bs-inline-input"
                       aria-label={`Update JIRA number for #${row.id}`}
@@ -1817,38 +2081,9 @@ export function AdminDashboardPage({ user, onLogout }) {
                       }}
                     />
                   </td>
-                  <td style={{ minWidth: 150 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <input
-                        className="bs-inline-input"
-                        aria-label={`Update release number for #${row.id}`}
-                        defaultValue={row.release_number || ''}
-                        placeholder="v1.0.0"
-                        onMouseDown={(e) => e.stopPropagation()}
-                        onClick={(e) => e.stopPropagation()}
-                        onKeyDown={(e) => {
-                          e.stopPropagation();
-                          if (e.key === 'Enter') {
-                            updateReleaseNumberQuick(row.id, e.currentTarget.value.trim());
-                          }
-                        }}
-                        onBlur={(e) => {
-                          e.stopPropagation();
-                          updateReleaseNumberQuick(row.id, e.currentTarget.value.trim());
-                        }}
-                      />
-                      {!!row.release_notes && (
-                        <span
-                          title="Release notes available"
-                          style={{ fontSize: 14, color: 'var(--blue-500)', cursor: 'default', flexShrink: 0 }}
-                        >📋</span>
-                      )}
-                    </div>
-                  </td>
                   <td>{formatCurrency(row.policy_premium_impact)}</td>
                   <td>{formatCurrency(row.direct_dollar_impact)}</td>
                   <td>{formatNumber(row.policies_affected_count)}</td>
-                  <td className="muted">{row.easyvista_ticket_id || '—'}</td>
                 </tr>
               ))}
             </tbody>
@@ -1877,7 +2112,7 @@ export function AdminDashboardPage({ user, onLogout }) {
               value={cleanupForm.cleanup_status}
               onChange={(e) => setCleanupForm((prev) => ({ ...prev, cleanup_status: e.target.value }))}
             >
-              {cleanupStatuses.map((status) => (
+              {dynamicCleanupStatuses.map((status) => (
                 <option key={status} value={status}>{status}</option>
               ))}
             </Select>
@@ -1914,9 +2149,9 @@ export function AdminDashboardPage({ user, onLogout }) {
                 }))
               }
             >
-              <option value="cleanup_only">Cleanup Only</option>
-              <option value="defect">Defect</option>
-              <option value="enhancement">Enhancement</option>
+              {dynamicCleanupTagTypes.map((option) => (
+                <option key={option} value={option}>{formatMetaTypeLabel(option)}</option>
+              ))}
             </Select>
 
             <Input
@@ -1924,6 +2159,16 @@ export function AdminDashboardPage({ user, onLogout }) {
               value={cleanupForm.created_by}
               onChange={(e) => setCleanupForm((prev) => ({ ...prev, created_by: e.target.value }))}
             />
+
+            <Select
+              label="Created Via"
+              value={cleanupForm.created_via}
+              onChange={(e) => setCleanupForm((prev) => ({ ...prev, created_via: e.target.value }))}
+            >
+              {runtimeCreatedViaOptions.map((sourceOption) => (
+                <option key={sourceOption} value={sourceOption}>{formatCreatedViaLabel(sourceOption)}</option>
+              ))}
+            </Select>
 
             <Select
               label="Application"
@@ -2505,7 +2750,7 @@ export function AdminDashboardPage({ user, onLogout }) {
               value={backdatedForm.status}
               onChange={(e) => setBackdatedForm((prev) => ({ ...prev, status: e.target.value }))}
             >
-              {statuses.map((status) => (
+              {dynamicStatuses.map((status) => (
                 <option key={status} value={status}>{status}</option>
               ))}
             </Select>
@@ -2516,6 +2761,16 @@ export function AdminDashboardPage({ user, onLogout }) {
               value={backdatedForm.created_by}
               onChange={(e) => setBackdatedForm((prev) => ({ ...prev, created_by: e.target.value }))}
             />
+
+            <Select
+              label="Created Via"
+              value={backdatedForm.created_via}
+              onChange={(e) => setBackdatedForm((prev) => ({ ...prev, created_via: e.target.value }))}
+            >
+              {runtimeCreatedViaOptions.map((sourceOption) => (
+                <option key={sourceOption} value={sourceOption}>{formatCreatedViaLabel(sourceOption)}</option>
+              ))}
+            </Select>
 
             <Input
               label="Requester Email"
@@ -2799,9 +3054,12 @@ export function AdminDashboardPage({ user, onLogout }) {
                   })
                 }
               >
-                {edit.is_cleanup && <option value="cleanup_only">Cleanup Only</option>}
-                <option value="defect">Defect</option>
-                <option value="enhancement">Enhancement</option>
+                {dynamicCleanupTagTypes.map((option) => {
+                  if (!edit.is_cleanup && option === 'cleanup_only') {
+                    return null;
+                  }
+                  return <option key={option} value={option}>{formatMetaTypeLabel(option)}</option>;
+                })}
               </Select>
 
               <Select
@@ -2829,7 +3087,7 @@ export function AdminDashboardPage({ user, onLogout }) {
                   }))
                 }
               >
-                {statusOptions.map((s) => <option key={s} value={s}>{s}</option>)}
+                {runtimeStatusOptions.map((s) => <option key={s} value={s}>{s}</option>)}
               </Select>
               <Select
                 label="Cleanup Status"
@@ -2837,10 +3095,23 @@ export function AdminDashboardPage({ user, onLogout }) {
                 onChange={(e) => setEdit((p) => ({ ...p, cleanup_status: e.target.value }))}
                 disabled={!edit.is_cleanup}
               >
-                {cleanupStatuses.map((s) => <option key={s} value={s}>{s}</option>)}
+                {dynamicCleanupStatuses.map((s) => <option key={s} value={s}>{s}</option>)}
               </Select>
               <Input label="Reviewer" value={edit.reviewer} onChange={(e) => setEdit((p) => ({ ...p, reviewer: e.target.value }))} />
               <Input label="Duplicate Reference (EasyVista / JIRA / ID)" value={edit.duplicate_of} onChange={(e) => setEdit((p) => ({ ...p, duplicate_of: e.target.value }))} />
+              <Input
+                label="Submitted to EV By"
+                value={edit.easyvista_submitted_by}
+                readOnly={isAutoEasyVistaReporter(edit.easyvista_submitted_by)}
+                onChange={(e) => setEdit((p) => ({ ...p, easyvista_submitted_by: e.target.value }))}
+                placeholder="Unknown"
+              />
+              <Input
+                label="Created Via"
+                value={formatCreatedViaLabel(edit.created_via || detail.created_via || '')}
+                readOnly
+                placeholder="—"
+              />
               <Input label="JIRA Number" value={edit.jira_number} onChange={(e) => setEdit((p) => ({ ...p, jira_number: e.target.value }))} placeholder="JIRA-123" />
               <Input label="EasyVista Ticket" value={detail.easyvista_ticket_id || ''} readOnly placeholder="—" />
             </div>

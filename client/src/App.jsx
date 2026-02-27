@@ -4,6 +4,7 @@ import { AppShell } from './components/bite-size/Layout';
 import { api } from './lib/api';
 import { AdminDashboardPage } from './pages/AdminDashboardPage';
 import { AdminLoginPage } from './pages/AdminLoginPage';
+import { AdminMetadataPage } from './pages/AdminMetadataPage';
 import { PublicUpdatesPage } from './pages/PublicUpdatesPage';
 import { RepSubmitPage } from './pages/RepSubmitPage';
 
@@ -59,6 +60,14 @@ function App() {
           element={
             <RequireAdmin user={user}>
               <AdminDashboardPage user={user} onLogout={() => setUser(null)} />
+            </RequireAdmin>
+          }
+        />
+        <Route
+          path="/admin/metadata"
+          element={
+            <RequireAdmin user={user}>
+              <AdminMetadataPage user={user} />
             </RequireAdmin>
           }
         />

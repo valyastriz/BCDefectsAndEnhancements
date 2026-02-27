@@ -101,9 +101,10 @@ const ENHANCEMENT_REQUEST_TYPES = [
   'Run-Other Operational Work',
 ];
 
-const DEFECT_ENHANCEMENT_STATUSES = [
+const DEFAULT_DEFECT_ENHANCEMENT_STATUSES = [
   'New',
   'Approved',
+  'Redirected',
   'Backlog - Monitoring Impact',
   'Future Consideration',
   'Deferred – Not in Current Scope',
@@ -112,7 +113,22 @@ const DEFECT_ENHANCEMENT_STATUSES = [
   'Submitted',
   'Deployed',
 ];
-const DEFECT_ENHANCEMENT_STATUSES_WITH_RETIRED = [...DEFECT_ENHANCEMENT_STATUSES, 'Retired'];
+const RETIRED_STATUS = 'Retired';
+const DEFAULT_DEFECT_ENHANCEMENT_STATUSES_WITH_RETIRED = [...DEFAULT_DEFECT_ENHANCEMENT_STATUSES, RETIRED_STATUS];
+const DEFAULT_SUBMISSION_TYPES = ['defect', 'enhancement'];
+const DEFAULT_APPLICATIONS = ['Billing Center', 'Policy Center'];
+const DEFAULT_ENHANCEMENT_REQUEST_TYPES = [...ENHANCEMENT_REQUEST_TYPES];
+const DEFAULT_PRIORITY_LEVELS = ['1 - Urgent', '2 - High', '3 - Medium', '4 - Low'];
+const DEFAULT_SUBMISSION_SOURCES = [
+  'rep_form',
+  'admin_backdated',
+  'admin_cleanup',
+  'admin_excel_import',
+  'admin_manual',
+  'admin_easyvista_resubmission',
+];
+const DEFECT_ENHANCEMENT_STATUSES = [...DEFAULT_DEFECT_ENHANCEMENT_STATUSES];
+const DEFECT_ENHANCEMENT_STATUSES_WITH_RETIRED = [...DEFAULT_DEFECT_ENHANCEMENT_STATUSES_WITH_RETIRED];
 
 const IMPORT_COLUMN_TARGETS = [
   { key: 'created_by', label: 'Requester Name', aliases: ['created_by', 'requester_name', 'requester', 'submitted_by_name'] },
@@ -171,8 +187,10 @@ const IMPORT_COLUMN_TARGETS = [
   { key: 'updated_at', label: 'Updated At', aliases: ['updated_at', 'status_update_at', 'last_updated_at'] },
 ];
 
-const CLEANUP_STATUSES = ['Not Started', 'In Progress', 'Completed'];
-const CLEANUP_TAG_TYPES = ['defect', 'enhancement', 'cleanup_only'];
+const DEFAULT_CLEANUP_STATUSES = ['Not Started', 'In Progress', 'Completed'];
+const DEFAULT_CLEANUP_TAG_TYPES = ['defect', 'enhancement', 'cleanup_only'];
+const CLEANUP_STATUSES = [...DEFAULT_CLEANUP_STATUSES];
+const CLEANUP_TAG_TYPES = [...DEFAULT_CLEANUP_TAG_TYPES];
 const CLEANUP_TO_SUBMISSION_STATUS = {
   'Not Started': 'New',
   'In Progress': 'Approved',
@@ -191,15 +209,26 @@ function toBooleanSql(value) {
 
 function mapSubmission(row) {
   if (!row) return null;
+  const resolvedStatus = row.model_status_name || 'New';
+  const resolvedType = row.model_type_name || 'defect';
+  const resolvedApplicationName = row.model_application_name || 'Billing Center';
+  const resolvedCleanupStatus = row.model_cleanup_status_name || row.cleanup_status || null;
+  const resolvedCleanupTagType = row.model_cleanup_tag_type_name || row.cleanup_tag_type || null;
+  const resolvedEnhancementRequestType =
+    row.model_enhancement_request_type_name || row.enhancement_request_type || null;
+  const resolvedPriorityLevel = row.model_priority_level_name || row.priority_level || null;
+  const resolvedCreatedVia = row.model_created_via_name || 'rep_form';
   const isCleanup = Boolean(row.is_cleanup);
-  const baseStatus = row.status || 'New';
+  const baseStatus = resolvedStatus;
   const isRetired = Boolean(row.is_retired) || String(baseStatus) === 'Retired';
   const cleanupStatus = isCleanup
-    ? (row.cleanup_status || SUBMISSION_TO_CLEANUP_STATUS[baseStatus] || 'Not Started')
+    ? (resolvedCleanupStatus || SUBMISSION_TO_CLEANUP_STATUS[baseStatus] || 'Not Started')
     : null;
 
   return {
     ...row,
+    type: resolvedType,
+    application_name: resolvedApplicationName,
     status: baseStatus,
     defect_enhancement_status: baseStatus,
     is_public: Boolean(row.is_public),
@@ -207,7 +236,10 @@ function mapSubmission(row) {
     is_cleanup: isCleanup,
     cleanup_status: cleanupStatus,
     cleanup_status_display: cleanupStatus || 'No Cleanup',
-    cleanup_tag_type: row.cleanup_tag_type || null,
+    cleanup_tag_type: resolvedCleanupTagType,
+    enhancement_request_type: resolvedEnhancementRequestType,
+    priority_level: resolvedPriorityLevel,
+    created_via: resolvedCreatedVia,
     is_resubmission: Boolean(row.is_resubmission),
     resubmission_of_submission_id: row.resubmission_of_submission_id || null,
     resubmission_of_easyvista_ticket_id: row.resubmission_of_easyvista_ticket_id || null,
@@ -215,6 +247,41 @@ function mapSubmission(row) {
     latest_resubmission_submission_id: row.latest_resubmission_submission_id || null,
     latest_resubmission_easyvista_ticket_id: row.latest_resubmission_easyvista_ticket_id || null,
   };
+}
+
+const SUBMISSION_LOOKUP_JOINS = `
+  LEFT JOIN defect_enhancement_statuses st ON st.id = s.status_id
+  LEFT JOIN submission_types ty ON ty.id = s.type_id
+  LEFT JOIN cleanup_statuses cs ON cs.id = s.cleanup_status_id
+  LEFT JOIN cleanup_tag_types ct ON ct.id = s.cleanup_tag_type_id
+  LEFT JOIN applications app ON app.id = s.application_id
+  LEFT JOIN enhancement_request_types ert ON ert.id = s.enhancement_request_type_id
+  LEFT JOIN priority_levels pl ON pl.id = s.priority_level_id
+  LEFT JOIN submission_sources src ON src.id = s.created_via_id
+`;
+
+const SUBMISSION_LOOKUP_SELECT = `
+  st.name AS model_status_name,
+  ty.name AS model_type_name,
+  COALESCE(cs.name, s.cleanup_status) AS model_cleanup_status_name,
+  COALESCE(ct.name, s.cleanup_tag_type) AS model_cleanup_tag_type_name,
+  app.name AS model_application_name,
+  COALESCE(ert.name, s.enhancement_request_type) AS model_enhancement_request_type_name,
+  COALESCE(pl.name, s.priority_level) AS model_priority_level_name,
+  src.name AS model_created_via_name
+`;
+
+async function getSubmissionByIdWithLookups(db, submissionId, { publicOnly = false } = {}) {
+  const whereClause = publicOnly ? 'AND s.is_public = 1' : '';
+  return db.get(
+    `
+    SELECT s.*, ${SUBMISSION_LOOKUP_SELECT}
+    FROM submissions s
+    ${SUBMISSION_LOOKUP_JOINS}
+    WHERE s.id = ? ${whereClause}
+  `,
+    [submissionId],
+  );
 }
 
 function toSortableTimestamp(value, fallback) {
@@ -316,9 +383,379 @@ function isBlank(value) {
   return String(value ?? '').trim().length === 0;
 }
 
-function normalizeCleanupTagType(value) {
+function normalizeCleanupTagType(value, allowedCleanupTagTypes = DEFAULT_CLEANUP_TAG_TYPES) {
   const normalized = String(value || '').trim().toLowerCase();
-  return CLEANUP_TAG_TYPES.includes(normalized) ? normalized : null;
+  return allowedCleanupTagTypes.includes(normalized) ? normalized : null;
+}
+
+async function getDefectEnhancementStatuses(db, { includeRetired = false } = {}) {
+  try {
+    const rows = await db.all(
+      `
+      SELECT name, is_retired
+      FROM defect_enhancement_statuses
+      WHERE COALESCE(is_active, 1) = 1
+      ORDER BY COALESCE(sort_order, 0) ASC, id ASC
+    `,
+    );
+    const names = (rows || []).map((row) => String(row.name || '').trim()).filter(Boolean);
+    if (names.length === 0) {
+      return includeRetired
+        ? [...DEFAULT_DEFECT_ENHANCEMENT_STATUSES_WITH_RETIRED]
+        : [...DEFAULT_DEFECT_ENHANCEMENT_STATUSES];
+    }
+    if (includeRetired) {
+      return names;
+    }
+    return (rows || [])
+      .filter((row) => !Boolean(row.is_retired) && String(row.name || '').trim().toLowerCase() !== RETIRED_STATUS.toLowerCase())
+      .map((row) => String(row.name || '').trim())
+      .filter(Boolean);
+  } catch {
+    return includeRetired
+      ? [...DEFAULT_DEFECT_ENHANCEMENT_STATUSES_WITH_RETIRED]
+      : [...DEFAULT_DEFECT_ENHANCEMENT_STATUSES];
+  }
+}
+
+async function getSubmissionTypes(db) {
+  try {
+    const rows = await db.all(
+      `
+      SELECT name
+      FROM submission_types
+      WHERE COALESCE(is_active, 1) = 1
+      ORDER BY COALESCE(sort_order, 0) ASC, id ASC
+    `,
+    );
+    const names = (rows || []).map((row) => String(row.name || '').trim().toLowerCase()).filter(Boolean);
+    return names.length > 0 ? names : [...DEFAULT_SUBMISSION_TYPES];
+  } catch {
+    return [...DEFAULT_SUBMISSION_TYPES];
+  }
+}
+
+async function getCleanupStatuses(db) {
+  try {
+    const rows = await db.all(
+      `
+      SELECT name
+      FROM cleanup_statuses
+      WHERE COALESCE(is_active, 1) = 1
+      ORDER BY COALESCE(sort_order, 0) ASC, id ASC
+    `,
+    );
+    const names = (rows || []).map((row) => String(row.name || '').trim()).filter(Boolean);
+    return names.length > 0 ? names : [...DEFAULT_CLEANUP_STATUSES];
+  } catch {
+    return [...DEFAULT_CLEANUP_STATUSES];
+  }
+}
+
+async function getCleanupTagTypes(db) {
+  try {
+    const rows = await db.all(
+      `
+      SELECT name
+      FROM cleanup_tag_types
+      WHERE COALESCE(is_active, 1) = 1
+      ORDER BY COALESCE(sort_order, 0) ASC, id ASC
+    `,
+    );
+    const names = (rows || []).map((row) => String(row.name || '').trim().toLowerCase()).filter(Boolean);
+    return names.length > 0 ? names : [...DEFAULT_CLEANUP_TAG_TYPES];
+  } catch {
+    return [...DEFAULT_CLEANUP_TAG_TYPES];
+  }
+}
+
+async function getApplications(db) {
+  try {
+    const rows = await db.all(
+      `
+      SELECT name
+      FROM applications
+      WHERE COALESCE(is_active, 1) = 1
+      ORDER BY COALESCE(sort_order, 0) ASC, id ASC
+    `,
+    );
+    const names = (rows || []).map((row) => String(row.name || '').trim()).filter(Boolean);
+    return names.length > 0 ? names : [...DEFAULT_APPLICATIONS];
+  } catch {
+    return [...DEFAULT_APPLICATIONS];
+  }
+}
+
+async function getEnhancementRequestTypes(db) {
+  try {
+    const rows = await db.all(
+      `
+      SELECT name
+      FROM enhancement_request_types
+      WHERE COALESCE(is_active, 1) = 1
+      ORDER BY COALESCE(sort_order, 0) ASC, id ASC
+    `,
+    );
+    const names = (rows || []).map((row) => String(row.name || '').trim()).filter(Boolean);
+    return names.length > 0 ? names : [...DEFAULT_ENHANCEMENT_REQUEST_TYPES];
+  } catch {
+    return [...DEFAULT_ENHANCEMENT_REQUEST_TYPES];
+  }
+}
+
+async function getPriorityLevels(db) {
+  try {
+    const rows = await db.all(
+      `
+      SELECT name
+      FROM priority_levels
+      WHERE COALESCE(is_active, 1) = 1
+      ORDER BY COALESCE(sort_order, 0) ASC, id ASC
+    `,
+    );
+    const names = (rows || []).map((row) => String(row.name || '').trim()).filter(Boolean);
+    return names.length > 0 ? names : [...DEFAULT_PRIORITY_LEVELS];
+  } catch {
+    return [...DEFAULT_PRIORITY_LEVELS];
+  }
+}
+
+async function getSubmissionSources(db) {
+  try {
+    const rows = await db.all(
+      `
+      SELECT name
+      FROM submission_sources
+      WHERE COALESCE(is_active, 1) = 1
+      ORDER BY COALESCE(sort_order, 0) ASC, id ASC
+    `,
+    );
+    const names = (rows || []).map((row) => String(row.name || '').trim().toLowerCase()).filter(Boolean);
+    return names.length > 0 ? names : [...DEFAULT_SUBMISSION_SOURCES];
+  } catch {
+    return [...DEFAULT_SUBMISSION_SOURCES];
+  }
+}
+
+async function getLookupIdByName(db, table, value, { lowercase = false } = {}) {
+  const normalizedValue = String(value || '').trim();
+  if (!normalizedValue) return null;
+  const compareValue = lowercase ? normalizedValue.toLowerCase() : normalizedValue;
+  const row = await db.get(
+    `SELECT id FROM ${table} WHERE ${lowercase ? 'LOWER(name) = ?' : 'name = ?'} LIMIT 1`,
+    [compareValue],
+  );
+  return row?.id ? Number(row.id) : null;
+}
+
+async function resolveSubmissionLookupIds(db, payload) {
+  return {
+    created_via_id: await getLookupIdByName(db, 'submission_sources', payload.created_via, { lowercase: true }),
+    type_id: await getLookupIdByName(db, 'submission_types', payload.type, { lowercase: true }),
+    application_id: await getLookupIdByName(db, 'applications', payload.application_name),
+    status_id: await getLookupIdByName(db, 'defect_enhancement_statuses', payload.status),
+    cleanup_status_id: await getLookupIdByName(db, 'cleanup_statuses', payload.cleanup_status),
+    cleanup_tag_type_id: await getLookupIdByName(db, 'cleanup_tag_types', payload.cleanup_tag_type, { lowercase: true }),
+    enhancement_request_type_id: await getLookupIdByName(db, 'enhancement_request_types', payload.enhancement_request_type),
+    priority_level_id: await getLookupIdByName(db, 'priority_levels', payload.priority_level),
+  };
+}
+
+const SUBMISSION_LOOKUP_AUDIT_CONFIG = [
+  {
+    key: 'created_via',
+    label: 'Created Via',
+    textColumn: 'created_via',
+    idColumn: 'created_via_id',
+    lookupTable: 'submission_sources',
+    requiredForAll: true,
+  },
+  {
+    key: 'type',
+    label: 'Type',
+    textColumn: 'type',
+    idColumn: 'type_id',
+    lookupTable: 'submission_types',
+    requiredForAll: true,
+  },
+  {
+    key: 'application_name',
+    label: 'Application',
+    textColumn: 'application_name',
+    idColumn: 'application_id',
+    lookupTable: 'applications',
+    requiredForAll: true,
+  },
+  {
+    key: 'status',
+    label: 'Status',
+    textColumn: 'status',
+    idColumn: 'status_id',
+    lookupTable: 'defect_enhancement_statuses',
+    requiredForAll: true,
+  },
+  {
+    key: 'cleanup_status',
+    label: 'Cleanup Status',
+    textColumn: 'cleanup_status',
+    idColumn: 'cleanup_status_id',
+    lookupTable: 'cleanup_statuses',
+    requiredForAll: false,
+  },
+  {
+    key: 'cleanup_tag_type',
+    label: 'Cleanup Tag Type',
+    textColumn: 'cleanup_tag_type',
+    idColumn: 'cleanup_tag_type_id',
+    lookupTable: 'cleanup_tag_types',
+    requiredForAll: false,
+  },
+  {
+    key: 'enhancement_request_type',
+    label: 'Enhancement Request Type',
+    textColumn: 'enhancement_request_type',
+    idColumn: 'enhancement_request_type_id',
+    lookupTable: 'enhancement_request_types',
+    requiredForAll: false,
+  },
+  {
+    key: 'priority_level',
+    label: 'Priority Level',
+    textColumn: 'priority_level',
+    idColumn: 'priority_level_id',
+    lookupTable: 'priority_levels',
+    requiredForAll: false,
+  },
+];
+
+function collectMissingLookupIds(lookupIds, checks = []) {
+  return checks
+    .filter((check) => check?.required)
+    .filter((check) => !lookupIds?.[check.idKey])
+    .map((check) => check.label);
+}
+
+function formatMissingLookupError(missingFields) {
+  return `Unresolved metadata values for: ${missingFields.join(', ')}. Update metadata options and retry.`;
+}
+
+async function getSubmissionLookupMigrationAudit(db) {
+  const totalRow = await db.get('SELECT COUNT(*) AS count FROM submissions');
+  const totalSubmissions = Number(totalRow?.count || 0);
+  const byField = [];
+
+  for (const config of SUBMISSION_LOOKUP_AUDIT_CONFIG) {
+    const missingForTextRow = await db.get(
+      `
+      SELECT COUNT(*) AS count
+      FROM submissions s
+      WHERE TRIM(COALESCE(s.${config.textColumn}, '')) <> ''
+        AND s.${config.idColumn} IS NULL
+    `,
+    );
+    const orphanedIdRow = await db.get(
+      `
+      SELECT COUNT(*) AS count
+      FROM submissions s
+      LEFT JOIN ${config.lookupTable} l ON l.id = s.${config.idColumn}
+      WHERE s.${config.idColumn} IS NOT NULL
+        AND l.id IS NULL
+    `,
+    );
+
+    byField.push({
+      key: config.key,
+      label: config.label,
+      textColumn: config.textColumn,
+      idColumn: config.idColumn,
+      lookupTable: config.lookupTable,
+      requiredForAll: config.requiredForAll,
+      missingIdForTextCount: Number(missingForTextRow?.count || 0),
+      orphanedIdCount: Number(orphanedIdRow?.count || 0),
+    });
+  }
+
+  const critical = byField.filter((field) => field.requiredForAll);
+  const optional = byField.filter((field) => !field.requiredForAll);
+
+  return {
+    generatedAt: new Date().toISOString(),
+    totalSubmissions,
+    critical: {
+      totalMissingIdForText: critical.reduce((sum, item) => sum + item.missingIdForTextCount, 0),
+      totalOrphanedIds: critical.reduce((sum, item) => sum + item.orphanedIdCount, 0),
+      fields: critical,
+    },
+    optional: {
+      totalMissingIdForText: optional.reduce((sum, item) => sum + item.missingIdForTextCount, 0),
+      totalOrphanedIds: optional.reduce((sum, item) => sum + item.orphanedIdCount, 0),
+      fields: optional,
+    },
+  };
+}
+
+const LOOKUP_TABLES = {
+  statuses: {
+    table: 'defect_enhancement_statuses',
+    hasRetiredFlag: true,
+    normalize: (value) => String(value || '').trim(),
+    submissionIdColumn: 'status_id',
+    submissionTextColumn: 'status',
+  },
+  types: {
+    table: 'submission_types',
+    hasRetiredFlag: false,
+    normalize: (value) => String(value || '').trim().toLowerCase(),
+    submissionIdColumn: 'type_id',
+    submissionTextColumn: 'type',
+  },
+  'cleanup-statuses': {
+    table: 'cleanup_statuses',
+    hasRetiredFlag: false,
+    normalize: (value) => String(value || '').trim(),
+    submissionIdColumn: 'cleanup_status_id',
+    submissionTextColumn: 'cleanup_status',
+  },
+  'cleanup-tag-types': {
+    table: 'cleanup_tag_types',
+    hasRetiredFlag: false,
+    normalize: (value) => String(value || '').trim().toLowerCase(),
+    submissionIdColumn: 'cleanup_tag_type_id',
+    submissionTextColumn: 'cleanup_tag_type',
+  },
+  applications: {
+    table: 'applications',
+    hasRetiredFlag: false,
+    normalize: (value) => String(value || '').trim(),
+    submissionIdColumn: 'application_id',
+    submissionTextColumn: 'application_name',
+  },
+  'enhancement-request-types': {
+    table: 'enhancement_request_types',
+    hasRetiredFlag: false,
+    normalize: (value) => String(value || '').trim(),
+    submissionIdColumn: 'enhancement_request_type_id',
+    submissionTextColumn: 'enhancement_request_type',
+  },
+  'priority-levels': {
+    table: 'priority_levels',
+    hasRetiredFlag: false,
+    normalize: (value) => String(value || '').trim(),
+    submissionIdColumn: 'priority_level_id',
+    submissionTextColumn: 'priority_level',
+  },
+  'submission-sources': {
+    table: 'submission_sources',
+    hasRetiredFlag: false,
+    normalize: (value) => String(value || '').trim().toLowerCase(),
+    submissionIdColumn: 'created_via_id',
+    submissionTextColumn: 'created_via',
+  },
+};
+
+function resolveLookupCategory(categoryParam) {
+  const key = String(categoryParam || '').trim().toLowerCase();
+  return LOOKUP_TABLES[key] ? { key, ...LOOKUP_TABLES[key] } : null;
 }
 
 function normalizeImportHeader(value) {
@@ -541,6 +978,7 @@ app.post('/api/admin/submissions/import-xlsx/analyze', ensureAdmin, tempUpload.s
     const mappedApplicationHeader = normalizedSuggestedMappings.application_name || '';
     const hasApplicationColumn = Boolean(mappedApplicationHeader)
       || applicationAliases.some((alias) => normalizedHeaders.includes(alias));
+    const allowedStatuses = await withDb(async (db) => getDefectEnhancementStatuses(db, { includeRetired: true }));
 
     const unknownStatusesSet = new Set();
     rawRows.forEach((rawRow) => {
@@ -555,7 +993,7 @@ app.post('/api/admin/submissions/import-xlsx/analyze', ensureAdmin, tempUpload.s
         ) || '',
       ).trim();
       if (!rawStatus) return;
-      if (!DEFECT_ENHANCEMENT_STATUSES_WITH_RETIRED.includes(rawStatus)) {
+      if (!allowedStatuses.includes(rawStatus)) {
         unknownStatusesSet.add(rawStatus);
       }
     });
@@ -567,7 +1005,7 @@ app.post('/api/admin/submissions/import-xlsx/analyze', ensureAdmin, tempUpload.s
       suggestedMappings,
       requiresApplicationDefault: !hasApplicationColumn,
       unknownStatuses: Array.from(unknownStatusesSet),
-      allowedStatuses: DEFECT_ENHANCEMENT_STATUSES_WITH_RETIRED,
+      allowedStatuses,
       previewRows: Math.min(rawRows.length, 5),
       totalRows: rawRows.length,
     });
@@ -705,6 +1143,255 @@ app.get('/api/health', (_req, res) => {
   res.json({ ok: true });
 });
 
+app.get('/api/meta/options', async (_req, res) => {
+  return withDb(async (db) => {
+    const submissionTypes = await getSubmissionTypes(db);
+    const defectEnhancementStatuses = await getDefectEnhancementStatuses(db, { includeRetired: false });
+    const defectEnhancementStatusesWithRetired = await getDefectEnhancementStatuses(db, { includeRetired: true });
+    const cleanupStatuses = await getCleanupStatuses(db);
+    const cleanupTagTypes = await getCleanupTagTypes(db);
+    const applications = await getApplications(db);
+    const enhancementRequestTypes = await getEnhancementRequestTypes(db);
+    const priorityLevels = await getPriorityLevels(db);
+    const submissionSources = await getSubmissionSources(db);
+
+    return res.json({
+      submissionTypes,
+      defectEnhancementStatuses,
+      defectEnhancementStatusesWithRetired,
+      cleanupStatuses,
+      cleanupTagTypes,
+      applications,
+      enhancementRequestTypes,
+      priorityLevels,
+      submissionSources,
+    });
+  });
+});
+
+app.get('/api/admin/meta/options', ensureAdmin, async (_req, res) => {
+  return withDb(async (db) => {
+    const fetchRows = async (tableName, hasRetiredFlag) => {
+      const rows = await db.all(
+        `
+        SELECT id, name, sort_order, is_active${hasRetiredFlag ? ', is_retired' : ''}
+        FROM ${tableName}
+        ORDER BY COALESCE(sort_order, 0) ASC, id ASC
+      `,
+      );
+      return (rows || []).map((row) => ({
+        id: Number(row.id),
+        name: String(row.name || ''),
+        sortOrder: Number(row.sort_order || 0),
+        isActive: Boolean(row.is_active),
+        ...(hasRetiredFlag ? { isRetired: Boolean(row.is_retired) } : {}),
+      }));
+    };
+
+    return res.json({
+      statuses: await fetchRows('defect_enhancement_statuses', true),
+      types: await fetchRows('submission_types', false),
+      cleanupStatuses: await fetchRows('cleanup_statuses', false),
+      cleanupTagTypes: await fetchRows('cleanup_tag_types', false),
+      applications: await fetchRows('applications', false),
+      enhancementRequestTypes: await fetchRows('enhancement_request_types', false),
+      priorityLevels: await fetchRows('priority_levels', false),
+      submissionSources: await fetchRows('submission_sources', false),
+    });
+  });
+});
+
+app.get('/api/admin/migration/audit', ensureAdmin, async (_req, res) => {
+  return withDb(async (db) => {
+    const audit = await getSubmissionLookupMigrationAudit(db);
+    return res.json(audit);
+  });
+});
+
+app.post('/api/admin/meta/:category', ensureAdmin, async (req, res) => {
+  const category = resolveLookupCategory(req.params.category);
+  if (!category) {
+    return res.status(400).json({ error: 'Invalid metadata category' });
+  }
+
+  return withDb(async (db) => {
+    const normalizedName = category.normalize(req.body?.name);
+    if (!normalizedName) {
+      return res.status(400).json({ error: 'Name is required' });
+    }
+
+    const existing = await db.get(
+      `SELECT id FROM ${category.table} WHERE LOWER(name) = LOWER(?) LIMIT 1`,
+      [normalizedName],
+    );
+    if (existing) {
+      return res.status(409).json({ error: 'Value already exists' });
+    }
+
+    const maxSortRow = await db.get(`SELECT COALESCE(MAX(sort_order), 0) AS maxSort FROM ${category.table}`);
+    const nextSort = Number(maxSortRow?.maxSort || 0) + 1;
+    const isRetired = category.hasRetiredFlag && Boolean(req.body?.isRetired);
+
+    const insertSql = category.hasRetiredFlag
+      ? `INSERT INTO ${category.table} (name, sort_order, is_active, is_retired) VALUES (?, ?, 1, ?)`
+      : `INSERT INTO ${category.table} (name, sort_order, is_active) VALUES (?, ?, 1)`;
+    const params = category.hasRetiredFlag
+      ? [normalizedName, nextSort, toBooleanSql(isRetired)]
+      : [normalizedName, nextSort];
+
+    const inserted = await db.run(insertSql, params);
+    const created = await db.get(
+      `SELECT id, name, sort_order, is_active${category.hasRetiredFlag ? ', is_retired' : ''} FROM ${category.table} WHERE id = ?`,
+      [inserted.lastID],
+    );
+
+    return res.status(201).json({
+      id: Number(created.id),
+      name: String(created.name || ''),
+      sortOrder: Number(created.sort_order || 0),
+      isActive: Boolean(created.is_active),
+      ...(category.hasRetiredFlag ? { isRetired: Boolean(created.is_retired) } : {}),
+    });
+  });
+});
+
+app.put('/api/admin/meta/:category/:id', ensureAdmin, async (req, res) => {
+  const category = resolveLookupCategory(req.params.category);
+  if (!category) {
+    return res.status(400).json({ error: 'Invalid metadata category' });
+  }
+
+  const recordId = Number.parseInt(String(req.params.id || ''), 10);
+  if (!Number.isFinite(recordId) || recordId <= 0) {
+    return res.status(400).json({ error: 'Invalid metadata id' });
+  }
+
+  return withDb(async (db) => {
+    const existing = await db.get(`SELECT * FROM ${category.table} WHERE id = ?`, [recordId]);
+    if (!existing) {
+      return res.status(404).json({ error: 'Metadata entry not found' });
+    }
+
+    const isProtectedRetiredStatus = category.key === 'statuses'
+      && (Boolean(existing.is_retired) || String(existing.name || '').trim().toLowerCase() === 'retired');
+    if (isProtectedRetiredStatus) {
+      return res.status(400).json({ error: 'Retired status is system-protected and cannot be modified' });
+    }
+
+    const nextNameRaw = Object.prototype.hasOwnProperty.call(req.body || {}, 'name')
+      ? category.normalize(req.body?.name)
+      : String(existing.name || '');
+    if (!nextNameRaw) {
+      return res.status(400).json({ error: 'Name is required' });
+    }
+
+    const duplicate = await db.get(
+      `SELECT id FROM ${category.table} WHERE LOWER(name) = LOWER(?) AND id <> ? LIMIT 1`,
+      [nextNameRaw, recordId],
+    );
+    if (duplicate) {
+      return res.status(409).json({ error: 'Value already exists' });
+    }
+
+    const nextIsActive = Object.prototype.hasOwnProperty.call(req.body || {}, 'isActive')
+      ? toBooleanSql(Boolean(req.body?.isActive))
+      : toBooleanSql(Boolean(existing.is_active));
+    const nextSortOrder = Object.prototype.hasOwnProperty.call(req.body || {}, 'sortOrder')
+      ? Number(req.body?.sortOrder || 0)
+      : Number(existing.sort_order || 0);
+    const nextIsRetired = category.hasRetiredFlag
+      ? (Object.prototype.hasOwnProperty.call(req.body || {}, 'isRetired')
+        ? toBooleanSql(Boolean(req.body?.isRetired))
+        : toBooleanSql(Boolean(existing.is_retired)))
+      : null;
+
+    const updateSql = category.hasRetiredFlag
+      ? `UPDATE ${category.table} SET name = ?, sort_order = ?, is_active = ?, is_retired = ? WHERE id = ?`
+      : `UPDATE ${category.table} SET name = ?, sort_order = ?, is_active = ? WHERE id = ?`;
+    const params = category.hasRetiredFlag
+      ? [nextNameRaw, nextSortOrder, nextIsActive, nextIsRetired, recordId]
+      : [nextNameRaw, nextSortOrder, nextIsActive, recordId];
+
+    await db.run(updateSql, params);
+
+    if (
+      category.submissionIdColumn
+      && category.submissionTextColumn
+      && String(nextNameRaw || '') !== String(existing.name || '')
+    ) {
+      await db.run(
+        `UPDATE submissions SET ${category.submissionTextColumn} = ? WHERE ${category.submissionIdColumn} = ?`,
+        [nextNameRaw, recordId],
+      );
+    }
+
+    const updated = await db.get(
+      `SELECT id, name, sort_order, is_active${category.hasRetiredFlag ? ', is_retired' : ''} FROM ${category.table} WHERE id = ?`,
+      [recordId],
+    );
+
+    return res.json({
+      id: Number(updated.id),
+      name: String(updated.name || ''),
+      sortOrder: Number(updated.sort_order || 0),
+      isActive: Boolean(updated.is_active),
+      ...(category.hasRetiredFlag ? { isRetired: Boolean(updated.is_retired) } : {}),
+    });
+  });
+});
+
+app.post('/api/admin/meta/:category/reorder', ensureAdmin, async (req, res) => {
+  const category = resolveLookupCategory(req.params.category);
+  if (!category) {
+    return res.status(400).json({ error: 'Invalid metadata category' });
+  }
+
+  const orderedIds = Array.isArray(req.body?.orderedIds)
+    ? req.body.orderedIds.map((value) => Number.parseInt(String(value), 10)).filter((value) => Number.isFinite(value) && value > 0)
+    : [];
+
+  if (orderedIds.length === 0) {
+    return res.status(400).json({ error: 'orderedIds is required' });
+  }
+
+  return withDb(async (db) => {
+    const rows = await db.all(`SELECT id FROM ${category.table} ORDER BY COALESCE(sort_order, 0) ASC, id ASC`);
+    const existingIds = rows.map((row) => Number(row.id));
+    const existingSet = new Set(existingIds);
+
+    for (const idValue of orderedIds) {
+      if (!existingSet.has(idValue)) {
+        return res.status(400).json({ error: `Unknown metadata id: ${idValue}` });
+      }
+    }
+
+    const remaining = existingIds.filter((idValue) => !orderedIds.includes(idValue));
+    const finalOrder = [...orderedIds, ...remaining];
+
+    for (let index = 0; index < finalOrder.length; index += 1) {
+      await db.run(`UPDATE ${category.table} SET sort_order = ? WHERE id = ?`, [index + 1, finalOrder[index]]);
+    }
+
+    const refreshed = await db.all(
+      `
+      SELECT id, name, sort_order, is_active${category.hasRetiredFlag ? ', is_retired' : ''}
+      FROM ${category.table}
+      ORDER BY COALESCE(sort_order, 0) ASC, id ASC
+    `,
+    );
+
+    return res.json(
+      refreshed.map((row) => ({
+        id: Number(row.id),
+        name: String(row.name || ''),
+        sortOrder: Number(row.sort_order || 0),
+        isActive: Boolean(row.is_active),
+        ...(category.hasRetiredFlag ? { isRetired: Boolean(row.is_retired) } : {}),
+      })),
+    );
+  });
+});
+
 app.post('/api/auth/login', async (req, res) => {
   const { username, password } = req.body;
   if (!username || !password) {
@@ -790,7 +1477,9 @@ app.post('/api/submissions', tempUpload.array('attachments', 3), async (req, res
     desired_completion_date,
   } = req.body;
 
-  if (!['defect', 'enhancement'].includes(type)) {
+  const allowedSubmissionTypes = await withDb(async (db) => getSubmissionTypes(db));
+  const normalizedType = String(type || '').trim().toLowerCase();
+  if (!allowedSubmissionTypes.includes(normalizedType)) {
     return res.status(400).json({ error: 'Invalid submission type' });
   }
 
@@ -801,7 +1490,7 @@ app.post('/api/submissions', tempUpload.array('attachments', 3), async (req, res
   let normalized = {
     created_by: String(created_by).trim(),
     created_by_email: String(created_by_email || '-').trim() || '-',
-    type,
+    type: normalizedType,
     application_name: String(application_name || '').trim() || 'Billing Center',
     policy_num: policy_num || null,
     account_num: account_num || null,
@@ -815,7 +1504,7 @@ app.post('/api/submissions', tempUpload.array('attachments', 3), async (req, res
     desired_completion_date: desired_completion_date || null,
   };
 
-  if (type === 'defect') {
+  if (normalizedType === 'defect') {
     const defectDateTime = defectDateTimeIso({ date_time_of_error, date_of_error, time_of_error });
     if (!defectDateTime) {
       return res.status(400).json({ error: 'Date of error is required' });
@@ -842,7 +1531,7 @@ app.post('/api/submissions', tempUpload.array('attachments', 3), async (req, res
     };
   }
 
-  if (type === 'enhancement') {
+  if (normalizedType === 'enhancement') {
     if (isBlank(summary_of_issue) || isBlank(request) || isBlank(desired_completion_date)) {
       return res.status(400).json({
         error:
@@ -867,24 +1556,51 @@ app.post('/api/submissions', tempUpload.array('attachments', 3), async (req, res
 
   return withDb(async (db) => {
     const now = new Date().toISOString();
+    const lookupIds = await resolveSubmissionLookupIds(db, {
+      created_via: 'rep_form',
+      type: normalized.type,
+      application_name: normalized.application_name,
+      status: 'New',
+      cleanup_status: null,
+      cleanup_tag_type: null,
+      enhancement_request_type: null,
+      priority_level: normalized.priority_level || null,
+    });
+    const missingLookupFields = collectMissingLookupIds(lookupIds, [
+      { idKey: 'created_via_id', label: 'Created Via', required: true },
+      { idKey: 'type_id', label: 'Type', required: true },
+      { idKey: 'application_id', label: 'Application', required: true },
+      { idKey: 'status_id', label: 'Status', required: true },
+      {
+        idKey: 'priority_level_id',
+        label: 'Priority Level',
+        required: normalized.type === 'enhancement' && !isBlank(normalized.priority_level),
+      },
+    ]);
+    if (missingLookupFields.length > 0) {
+      return res.status(400).json({ error: formatMissingLookupError(missingLookupFields) });
+    }
     const insert = await db.run(
       `
       INSERT INTO submissions (
-        created_at, updated_at, created_via, created_by, created_by_email, type, application_name,
+        created_at, updated_at, created_via, created_via_id, created_by, created_by_email, type, type_id, application_name, application_id,
         policy_num, account_num, transaction_num, screen_title, summary_of_issue,
         steps_to_reproduce, what_happened_exact_details, request, date_time_of_error,
-        status, reviewer, decision_notes, fingerprint, duplicate_of, easyvista_ticket_id,
-        desired_completion_date, impact_details, enhancement_request_type, priority_level, jira_number, is_public
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'New', NULL, NULL, NULL, NULL, NULL, ?, NULL, NULL, ?, NULL, 0)
+        status, status_id, reviewer, decision_notes, fingerprint, duplicate_of, easyvista_ticket_id,
+        desired_completion_date, impact_details, enhancement_request_type, enhancement_request_type_id, priority_level, priority_level_id, jira_number, is_public
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
       [
         now,
         now,
         'rep_form',
+        lookupIds.created_via_id,
         normalized.created_by,
         normalized.created_by_email,
         normalized.type,
+        lookupIds.type_id,
         normalized.application_name,
+        lookupIds.application_id,
         normalized.policy_num,
         normalized.account_num,
         normalized.transaction_num,
@@ -894,15 +1610,28 @@ app.post('/api/submissions', tempUpload.array('attachments', 3), async (req, res
         normalized.what_happened_exact_details,
         normalized.request,
         normalized.date_time_of_error,
+        'New',
+        lookupIds.status_id,
+        null,
+        null,
+        null,
+        null,
+        null,
         normalized.desired_completion_date,
+        null,
+        null,
+        null,
         normalized.priority_level || null,
+        lookupIds.priority_level_id,
+        null,
+        0,
       ],
     );
 
     await persistUploadedFiles(db, insert.lastID, req.files || [], 'rep');
     await logStatusChange(db, insert.lastID, 'New', normalized.created_by || 'rep', now);
 
-    const created = await db.get('SELECT * FROM submissions WHERE id = ?', [insert.lastID]);
+    const created = await getSubmissionByIdWithLookups(db, insert.lastID);
     emitAdminNotification('submission:new', mapSubmission(created));
 
     return res.status(201).json({
@@ -922,6 +1651,7 @@ app.get('/api/public/submissions', async (_req, res) => {
                s.status, s.easyvista_ticket_id, s.jira_number, s.is_public, s.is_retired,
                s.is_resubmission, s.resubmission_of_submission_id, s.resubmission_of_easyvista_ticket_id,
                s.has_resubmission, s.latest_resubmission_submission_id, s.latest_resubmission_easyvista_ticket_id,
+             ${SUBMISSION_LOOKUP_SELECT},
              (
                SELECT e.changed_at
                FROM submission_status_events e
@@ -957,6 +1687,7 @@ app.get('/api/public/submissions', async (_req, res) => {
                WHERE e.submission_id = s.id AND e.status = 'Retired'
              ) AS retired_status_at
       FROM submissions s
+      ${SUBMISSION_LOOKUP_JOINS}
       WHERE s.is_public = 1
       ORDER BY updated_at DESC
     `,
@@ -968,10 +1699,7 @@ app.get('/api/public/submissions', async (_req, res) => {
 
 app.get('/api/public/submissions/:id', async (req, res) => {
   return withDb(async (db) => {
-    const submission = await db.get(
-      `SELECT * FROM submissions WHERE id = ? AND is_public = 1`,
-      [req.params.id],
-    );
+    const submission = await getSubmissionByIdWithLookups(db, req.params.id, { publicOnly: true });
 
     if (!submission) {
       return res.status(404).json({ error: 'Submission not found' });
@@ -1002,6 +1730,7 @@ app.get('/api/admin/submissions', ensureAdmin, async (req, res) => {
     year,
     inJira,
     jiraNumber,
+    easyvistaNumber,
     releaseNumber,
     sort,
   } = req.query;
@@ -1070,23 +1799,20 @@ app.get('/api/admin/submissions', ensureAdmin, async (req, res) => {
     }
     if (createdVia) {
       const normalizedCreatedVia = String(createdVia || '').trim().toLowerCase();
-      const allowedCreatedVia = [
-        'rep_form',
-        'admin_excel_import',
-        'admin_backdated',
-        'admin_cleanup',
-        'admin_manual',
-        'admin_easyvista_resubmission',
-      ];
-      if (allowedCreatedVia.includes(normalizedCreatedVia)) {
-        clauses.push('created_via = ?');
-        params.push(normalizedCreatedVia);
+      const lookupCreatedViaId = await getLookupIdByName(db, 'submission_sources', normalizedCreatedVia, {
+        lowercase: true,
+      });
+      if (lookupCreatedViaId) {
+        clauses.push('s.created_via_id = ?');
+        params.push(lookupCreatedViaId);
+      } else {
+        clauses.push('1 = 0');
       }
     }
     if (retiredFilter === 'retired_only') {
-      clauses.push("(COALESCE(is_retired, 0) = 1 OR status = 'Retired')");
+      clauses.push("(COALESCE(s.is_retired, 0) = 1 OR s.status = 'Retired')");
     } else if (retiredFilter === 'non_retired') {
-      clauses.push("(COALESCE(is_retired, 0) = 0 AND status <> 'Retired')");
+      clauses.push("(COALESCE(s.is_retired, 0) = 0 AND s.status <> 'Retired')");
     }
     if (year) {
       clauses.push('SUBSTR(created_at, 1, 4) = ?');
@@ -1100,6 +1826,10 @@ app.get('/api/admin/submissions', ensureAdmin, async (req, res) => {
     if (jiraNumber) {
       clauses.push("COALESCE(jira_number, '') LIKE ?");
       params.push(`%${jiraNumber}%`);
+    }
+    if (easyvistaNumber) {
+      clauses.push("COALESCE(easyvista_ticket_id, '') LIKE ?");
+      params.push(`%${easyvistaNumber}%`);
     }
     if (releaseNumber) {
       clauses.push("COALESCE(release_number, '') LIKE ?");
@@ -1143,26 +1873,30 @@ app.get('/api/admin/submissions', ensureAdmin, async (req, res) => {
 
     const rows = await db.all(
       `
-      SELECT id, created_at, updated_at, created_by, created_by_email, type, application_name,
-             policy_num, account_num, transaction_num, screen_title, summary_of_issue,
-              status, reviewer, decision_notes, easyvista_ticket_id, easyvista_submitted_by, is_public, is_retired,
-                  impact_notes, policy_premium_impact, direct_dollar_impact, policies_affected_count,
-                  jira_number, logged_defect, release_number, release_notes, is_cleanup, cleanup_status, cleanup_tag_type,
-              created_via,
-                  is_resubmission, resubmission_of_submission_id, resubmission_of_easyvista_ticket_id,
-                  has_resubmission, latest_resubmission_submission_id, latest_resubmission_easyvista_ticket_id,
+        SELECT s.id, s.created_at, s.updated_at, s.created_by, s.created_by_email, s.type, s.application_name,
+                s.created_via_id, s.type_id, s.application_id, s.status_id, s.cleanup_status_id, s.cleanup_tag_type_id,
+                s.enhancement_request_type_id, s.priority_level_id,
+           s.policy_num, s.account_num, s.transaction_num, s.screen_title, s.summary_of_issue,
+           s.status, s.reviewer, s.decision_notes, s.easyvista_ticket_id, s.easyvista_submitted_by, s.is_public, s.is_retired,
+           s.impact_notes, s.policy_premium_impact, s.direct_dollar_impact, s.policies_affected_count,
+           s.jira_number, s.logged_defect, s.release_number, s.release_notes, s.is_cleanup, s.cleanup_status, s.cleanup_tag_type,
+           s.created_via,
+              ${SUBMISSION_LOOKUP_SELECT},
+           s.is_resubmission, s.resubmission_of_submission_id, s.resubmission_of_easyvista_ticket_id,
+           s.has_resubmission, s.latest_resubmission_submission_id, s.latest_resubmission_easyvista_ticket_id,
                   (
                     SELECT MAX(e.changed_at)
                     FROM submission_status_events e
-                    WHERE e.submission_id = submissions.id
+                    WHERE e.submission_id = s.id
                       AND (
                         e.status = 'Retired'
                         OR e.status = 'Unretired'
-                        OR e.status = status
-                        OR e.status = ('Defect/Enhancement Status: ' || status)
+                        OR e.status = s.status
+                        OR e.status = ('Defect/Enhancement Status: ' || s.status)
                       )
                   ) AS status_update_at
-      FROM submissions
+      FROM submissions s
+      ${SUBMISSION_LOOKUP_JOINS}
       ${where}
       ORDER BY ${orderBy}
     `,
@@ -1175,7 +1909,7 @@ app.get('/api/admin/submissions', ensureAdmin, async (req, res) => {
 
 app.get('/api/admin/submissions/:id', ensureAdmin, async (req, res) => {
   return withDb(async (db) => {
-    const submission = await db.get('SELECT * FROM submissions WHERE id = ?', [req.params.id]);
+    const submission = await getSubmissionByIdWithLookups(db, req.params.id);
     if (!submission) {
       return res.status(404).json({ error: 'Submission not found' });
     }
@@ -1206,24 +1940,8 @@ app.get('/api/admin/submissions/:id', ensureAdmin, async (req, res) => {
 });
 
 app.post('/api/admin/submissions', ensureAdmin, async (req, res) => {
-  const allowedStatuses = DEFECT_ENHANCEMENT_STATUSES;
-  const historicalStatuses = [...allowedStatuses, 'Retired'];
   const body = req.body || {};
-  const isCleanup = Boolean(body.is_cleanup);
-  const cleanupTagType = normalizeCleanupTagType(body.cleanup_tag_type);
-  const requestedType = String(body.type || '').trim().toLowerCase();
-  const normalizedRequestedType = ['defect', 'enhancement'].includes(requestedType) ? requestedType : null;
-  const effectiveType = isCleanup
-    ? (cleanupTagType === 'enhancement' ? 'enhancement' : (normalizedRequestedType || 'defect'))
-    : normalizedRequestedType;
   const requestedCreatedVia = String(body.created_via || '').trim().toLowerCase();
-  const createdVia = ['admin_backdated', 'admin_cleanup', 'admin_manual'].includes(requestedCreatedVia)
-    ? requestedCreatedVia
-    : 'admin_manual';
-
-  if (!['defect', 'enhancement'].includes(effectiveType)) {
-    return res.status(400).json({ error: 'Invalid submission type' });
-  }
   if (isBlank(body.created_by)) {
     return res.status(400).json({ error: 'Requester Name is required' });
   }
@@ -1231,66 +1949,132 @@ app.post('/api/admin/submissions', ensureAdmin, async (req, res) => {
     return res.status(400).json({ error: 'Summary of Issue is required' });
   }
 
-  const requestedCleanupStatus = String(body.cleanup_status || '').trim();
-  const cleanupStatus = isCleanup
-    ? (CLEANUP_STATUSES.includes(requestedCleanupStatus) ? requestedCleanupStatus : 'Not Started')
-    : null;
-  const finalStatus = allowedStatuses.includes(body.status) ? body.status : 'New';
-
-  const createdAt = body.created_at ? toIsoOrNow(body.created_at) : new Date().toISOString();
-  const updatedAt = new Date().toISOString();
-
-  // status_events: array of { status, changed_at } for backdated history
-  const rawEvents = Array.isArray(body.status_events) ? body.status_events : [];
-
   return withDb(async (db) => {
+    const allowedStatuses = await getDefectEnhancementStatuses(db, { includeRetired: false });
+    const historicalStatuses = await getDefectEnhancementStatuses(db, { includeRetired: true });
+    const allowedSubmissionTypes = await getSubmissionTypes(db);
+    const allowedSubmissionSources = await getSubmissionSources(db);
+    const allowedCleanupStatuses = await getCleanupStatuses(db);
+    const allowedCleanupTagTypes = await getCleanupTagTypes(db);
+    const createdVia = allowedSubmissionSources.includes(requestedCreatedVia)
+      ? requestedCreatedVia
+      : (allowedSubmissionSources.includes('admin_manual') ? 'admin_manual' : (allowedSubmissionSources[0] || 'admin_manual'));
+
+    const isCleanup = Boolean(body.is_cleanup);
+    const cleanupTagType = normalizeCleanupTagType(body.cleanup_tag_type, allowedCleanupTagTypes);
+    const requestedType = String(body.type || '').trim().toLowerCase();
+    const normalizedRequestedType = allowedSubmissionTypes.includes(requestedType) ? requestedType : null;
+    const effectiveType = isCleanup
+      ? (cleanupTagType === 'enhancement' ? 'enhancement' : (normalizedRequestedType || 'defect'))
+      : normalizedRequestedType;
+
+    if (!allowedSubmissionTypes.includes(String(effectiveType || '').trim().toLowerCase())) {
+      return res.status(400).json({ error: 'Invalid submission type' });
+    }
+
+    const requestedCleanupStatus = String(body.cleanup_status || '').trim();
+    const cleanupStatus = isCleanup
+      ? (allowedCleanupStatuses.includes(requestedCleanupStatus) ? requestedCleanupStatus : 'Not Started')
+      : null;
+    const requestedFinalStatus = String(body.status || '').trim();
+    const finalStatus = allowedStatuses.includes(requestedFinalStatus) ? requestedFinalStatus : 'New';
+
+    const createdAt = body.created_at ? toIsoOrNow(body.created_at) : new Date().toISOString();
+    const updatedAt = new Date().toISOString();
+    const rawEvents = Array.isArray(body.status_events) ? body.status_events : [];
+    const resolvedApplicationName = String(body.application_name || 'Billing Center').trim() || 'Billing Center';
+    const resolvedEnhancementRequestType = body.enhancement_request_type || null;
+    const resolvedPriorityLevel = body.priority_level || (effectiveType === 'enhancement' ? '3 - Medium' : null);
+    const lookupIds = await resolveSubmissionLookupIds(db, {
+      created_via: createdVia,
+      type: effectiveType,
+      application_name: resolvedApplicationName,
+      status: finalStatus,
+      cleanup_status: cleanupStatus,
+      cleanup_tag_type: cleanupTagType,
+      enhancement_request_type: resolvedEnhancementRequestType,
+      priority_level: resolvedPriorityLevel,
+    });
+    const missingLookupFields = collectMissingLookupIds(lookupIds, [
+      { idKey: 'created_via_id', label: 'Created Via', required: true },
+      { idKey: 'type_id', label: 'Type', required: true },
+      { idKey: 'application_id', label: 'Application', required: true },
+      { idKey: 'status_id', label: 'Status', required: true },
+      { idKey: 'cleanup_status_id', label: 'Cleanup Status', required: isCleanup && !isBlank(cleanupStatus) },
+      { idKey: 'cleanup_tag_type_id', label: 'Cleanup Tag Type', required: isCleanup && !isBlank(cleanupTagType) },
+      {
+        idKey: 'enhancement_request_type_id',
+        label: 'Enhancement Request Type',
+        required: !isBlank(resolvedEnhancementRequestType),
+      },
+      {
+        idKey: 'priority_level_id',
+        label: 'Priority Level',
+        required: effectiveType === 'enhancement' && !isBlank(resolvedPriorityLevel),
+      },
+    ]);
+    if (missingLookupFields.length > 0) {
+      return res.status(400).json({ error: formatMissingLookupError(missingLookupFields) });
+    }
+
+    const insertColumns = [
+      'created_at', 'updated_at', 'created_via', 'created_via_id', 'created_by', 'created_by_email', 'type', 'type_id', 'application_name', 'application_id',
+      'policy_num', 'account_num', 'transaction_num', 'screen_title', 'summary_of_issue',
+      'steps_to_reproduce', 'what_happened_exact_details', 'request', 'date_time_of_error',
+      'status', 'status_id', 'reviewer', 'decision_notes', 'fingerprint', 'duplicate_of', 'easyvista_ticket_id',
+      'desired_completion_date', 'impact_details', 'enhancement_request_type', 'enhancement_request_type_id', 'priority_level', 'priority_level_id',
+      'jira_number', 'release_number', 'release_notes', 'is_cleanup', 'cleanup_status', 'cleanup_status_id', 'cleanup_tag_type', 'cleanup_tag_type_id',
+      'easyvista_submitted_by', 'is_public', 'is_retired', 'logged_defect',
+    ];
+    const insertValues = [
+      createdAt,
+      updatedAt,
+      createdVia,
+      lookupIds.created_via_id,
+      String(body.created_by).trim(),
+      String(body.created_by_email || '-').trim() || '-',
+      effectiveType,
+      lookupIds.type_id,
+      resolvedApplicationName,
+      lookupIds.application_id,
+      body.policy_num || null,
+      body.account_num || null,
+      body.transaction_num || null,
+      String(body.screen_title || '-').trim() || '-',
+      String(body.summary_of_issue).trim(),
+      String(body.steps_to_reproduce || '-').trim() || '-',
+      String(body.what_happened_exact_details || '-').trim() || '-',
+      String(body.request || '-').trim() || '-',
+      body.date_time_of_error ? toIsoOrNow(body.date_time_of_error) : createdAt,
+      finalStatus,
+      lookupIds.status_id,
+      body.reviewer || null,
+      body.decision_notes || null,
+      null,
+      null,
+      body.easyvista_ticket_id ? String(body.easyvista_ticket_id).trim() : null,
+      body.desired_completion_date ? toIsoOrNow(body.desired_completion_date) : null,
+      body.impact_details || null,
+      resolvedEnhancementRequestType,
+      lookupIds.enhancement_request_type_id,
+      resolvedPriorityLevel,
+      lookupIds.priority_level_id,
+      body.jira_number ? String(body.jira_number).trim() : null,
+      body.release_number ? String(body.release_number).trim() : null,
+      body.release_notes || null,
+      toBooleanSql(isCleanup),
+      cleanupStatus,
+      lookupIds.cleanup_status_id,
+      cleanupTagType,
+      lookupIds.cleanup_tag_type_id,
+      String(body.easyvista_submitted_by || '').trim() || 'Unknown',
+      toBooleanSql(body.is_public),
+      0,
+      toBooleanSql(body.logged_defect),
+    ];
     const insert = await db.run(
-      `INSERT INTO submissions (
-        created_at, updated_at, created_via, created_by, created_by_email, type, application_name,
-        policy_num, account_num, transaction_num, screen_title, summary_of_issue,
-        steps_to_reproduce, what_happened_exact_details, request, date_time_of_error,
-        status, reviewer, decision_notes, fingerprint, duplicate_of, easyvista_ticket_id,
-        desired_completion_date, impact_details, enhancement_request_type, priority_level,
-        jira_number, release_number, release_notes, is_cleanup, cleanup_status, cleanup_tag_type, easyvista_submitted_by, is_public, is_retired, logged_defect
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-      [
-        createdAt,
-        updatedAt,
-        createdVia,
-        String(body.created_by).trim(),
-        String(body.created_by_email || '-').trim() || '-',
-        effectiveType,
-        String(body.application_name || 'Billing Center').trim() || 'Billing Center',
-        body.policy_num || null,
-        body.account_num || null,
-        body.transaction_num || null,
-        String(body.screen_title || '-').trim() || '-',
-        String(body.summary_of_issue).trim(),
-        String(body.steps_to_reproduce || '-').trim() || '-',
-        String(body.what_happened_exact_details || '-').trim() || '-',
-        String(body.request || '-').trim() || '-',
-        body.date_time_of_error ? toIsoOrNow(body.date_time_of_error) : createdAt,
-        finalStatus,
-        body.reviewer || null,
-        body.decision_notes || null,
-        null,
-        null,
-        body.easyvista_ticket_id ? String(body.easyvista_ticket_id).trim() : null,
-        body.desired_completion_date ? toIsoOrNow(body.desired_completion_date) : null,
-        body.impact_details || null,
-        body.enhancement_request_type || null,
-        body.priority_level || (effectiveType === 'enhancement' ? '3 - Medium' : null),
-        body.jira_number ? String(body.jira_number).trim() : null,
-        body.release_number ? String(body.release_number).trim() : null,
-        body.release_notes || null,
-        toBooleanSql(isCleanup),
-        cleanupStatus,
-        cleanupTagType,
-        String(body.easyvista_submitted_by || '').trim() || 'Unknown',
-        toBooleanSql(body.is_public),
-        0,
-        toBooleanSql(body.logged_defect),
-      ],
+      `INSERT INTO submissions (${insertColumns.join(', ')}) VALUES (${insertColumns.map(() => '?').join(',')})`,
+      insertValues,
     );
 
     const subId = insert.lastID;
@@ -1375,17 +2159,21 @@ app.post('/api/admin/submissions', ensureAdmin, async (req, res) => {
       );
     }
 
-    const created = await db.get('SELECT * FROM submissions WHERE id = ?', [subId]);
+    const created = await getSubmissionByIdWithLookups(db, subId);
     emitAdminNotification('submission:new', mapSubmission(created));
     return res.status(201).json(mapSubmission(created));
   });
 });
 
 app.put('/api/admin/submissions/:id', ensureAdmin, async (req, res) => {
-  const allowedStatuses = DEFECT_ENHANCEMENT_STATUSES;
   const body = req.body || {};
 
   return withDb(async (db) => {
+    const allowedStatuses = await getDefectEnhancementStatuses(db, { includeRetired: false });
+    const allowedSubmissionTypes = await getSubmissionTypes(db);
+    const allowedCleanupStatuses = await getCleanupStatuses(db);
+    const allowedCleanupTagTypes = await getCleanupTagTypes(db);
+
     const existing = await db.get('SELECT * FROM submissions WHERE id = ?', [req.params.id]);
     if (!existing) {
       return res.status(404).json({ error: 'Submission not found' });
@@ -1412,12 +2200,12 @@ app.put('/api/admin/submissions/:id', ensureAdmin, async (req, res) => {
       typeof body.is_cleanup === 'boolean' ? body.is_cleanup : Boolean(existing.is_cleanup);
 
     const hasCleanupTagType = Object.prototype.hasOwnProperty.call(body, 'cleanup_tag_type');
-    const incomingCleanupTagType = normalizeCleanupTagType(body.cleanup_tag_type);
-    const existingCleanupTagType = normalizeCleanupTagType(existing.cleanup_tag_type);
+    const incomingCleanupTagType = normalizeCleanupTagType(body.cleanup_tag_type, allowedCleanupTagTypes);
+    const existingCleanupTagType = normalizeCleanupTagType(existing.cleanup_tag_type, allowedCleanupTagTypes);
 
     const requestedCleanupStatus = String(body.cleanup_status || '').trim();
     const nextCleanupStatus = isCleanup
-      ? (CLEANUP_STATUSES.includes(requestedCleanupStatus)
+        ? (allowedCleanupStatuses.includes(requestedCleanupStatus)
           ? requestedCleanupStatus
           : (existing.cleanup_status || SUBMISSION_TO_CLEANUP_STATUS[existing.status] || 'Not Started'))
       : null;
@@ -1451,7 +2239,7 @@ app.put('/api/admin/submissions/:id', ensureAdmin, async (req, res) => {
       date_time_of_error: body.date_time_of_error
         ? toIsoOrNow(body.date_time_of_error)
         : existing.date_time_of_error,
-      status: body.status ?? normalizedExistingStatus,
+      status: String(body.status ?? normalizedExistingStatus).trim() || normalizedExistingStatus,
       reviewer: body.reviewer ?? existing.reviewer,
       decision_notes: body.decision_notes ?? existing.decision_notes,
       fingerprint: body.fingerprint ?? existing.fingerprint,
@@ -1487,13 +2275,19 @@ app.put('/api/admin/submissions/:id', ensureAdmin, async (req, res) => {
       duplicate_of: duplicateOfNumeric,
       is_public:
         typeof body.is_public === 'boolean' ? body.is_public : Boolean(existing.is_public),
+      easyvista_submitted_by:
+        body.easyvista_submitted_by ?? existing.easyvista_submitted_by,
     };
 
-    if (!allowedStatuses.includes(next.status)) {
+    const normalizedExistingStatusValue = String(existing.status || '').trim() || 'New';
+    const normalizedNextStatus = String(next.status || '').trim() || normalizedExistingStatusValue;
+    next.status = normalizedNextStatus;
+
+    if (!allowedStatuses.includes(normalizedNextStatus) && normalizedNextStatus !== normalizedExistingStatusValue) {
       return res.status(400).json({ error: 'Invalid status' });
     }
 
-    if (!['defect', 'enhancement'].includes(next.type)) {
+    if (!allowedSubmissionTypes.includes(String(next.type || '').trim().toLowerCase())) {
       return res.status(400).json({ error: 'Invalid type' });
     }
 
@@ -1514,6 +2308,37 @@ app.put('/api/admin/submissions/:id', ensureAdmin, async (req, res) => {
       next.priority_level = '3 - Medium';
     }
 
+    const lookupIds = await resolveSubmissionLookupIds(db, {
+      created_via: existing.created_via,
+      type: next.type,
+      application_name: next.application_name,
+      status: next.status,
+      cleanup_status: next.cleanup_status,
+      cleanup_tag_type: next.cleanup_tag_type,
+      enhancement_request_type: next.enhancement_request_type,
+      priority_level: next.priority_level,
+    });
+    const missingLookupFields = collectMissingLookupIds(lookupIds, [
+      { idKey: 'type_id', label: 'Type', required: true },
+      { idKey: 'application_id', label: 'Application', required: true },
+      { idKey: 'status_id', label: 'Status', required: true },
+      { idKey: 'cleanup_status_id', label: 'Cleanup Status', required: next.is_cleanup && !isBlank(next.cleanup_status) },
+      { idKey: 'cleanup_tag_type_id', label: 'Cleanup Tag Type', required: next.is_cleanup && !isBlank(next.cleanup_tag_type) },
+      {
+        idKey: 'enhancement_request_type_id',
+        label: 'Enhancement Request Type',
+        required: !isBlank(next.enhancement_request_type),
+      },
+      {
+        idKey: 'priority_level_id',
+        label: 'Priority Level',
+        required: next.type === 'enhancement' && !isBlank(next.priority_level),
+      },
+    ]);
+    if (missingLookupFields.length > 0) {
+      return res.status(400).json({ error: formatMissingLookupError(missingLookupFields) });
+    }
+
     const updatedAt = new Date().toISOString();
     await db.run(
       `
@@ -1521,7 +2346,9 @@ app.put('/api/admin/submissions/:id', ensureAdmin, async (req, res) => {
       SET
         updated_at = ?,
         type = ?,
+        type_id = ?,
         application_name = ?,
+        application_id = ?,
         policy_num = ?,
         account_num = ?,
         transaction_num = ?,
@@ -1532,6 +2359,7 @@ app.put('/api/admin/submissions/:id', ensureAdmin, async (req, res) => {
         request = ?,
         date_time_of_error = ?,
         status = ?,
+        status_id = ?,
         reviewer = ?,
         decision_notes = ?,
         fingerprint = ?,
@@ -1543,23 +2371,30 @@ app.put('/api/admin/submissions/:id', ensureAdmin, async (req, res) => {
         policies_affected_count = ?,
         logged_defect = ?,
         enhancement_request_type = ?,
+        enhancement_request_type_id = ?,
         priority_level = ?,
+        priority_level_id = ?,
         jira_number = ?,
         release_number = ?,
         release_notes = ?,
         is_cleanup = ?,
         cleanup_status = ?,
+        cleanup_status_id = ?,
         cleanup_tag_type = ?,
+        cleanup_tag_type_id = ?,
         is_retired = ?,
         duplicate_reference = ?,
         duplicate_of = ?,
-        is_public = ?
+        is_public = ?,
+        easyvista_submitted_by = ?
       WHERE id = ?
     `,
       [
         updatedAt,
         next.type,
+        lookupIds.type_id,
         next.application_name,
+        lookupIds.application_id,
         next.policy_num,
         next.account_num,
         next.transaction_num,
@@ -1570,6 +2405,7 @@ app.put('/api/admin/submissions/:id', ensureAdmin, async (req, res) => {
         next.request,
         next.date_time_of_error,
         next.status,
+        lookupIds.status_id,
         next.reviewer,
         next.decision_notes,
         next.fingerprint,
@@ -1581,17 +2417,22 @@ app.put('/api/admin/submissions/:id', ensureAdmin, async (req, res) => {
         next.policies_affected_count,
         toBooleanSql(next.logged_defect),
         next.enhancement_request_type,
+        lookupIds.enhancement_request_type_id,
         next.priority_level,
+        lookupIds.priority_level_id,
         next.jira_number,
         next.release_number,
         next.release_notes,
         toBooleanSql(next.is_cleanup),
         next.cleanup_status,
+        lookupIds.cleanup_status_id,
         next.cleanup_tag_type,
+        lookupIds.cleanup_tag_type_id,
         toBooleanSql(next.is_retired),
         next.duplicate_reference,
         next.duplicate_of,
         toBooleanSql(next.is_public),
+        next.easyvista_submitted_by,
         req.params.id,
       ],
     );
@@ -1736,7 +2577,7 @@ app.put('/api/admin/submissions/:id', ensureAdmin, async (req, res) => {
       );
     }
 
-    const saved = await db.get('SELECT * FROM submissions WHERE id = ?', [req.params.id]);
+    const saved = await getSubmissionByIdWithLookups(db, req.params.id);
     emitAdminNotification('submission:updated', mapSubmission(saved));
     if (saved.is_public) {
       emitPublicUpdate(mapSubmission(saved));
@@ -1851,13 +2692,27 @@ app.post('/api/admin/submissions/import-xlsx', ensureAdmin, tempUpload.single('f
   } catch {
     statusValueMappings = {};
   }
+  const dynamicImportOptions = await withDb(async (db) => ({
+    allowedStatusesWithRetired: await getDefectEnhancementStatuses(db, { includeRetired: true }),
+    allowedSubmissionTypes: await getSubmissionTypes(db),
+    allowedCleanupStatuses: await getCleanupStatuses(db),
+    allowedCleanupTagTypes: await getCleanupTagTypes(db),
+  }));
+
+  const {
+    allowedStatusesWithRetired,
+    allowedSubmissionTypes,
+    allowedCleanupStatuses,
+    allowedCleanupTagTypes,
+  } = dynamicImportOptions;
+
   const normalizedStatusValueMappings = {};
   if (statusValueMappings && typeof statusValueMappings === 'object') {
     for (const [rawKey, rawValue] of Object.entries(statusValueMappings)) {
       const fromKey = normalizeStatusToken(rawKey);
       const toStatus = String(rawValue || '').trim();
       if (!fromKey) continue;
-      if (!DEFECT_ENHANCEMENT_STATUSES_WITH_RETIRED.includes(toStatus)) continue;
+      if (!allowedStatusesWithRetired.includes(toStatus)) continue;
       normalizedStatusValueMappings[fromKey] = toStatus;
     }
   }
@@ -1963,11 +2818,11 @@ app.post('/api/admin/submissions/import-xlsx', ensureAdmin, tempUpload.single('f
       let importedStatus = 'New';
       if (!statusInput) {
         importedStatus = 'New';
-      } else if (DEFECT_ENHANCEMENT_STATUSES_WITH_RETIRED.includes(statusInput)) {
+      } else if (allowedStatusesWithRetired.includes(statusInput)) {
         importedStatus = statusInput;
       } else {
         const mappedStatus = normalizedStatusValueMappings[normalizeStatusToken(statusInput)] || '';
-        if (mappedStatus && DEFECT_ENHANCEMENT_STATUSES_WITH_RETIRED.includes(mappedStatus)) {
+        if (mappedStatus && allowedStatusesWithRetired.includes(mappedStatus)) {
           importedStatus = mappedStatus;
         } else {
           unknownStatusesDetected.add(statusInput);
@@ -1979,18 +2834,18 @@ app.post('/api/admin/submissions/import-xlsx', ensureAdmin, tempUpload.single('f
         || importedStatus === 'Retired';
       const finalStatus = importedStatus === 'Retired' ? 'New' : importedStatus;
 
-      const rowCleanupTagType = normalizeCleanupTagType(getMappedImportValue(row, 'cleanup_tag_type', ['cleanup_tag_type', 'cleanup_type'], normalizedColumnMappings, null));
+      const rowCleanupTagType = normalizeCleanupTagType(getMappedImportValue(row, 'cleanup_tag_type', ['cleanup_tag_type', 'cleanup_type'], normalizedColumnMappings, null), allowedCleanupTagTypes);
       const inferredCleanup = parseImportBoolean(getMappedImportValue(row, 'is_cleanup', ['is_cleanup', 'cleanup'], normalizedColumnMappings, false), false) || Boolean(rowCleanupTagType);
       const isCleanup = importMode === 'cleanup' ? true : inferredCleanup;
       const requestedCleanupStatus = String(getMappedImportValue(row, 'cleanup_status', ['cleanup_status'], normalizedColumnMappings, '') || '').trim();
       const cleanupStatus = isCleanup
-        ? (CLEANUP_STATUSES.includes(requestedCleanupStatus) ? requestedCleanupStatus : 'Not Started')
+        ? (allowedCleanupStatuses.includes(requestedCleanupStatus) ? requestedCleanupStatus : 'Not Started')
         : null;
       const effectiveCleanupTagType = isCleanup
         ? (importMode === 'cleanup' ? 'cleanup_only' : (rowCleanupTagType || 'cleanup_only'))
         : null;
 
-      let effectiveType = ['defect', 'enhancement'].includes(requestedType) ? requestedType : 'defect';
+      let effectiveType = allowedSubmissionTypes.includes(requestedType) ? requestedType : 'defect';
       if (importMode === 'defect') {
         effectiveType = 'defect';
       } else if (importMode === 'enhancement') {
@@ -2097,7 +2952,7 @@ app.post('/api/admin/submissions/import-xlsx', ensureAdmin, tempUpload.single('f
         mappingRequired: true,
         mappingField: 'statusValueMappings',
         unknownStatuses: Array.from(unknownStatusesDetected),
-        allowedStatuses: DEFECT_ENHANCEMENT_STATUSES_WITH_RETIRED,
+        allowedStatuses: allowedStatusesWithRetired,
       });
     }
 
@@ -2109,23 +2964,65 @@ app.post('/api/admin/submissions/import-xlsx', ensureAdmin, tempUpload.single('f
       if (!dryRun && preparedRows.length > 0) {
         for (const row of preparedRows) {
           try {
+            const lookupIds = await resolveSubmissionLookupIds(db, {
+              created_via: 'admin_excel_import',
+              type: row.type,
+              application_name: row.application_name,
+              status: row.status,
+              cleanup_status: row.cleanup_status,
+              cleanup_tag_type: row.cleanup_tag_type,
+              enhancement_request_type: row.enhancement_request_type,
+              priority_level: row.priority_level,
+            });
+            const missingLookupFields = collectMissingLookupIds(lookupIds, [
+              { idKey: 'created_via_id', label: 'Created Via', required: true },
+              { idKey: 'type_id', label: 'Type', required: true },
+              { idKey: 'application_id', label: 'Application', required: true },
+              { idKey: 'status_id', label: 'Status', required: true },
+              {
+                idKey: 'cleanup_status_id',
+                label: 'Cleanup Status',
+                required: Boolean(row.is_cleanup) && !isBlank(row.cleanup_status),
+              },
+              {
+                idKey: 'cleanup_tag_type_id',
+                label: 'Cleanup Tag Type',
+                required: Boolean(row.is_cleanup) && !isBlank(row.cleanup_tag_type),
+              },
+              {
+                idKey: 'enhancement_request_type_id',
+                label: 'Enhancement Request Type',
+                required: !isBlank(row.enhancement_request_type),
+              },
+              {
+                idKey: 'priority_level_id',
+                label: 'Priority Level',
+                required: row.type === 'enhancement' && !isBlank(row.priority_level),
+              },
+            ]);
+            if (missingLookupFields.length > 0) {
+              throw new Error(formatMissingLookupError(missingLookupFields));
+            }
             const insertColumns = [
-              'created_at', 'updated_at', 'created_via', 'created_by', 'created_by_email', 'type', 'application_name',
+              'created_at', 'updated_at', 'created_via', 'created_via_id', 'created_by', 'created_by_email', 'type', 'type_id', 'application_name', 'application_id',
               'policy_num', 'account_num', 'transaction_num', 'screen_title', 'summary_of_issue',
               'steps_to_reproduce', 'what_happened_exact_details', 'request', 'date_time_of_error',
-              'status', 'reviewer', 'decision_notes', 'fingerprint', 'duplicate_of', 'easyvista_ticket_id',
-              'desired_completion_date', 'impact_details', 'enhancement_request_type', 'priority_level',
-              'jira_number', 'release_number', 'release_notes', 'is_cleanup', 'cleanup_status', 'cleanup_tag_type',
+              'status', 'status_id', 'reviewer', 'decision_notes', 'fingerprint', 'duplicate_of', 'easyvista_ticket_id',
+              'desired_completion_date', 'impact_details', 'enhancement_request_type', 'enhancement_request_type_id', 'priority_level', 'priority_level_id',
+              'jira_number', 'release_number', 'release_notes', 'is_cleanup', 'cleanup_status', 'cleanup_status_id', 'cleanup_tag_type', 'cleanup_tag_type_id',
               'easyvista_submitted_by', 'is_public', 'is_retired', 'logged_defect',
             ];
             const insertValues = [
               row.created_at,
               row.updated_at,
               'admin_excel_import',
+              lookupIds.created_via_id,
               row.created_by,
               row.created_by_email,
               row.type,
+              lookupIds.type_id,
               row.application_name,
+              lookupIds.application_id,
               row.policy_num,
               row.account_num,
               row.transaction_num,
@@ -2136,6 +3033,7 @@ app.post('/api/admin/submissions/import-xlsx', ensureAdmin, tempUpload.single('f
               row.request,
               row.date_time_of_error,
               row.status,
+              lookupIds.status_id,
               row.reviewer,
               row.decision_notes,
               null,
@@ -2144,13 +3042,17 @@ app.post('/api/admin/submissions/import-xlsx', ensureAdmin, tempUpload.single('f
               row.desired_completion_date,
               row.impact_details,
               row.enhancement_request_type,
+              lookupIds.enhancement_request_type_id,
               row.priority_level,
+              lookupIds.priority_level_id,
               row.jira_number,
               row.release_number,
               row.release_notes,
               toBooleanSql(row.is_cleanup),
               row.cleanup_status,
+              lookupIds.cleanup_status_id,
               row.cleanup_tag_type,
+              lookupIds.cleanup_tag_type_id,
               row.easyvista_submitted_by,
               toBooleanSql(row.is_public),
               toBooleanSql(row.is_retired),
@@ -2266,17 +3168,20 @@ app.post('/api/admin/submissions/:id/submit-easyvista', ensureAdmin, async (req,
     };
 
     if (isResubmissionRequest && draftPayload) {
-      const allowedStatuses = DEFECT_ENHANCEMENT_STATUSES;
+      const allowedStatuses = await getDefectEnhancementStatuses(db, { includeRetired: false });
+      const allowedSubmissionTypes = await getSubmissionTypes(db);
+      const allowedCleanupStatuses = await getCleanupStatuses(db);
+      const allowedCleanupTagTypes = await getCleanupTagTypes(db);
       const hasCleanupTagType = Object.prototype.hasOwnProperty.call(draftPayload, 'cleanup_tag_type');
-      const incomingCleanupTagType = normalizeCleanupTagType(draftPayload.cleanup_tag_type);
-      const existingCleanupTagType = normalizeCleanupTagType(submission.cleanup_tag_type);
+      const incomingCleanupTagType = normalizeCleanupTagType(draftPayload.cleanup_tag_type, allowedCleanupTagTypes);
+      const existingCleanupTagType = normalizeCleanupTagType(submission.cleanup_tag_type, allowedCleanupTagTypes);
       const isCleanup =
         typeof draftPayload.is_cleanup === 'boolean'
           ? draftPayload.is_cleanup
           : Boolean(submission.is_cleanup);
       const requestedCleanupStatus = String(draftPayload.cleanup_status || '').trim();
       const nextCleanupStatus = isCleanup
-        ? (CLEANUP_STATUSES.includes(requestedCleanupStatus)
+        ? (allowedCleanupStatuses.includes(requestedCleanupStatus)
             ? requestedCleanupStatus
             : (submission.cleanup_status || SUBMISSION_TO_CLEANUP_STATUS[submission.status] || 'Not Started'))
         : null;
@@ -2286,7 +3191,7 @@ app.post('/api/admin/submissions/:id/submit-easyvista', ensureAdmin, async (req,
       const requestedType = String(draftPayload.type || '').trim().toLowerCase();
       const nextType = isCleanup
         ? (nextCleanupTagType === 'enhancement' ? 'enhancement' : 'defect')
-        : (['defect', 'enhancement'].includes(requestedType) ? requestedType : submission.type);
+        : (allowedSubmissionTypes.includes(requestedType) ? requestedType : submission.type);
       const requestedStatus = String(draftPayload.status || '').trim();
       const nextStatus = allowedStatuses.includes(requestedStatus) ? requestedStatus : submission.status;
 
@@ -2411,7 +3316,8 @@ app.post('/api/admin/submissions/:id/submit-easyvista', ensureAdmin, async (req,
     const result = await submitToEasyVista({ ...source, type: effectiveType });
 
     const updatedAt = new Date().toISOString();
-    const easyVistaSubmittedBy = req.session?.user?.username || null;
+    const easyVistaReporter = req.session?.user?.username || 'Unknown';
+    const easyVistaSubmittedBy = `Automatic (System API by ${easyVistaReporter})`;
 
     if (!isResubmissionRequest) {
       await db.run(
@@ -2427,7 +3333,7 @@ app.post('/api/admin/submissions/:id/submit-easyvista', ensureAdmin, async (req,
         await logStatusChange(db, submission.id, 'Submitted', easyVistaSubmittedBy, updatedAt);
       }
 
-      const updated = await db.get('SELECT * FROM submissions WHERE id = ?', [submission.id]);
+      const updated = await getSubmissionByIdWithLookups(db, submission.id);
       emitAdminNotification('submission:submitted-easyvista', mapSubmission(updated));
 
       return res.json({
@@ -2438,74 +3344,140 @@ app.post('/api/admin/submissions/:id/submit-easyvista', ensureAdmin, async (req,
       });
     }
 
+    const resubmissionInsertColumns = [
+      'created_at', 'updated_at', 'created_via', 'created_via_id', 'created_by', 'created_by_email', 'type', 'type_id', 'application_name', 'application_id',
+      'policy_num', 'account_num', 'transaction_num', 'screen_title', 'summary_of_issue',
+      'steps_to_reproduce', 'what_happened_exact_details', 'request', 'date_time_of_error',
+      'status', 'status_id', 'reviewer', 'decision_notes', 'fingerprint', 'duplicate_reference', 'duplicate_of',
+      'easyvista_ticket_id', 'desired_completion_date', 'impact_details', 'impact_notes',
+      'policy_premium_impact', 'direct_dollar_impact', 'policies_affected_count', 'logged_defect',
+      'enhancement_request_type', 'enhancement_request_type_id', 'priority_level', 'priority_level_id', 'jira_number', 'release_number', 'release_notes',
+      'is_cleanup', 'cleanup_status', 'cleanup_status_id', 'cleanup_tag_type', 'cleanup_tag_type_id', 'easyvista_submitted_by',
+      'is_resubmission', 'resubmission_of_submission_id', 'resubmission_of_easyvista_ticket_id',
+      'has_resubmission', 'latest_resubmission_submission_id', 'latest_resubmission_easyvista_ticket_id',
+      'is_public', 'is_retired',
+    ];
+    const resubmissionInsertValues = [
+      updatedAt,
+      updatedAt,
+      'admin_easyvista_resubmission',
+      null,
+      source.created_by,
+      source.created_by_email,
+      effectiveType,
+      null,
+      source.application_name,
+      null,
+      source.policy_num,
+      source.account_num,
+      source.transaction_num,
+      source.screen_title,
+      source.summary_of_issue,
+      source.steps_to_reproduce,
+      source.what_happened_exact_details,
+      source.request,
+      source.date_time_of_error,
+      'Submitted',
+      null,
+      source.reviewer,
+      source.decision_notes,
+      source.fingerprint,
+      source.duplicate_reference,
+      source.duplicate_of,
+      result.ticketId,
+      source.desired_completion_date,
+      source.impact_details,
+      source.impact_notes,
+      source.policy_premium_impact,
+      source.direct_dollar_impact,
+      source.policies_affected_count,
+      toBooleanSql(source.logged_defect),
+      source.enhancement_request_type,
+      null,
+      source.priority_level,
+      null,
+      source.jira_number,
+      source.release_number,
+      source.release_notes,
+      toBooleanSql(source.is_cleanup),
+      source.cleanup_status,
+      null,
+      source.cleanup_tag_type,
+      null,
+      easyVistaSubmittedBy,
+      1,
+      submission.id,
+      submission.easyvista_ticket_id,
+      0,
+      null,
+      null,
+      toBooleanSql(source.is_public),
+      toBooleanSql(source.is_retired),
+    ];
     const created = await db.run(
-      `
-      INSERT INTO submissions (
-        created_at, updated_at, created_via, created_by, created_by_email, type, application_name,
-        policy_num, account_num, transaction_num, screen_title, summary_of_issue,
-        steps_to_reproduce, what_happened_exact_details, request, date_time_of_error,
-        status, reviewer, decision_notes, fingerprint, duplicate_reference, duplicate_of,
-        easyvista_ticket_id, desired_completion_date, impact_details, impact_notes,
-        policy_premium_impact, direct_dollar_impact, policies_affected_count, logged_defect,
-        enhancement_request_type, priority_level, jira_number, release_number, release_notes,
-        is_cleanup, cleanup_status, cleanup_tag_type, easyvista_submitted_by,
-        is_resubmission, resubmission_of_submission_id, resubmission_of_easyvista_ticket_id,
-        has_resubmission, latest_resubmission_submission_id, latest_resubmission_easyvista_ticket_id,
-        is_public, is_retired
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-    `,
-      [
-        updatedAt,
-        updatedAt,
-        'admin_easyvista_resubmission',
-        source.created_by,
-        source.created_by_email,
-        effectiveType,
-        source.application_name,
-        source.policy_num,
-        source.account_num,
-        source.transaction_num,
-        source.screen_title,
-        source.summary_of_issue,
-        source.steps_to_reproduce,
-        source.what_happened_exact_details,
-        source.request,
-        source.date_time_of_error,
-        'Submitted',
-        source.reviewer,
-        source.decision_notes,
-        source.fingerprint,
-        source.duplicate_reference,
-        source.duplicate_of,
-        result.ticketId,
-        source.desired_completion_date,
-        source.impact_details,
-        source.impact_notes,
-        source.policy_premium_impact,
-        source.direct_dollar_impact,
-        source.policies_affected_count,
-        toBooleanSql(source.logged_defect),
-        source.enhancement_request_type,
-        source.priority_level,
-        source.jira_number,
-        source.release_number,
-        source.release_notes,
-        toBooleanSql(source.is_cleanup),
-        source.cleanup_status,
-        source.cleanup_tag_type,
-        easyVistaSubmittedBy,
-        1,
-        submission.id,
-        submission.easyvista_ticket_id,
-        0,
-        null,
-        null,
-        toBooleanSql(source.is_public),
-        toBooleanSql(source.is_retired),
-      ],
+      `INSERT INTO submissions (${resubmissionInsertColumns.join(', ')}) VALUES (${resubmissionInsertColumns.map(() => '?').join(',')})`,
+      resubmissionInsertValues,
     );
 
     const resubmissionId = Number(created.lastID);
+    const createdLookupIds = await resolveSubmissionLookupIds(db, {
+      created_via: 'admin_easyvista_resubmission',
+      type: effectiveType,
+      application_name: source.application_name,
+      status: 'Submitted',
+      cleanup_status: source.cleanup_status,
+      cleanup_tag_type: source.cleanup_tag_type,
+      enhancement_request_type: source.enhancement_request_type,
+      priority_level: source.priority_level,
+    });
+    const missingLookupFields = collectMissingLookupIds(createdLookupIds, [
+      { idKey: 'created_via_id', label: 'Created Via', required: true },
+      { idKey: 'type_id', label: 'Type', required: true },
+      { idKey: 'application_id', label: 'Application', required: true },
+      { idKey: 'status_id', label: 'Status', required: true },
+      {
+        idKey: 'cleanup_status_id',
+        label: 'Cleanup Status',
+        required: Boolean(source.is_cleanup) && !isBlank(source.cleanup_status),
+      },
+      {
+        idKey: 'cleanup_tag_type_id',
+        label: 'Cleanup Tag Type',
+        required: Boolean(source.is_cleanup) && !isBlank(source.cleanup_tag_type),
+      },
+      {
+        idKey: 'enhancement_request_type_id',
+        label: 'Enhancement Request Type',
+        required: !isBlank(source.enhancement_request_type),
+      },
+      {
+        idKey: 'priority_level_id',
+        label: 'Priority Level',
+        required: effectiveType === 'enhancement' && !isBlank(source.priority_level),
+      },
+    ]);
+    if (missingLookupFields.length > 0) {
+      return res.status(400).json({ error: formatMissingLookupError(missingLookupFields) });
+    }
+    await db.run(
+      `
+      UPDATE submissions
+      SET created_via_id = ?, type_id = ?, application_id = ?, status_id = ?, cleanup_status_id = ?,
+          cleanup_tag_type_id = ?, enhancement_request_type_id = ?, priority_level_id = ?
+      WHERE id = ?
+    `,
+      [
+        createdLookupIds.created_via_id,
+        createdLookupIds.type_id,
+        createdLookupIds.application_id,
+        createdLookupIds.status_id,
+        createdLookupIds.cleanup_status_id,
+        createdLookupIds.cleanup_tag_type_id,
+        createdLookupIds.enhancement_request_type_id,
+        createdLookupIds.priority_level_id,
+        resubmissionId,
+      ],
+    );
 
     const existingAttachments = await db.all(
       'SELECT filename, mime_type, file_path, uploaded_by_role FROM attachments WHERE submission_id = ?',
@@ -2558,8 +3530,8 @@ app.post('/api/admin/submissions/:id/submit-easyvista', ensureAdmin, async (req,
     );
     await logStatusChange(db, resubmissionId, 'Submitted', easyVistaSubmittedBy, updatedAt);
 
-    const newSubmission = await db.get('SELECT * FROM submissions WHERE id = ?', [resubmissionId]);
-    const updatedOriginal = await db.get('SELECT * FROM submissions WHERE id = ?', [submission.id]);
+    const newSubmission = await getSubmissionByIdWithLookups(db, resubmissionId);
+    const updatedOriginal = await getSubmissionByIdWithLookups(db, submission.id);
 
     emitAdminNotification('submission:resubmitted-easyvista', {
       original_submission: mapSubmission(updatedOriginal),

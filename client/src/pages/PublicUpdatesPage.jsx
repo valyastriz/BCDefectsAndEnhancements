@@ -13,6 +13,7 @@ import {
 const publicStatuses = [
   'New',
   'Approved',
+  'Redirected',
   'Backlog - Monitoring Impact',
   'Future Consideration',
   'Deferred – Not in Current Scope',
@@ -103,6 +104,8 @@ export function PublicUpdatesPage() {
   const [items, setItems] = useState([]);
   const [error, setError] = useState('');
   const [live, setLive] = useState(false);
+  const [dynamicPublicStatuses, setDynamicPublicStatuses] = useState(publicStatuses);
+  const [dynamicPublicTypes, setDynamicPublicTypes] = useState(['defect', 'enhancement']);
   const [search, setSearch] = useState(savedFilters.search);
   const [typeFilter, setTypeFilter] = useState(savedFilters.typeFilter);
   const [selectedStatuses, setSelectedStatuses] = useState(savedFilters.selectedStatuses);
@@ -128,8 +131,41 @@ export function PublicUpdatesPage() {
   }, [load]);
 
   useEffect(() => {
+    let isMounted = true;
+    Promise.resolve()
+      .then(() => api.getMetaOptions())
+      .then((meta) => {
+        if (!isMounted) return;
+        const nextStatuses = Array.isArray(meta?.defectEnhancementStatuses)
+          ? meta.defectEnhancementStatuses.filter(Boolean)
+          : [];
+        const nextTypes = Array.isArray(meta?.submissionTypes)
+          ? meta.submissionTypes.map((value) => String(value || '').toLowerCase()).filter(Boolean)
+          : [];
+
+        if (nextStatuses.length > 0) {
+          setDynamicPublicStatuses(nextStatuses);
+          setSelectedStatuses((prev) => (
+            areAllStatusesSelected(prev, publicStatuses)
+              ? [...nextStatuses]
+              : prev.filter((value) => nextStatuses.includes(value))
+          ));
+        }
+        if (nextTypes.length > 0) {
+          setDynamicPublicTypes(nextTypes);
+          setTypeFilter((prev) => (prev && !nextTypes.includes(prev) ? '' : prev));
+        }
+      })
+      .catch(() => {});
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
     if (typeof window === 'undefined') return;
-    const statusSelectionMode = areAllStatusesSelected(selectedStatuses, publicStatuses)
+    const statusSelectionMode = areAllStatusesSelected(selectedStatuses, dynamicPublicStatuses)
       ? 'all'
       : 'custom';
     window.localStorage.setItem(
@@ -144,7 +180,7 @@ export function PublicUpdatesPage() {
       }),
     );
     window.localStorage.setItem(publicRetiredFilterStorageKey, retiredFilter || 'non_retired');
-  }, [search, typeFilter, selectedStatuses, retiredFilter, sortBy]);
+  }, [search, typeFilter, selectedStatuses, retiredFilter, sortBy, dynamicPublicStatuses]);
 
   const hasItems = useMemo(() => items.length > 0, [items]);
 
@@ -247,12 +283,12 @@ export function PublicUpdatesPage() {
         />
         <Select label="Type" value={typeFilter} onChange={(event) => setTypeFilter(event.target.value)}>
           <option value="">All types</option>
-          <option value="defect">Defect</option>
-          <option value="enhancement">Enhancement</option>
+          {dynamicPublicTypes.includes('defect') && <option value="defect">Defect</option>}
+          {dynamicPublicTypes.includes('enhancement') && <option value="enhancement">Enhancement</option>}
         </Select>
         <MultiSelectDropdown
           label="Status"
-          options={publicStatuses}
+          options={dynamicPublicStatuses}
           selectedValues={selectedStatuses}
           onChange={setSelectedStatuses}
           placeholder="Select statuses"
@@ -274,7 +310,7 @@ export function PublicUpdatesPage() {
           onClick={() => {
             setSearch('');
             setTypeFilter('');
-            setSelectedStatuses([...publicStatuses]);
+            setSelectedStatuses([...dynamicPublicStatuses]);
             setRetiredFilter('non_retired');
             setSortBy('updated_desc');
           }}

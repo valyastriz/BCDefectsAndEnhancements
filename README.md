@@ -20,6 +20,7 @@ Full-stack app for rep submissions and admin triage with local DB support, attac
 - Admin queue with advanced filtering, sorting, modal editing, and timeline/status events
 - Retired handling separated from status filters (`non_retired`, `retired_only`, `all`)
 - Expanded statuses:
+  - `Redirected`
   - `Backlog - Monitoring Impact`
   - `Future Consideration`
   - `Deferred – Not in Current Scope`

@@ -41,6 +41,26 @@ async function request(path, options = {}) {
 }
 
 export const api = {
+  getMetaOptions: () => request('/api/meta/options'),
+  getAdminMetaOptions: () => request('/api/admin/meta/options'),
+  createAdminMetaOption: (category, data) =>
+    request(`/api/admin/meta/${encodeURIComponent(category)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data || {}),
+    }),
+  updateAdminMetaOption: (category, id, data) =>
+    request(`/api/admin/meta/${encodeURIComponent(category)}/${encodeURIComponent(String(id))}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data || {}),
+    }),
+  reorderAdminMetaOptions: (category, orderedIds) =>
+    request(`/api/admin/meta/${encodeURIComponent(category)}/reorder`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ orderedIds: Array.isArray(orderedIds) ? orderedIds : [] }),
+    }),
   login: (username, password) =>
     request('/api/auth/login', {
       method: 'POST',
@@ -67,6 +87,7 @@ export const api = {
     year = '',
     inJira = '',
     jiraNumber = '',
+    easyvistaNumber = '',
     releaseNumber = '',
     sort = 'updated_desc',
   }) => {
@@ -85,6 +106,7 @@ export const api = {
     if (year) params.set('year', year);
     if (inJira) params.set('inJira', inJira);
     if (jiraNumber) params.set('jiraNumber', jiraNumber);
+    if (easyvistaNumber) params.set('easyvistaNumber', easyvistaNumber);
     if (releaseNumber) params.set('releaseNumber', releaseNumber);
     if (sort) params.set('sort', sort);
     const query = params.toString() ? `?${params.toString()}` : '';

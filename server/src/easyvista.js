@@ -31,6 +31,7 @@ async function submitToEasyVista(submission) {
     submission.steps_to_reproduce,
     '',
     'What Happened (Exact Details):',
+    `${submission.created_by || 'Requester'} submitted the following:`,
     submission.what_happened_exact_details,
     '',
     'Request:',
