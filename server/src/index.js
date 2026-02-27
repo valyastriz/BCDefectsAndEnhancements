@@ -274,100 +274,88 @@ const SUBMISSION_LOOKUP_SELECT = `
 async function getSubmissionByIdWithLookups(db, submissionId, { publicOnly = false } = {}) {
   const dbModels = dbApi.getModels() || {};
   const Submission = dbModels.Submission;
-
-  if (Submission) {
-    const where = {
-      id: Number(submissionId),
-      ...(publicOnly ? { is_public: 1 } : {}),
-    };
-    const submission = await Submission.findOne({ where, raw: true });
-    if (!submission) return null;
-
-    const lookupConfigs = [
-      {
-        idColumn: 'status_id',
-        table: 'defect_enhancement_statuses',
-        targetKey: 'model_status_name',
-        fallbackKey: 'status',
-      },
-      {
-        idColumn: 'type_id',
-        table: 'submission_types',
-        targetKey: 'model_type_name',
-        fallbackKey: 'type',
-      },
-      {
-        idColumn: 'cleanup_status_id',
-        table: 'cleanup_statuses',
-        targetKey: 'model_cleanup_status_name',
-        fallbackKey: 'cleanup_status',
-      },
-      {
-        idColumn: 'cleanup_tag_type_id',
-        table: 'cleanup_tag_types',
-        targetKey: 'model_cleanup_tag_type_name',
-        fallbackKey: 'cleanup_tag_type',
-      },
-      {
-        idColumn: 'application_id',
-        table: 'applications',
-        targetKey: 'model_application_name',
-        fallbackKey: 'application_name',
-      },
-      {
-        idColumn: 'enhancement_request_type_id',
-        table: 'enhancement_request_types',
-        targetKey: 'model_enhancement_request_type_name',
-        fallbackKey: 'enhancement_request_type',
-      },
-      {
-        idColumn: 'priority_level_id',
-        table: 'priority_levels',
-        targetKey: 'model_priority_level_name',
-        fallbackKey: 'priority_level',
-      },
-      {
-        idColumn: 'created_via_id',
-        table: 'submission_sources',
-        targetKey: 'model_created_via_name',
-        fallbackKey: 'created_via',
-      },
-    ];
-
-    const hydrated = { ...submission };
-    for (const config of lookupConfigs) {
-      const lookupId = hydrated[config.idColumn];
-      if (lookupId == null) {
-        hydrated[config.targetKey] = hydrated[config.fallbackKey] || null;
-        continue;
-      }
-
-      const LookupModel = getLookupModelByTable(config.table);
-      if (LookupModel) {
-        const row = await LookupModel.findByPk(Number(lookupId), {
-          attributes: ['name'],
-          raw: true,
-        });
-        hydrated[config.targetKey] = row?.name || hydrated[config.fallbackKey] || null;
-      } else {
-        const row = await db.get(`SELECT name FROM ${config.table} WHERE id = ? LIMIT 1`, [lookupId]);
-        hydrated[config.targetKey] = row?.name || hydrated[config.fallbackKey] || null;
-      }
-    }
-
-    return hydrated;
+  if (!Submission) {
+    throw new Error('Submission model is not initialized');
   }
 
-  const whereClause = publicOnly ? 'AND s.is_public = 1' : '';
-  return db.get(
-    `
-    SELECT s.*, ${SUBMISSION_LOOKUP_SELECT}
-    FROM submissions s
-    ${SUBMISSION_LOOKUP_JOINS}
-    WHERE s.id = ? ${whereClause}
-  `,
-    [submissionId],
-  );
+  const where = {
+    id: Number(submissionId),
+    ...(publicOnly ? { is_public: 1 } : {}),
+  };
+  const submission = await Submission.findOne({ where, raw: true });
+  if (!submission) return null;
+
+  const lookupConfigs = [
+    {
+      idColumn: 'status_id',
+      table: 'defect_enhancement_statuses',
+      targetKey: 'model_status_name',
+      fallbackKey: 'status',
+    },
+    {
+      idColumn: 'type_id',
+      table: 'submission_types',
+      targetKey: 'model_type_name',
+      fallbackKey: 'type',
+    },
+    {
+      idColumn: 'cleanup_status_id',
+      table: 'cleanup_statuses',
+      targetKey: 'model_cleanup_status_name',
+      fallbackKey: 'cleanup_status',
+    },
+    {
+      idColumn: 'cleanup_tag_type_id',
+      table: 'cleanup_tag_types',
+      targetKey: 'model_cleanup_tag_type_name',
+      fallbackKey: 'cleanup_tag_type',
+    },
+    {
+      idColumn: 'application_id',
+      table: 'applications',
+      targetKey: 'model_application_name',
+      fallbackKey: 'application_name',
+    },
+    {
+      idColumn: 'enhancement_request_type_id',
+      table: 'enhancement_request_types',
+      targetKey: 'model_enhancement_request_type_name',
+      fallbackKey: 'enhancement_request_type',
+    },
+    {
+      idColumn: 'priority_level_id',
+      table: 'priority_levels',
+      targetKey: 'model_priority_level_name',
+      fallbackKey: 'priority_level',
+    },
+    {
+      idColumn: 'created_via_id',
+      table: 'submission_sources',
+      targetKey: 'model_created_via_name',
+      fallbackKey: 'created_via',
+    },
+  ];
+
+  const hydrated = { ...submission };
+  for (const config of lookupConfigs) {
+    const lookupId = hydrated[config.idColumn];
+    if (lookupId == null) {
+      hydrated[config.targetKey] = hydrated[config.fallbackKey] || null;
+      continue;
+    }
+
+    const LookupModel = getLookupModelByTable(config.table);
+    if (!LookupModel) {
+      throw new Error(`Lookup model not initialized for ${config.table}`);
+    }
+    const row = await LookupModel.findByPk(Number(lookupId), {
+      attributes: ['name'],
+      raw: true,
+    });
+    hydrated[config.targetKey] = row?.name || hydrated[config.fallbackKey] || null;
+  }
+
+  return hydrated;
 }
 
 function toSortableTimestamp(value, fallback) {
@@ -478,21 +466,13 @@ async function getDefectEnhancementStatuses(db, { includeRetired = false } = {})
   try {
     const dbModels = dbApi.getModels() || {};
     const DefectEnhancementStatus = dbModels.DefectEnhancementStatus;
-    const rows = DefectEnhancementStatus
-      ? await DefectEnhancementStatus.findAll({
-        where: { is_active: 1 },
-        attributes: ['name', 'is_retired'],
-        order: [['sort_order', 'ASC'], ['id', 'ASC']],
-        raw: true,
-      })
-      : await db.all(
-        `
-      SELECT name, is_retired
-      FROM defect_enhancement_statuses
-      WHERE COALESCE(is_active, 1) = 1
-      ORDER BY COALESCE(sort_order, 0) ASC, id ASC
-    `,
-      );
+    if (!DefectEnhancementStatus) throw new Error('DefectEnhancementStatus model is not initialized');
+    const rows = await DefectEnhancementStatus.findAll({
+      where: { is_active: 1 },
+      attributes: ['name', 'is_retired'],
+      order: [['sort_order', 'ASC'], ['id', 'ASC']],
+      raw: true,
+    });
     const names = (rows || []).map((row) => String(row.name || '').trim()).filter(Boolean);
     if (names.length === 0) {
       return includeRetired
@@ -517,21 +497,13 @@ async function getSubmissionTypes(db) {
   try {
     const dbModels = dbApi.getModels() || {};
     const SubmissionType = dbModels.SubmissionType;
-    const rows = SubmissionType
-      ? await SubmissionType.findAll({
-        where: { is_active: 1 },
-        attributes: ['name'],
-        order: [['sort_order', 'ASC'], ['id', 'ASC']],
-        raw: true,
-      })
-      : await db.all(
-        `
-      SELECT name
-      FROM submission_types
-      WHERE COALESCE(is_active, 1) = 1
-      ORDER BY COALESCE(sort_order, 0) ASC, id ASC
-    `,
-      );
+    if (!SubmissionType) throw new Error('SubmissionType model is not initialized');
+    const rows = await SubmissionType.findAll({
+      where: { is_active: 1 },
+      attributes: ['name'],
+      order: [['sort_order', 'ASC'], ['id', 'ASC']],
+      raw: true,
+    });
     const names = (rows || []).map((row) => String(row.name || '').trim().toLowerCase()).filter(Boolean);
     return names.length > 0 ? names : [...DEFAULT_SUBMISSION_TYPES];
   } catch {
@@ -543,21 +515,13 @@ async function getCleanupStatuses(db) {
   try {
     const dbModels = dbApi.getModels() || {};
     const CleanupStatus = dbModels.CleanupStatus;
-    const rows = CleanupStatus
-      ? await CleanupStatus.findAll({
-        where: { is_active: 1 },
-        attributes: ['name'],
-        order: [['sort_order', 'ASC'], ['id', 'ASC']],
-        raw: true,
-      })
-      : await db.all(
-        `
-      SELECT name
-      FROM cleanup_statuses
-      WHERE COALESCE(is_active, 1) = 1
-      ORDER BY COALESCE(sort_order, 0) ASC, id ASC
-    `,
-      );
+    if (!CleanupStatus) throw new Error('CleanupStatus model is not initialized');
+    const rows = await CleanupStatus.findAll({
+      where: { is_active: 1 },
+      attributes: ['name'],
+      order: [['sort_order', 'ASC'], ['id', 'ASC']],
+      raw: true,
+    });
     const names = (rows || []).map((row) => String(row.name || '').trim()).filter(Boolean);
     return names.length > 0 ? names : [...DEFAULT_CLEANUP_STATUSES];
   } catch {
@@ -569,21 +533,13 @@ async function getCleanupTagTypes(db) {
   try {
     const dbModels = dbApi.getModels() || {};
     const CleanupTagType = dbModels.CleanupTagType;
-    const rows = CleanupTagType
-      ? await CleanupTagType.findAll({
-        where: { is_active: 1 },
-        attributes: ['name'],
-        order: [['sort_order', 'ASC'], ['id', 'ASC']],
-        raw: true,
-      })
-      : await db.all(
-        `
-      SELECT name
-      FROM cleanup_tag_types
-      WHERE COALESCE(is_active, 1) = 1
-      ORDER BY COALESCE(sort_order, 0) ASC, id ASC
-    `,
-      );
+    if (!CleanupTagType) throw new Error('CleanupTagType model is not initialized');
+    const rows = await CleanupTagType.findAll({
+      where: { is_active: 1 },
+      attributes: ['name'],
+      order: [['sort_order', 'ASC'], ['id', 'ASC']],
+      raw: true,
+    });
     const names = (rows || []).map((row) => String(row.name || '').trim().toLowerCase()).filter(Boolean);
     return names.length > 0 ? names : [...DEFAULT_CLEANUP_TAG_TYPES];
   } catch {
@@ -595,21 +551,13 @@ async function getApplications(db) {
   try {
     const dbModels = dbApi.getModels() || {};
     const Application = dbModels.Application;
-    const rows = Application
-      ? await Application.findAll({
-        where: { is_active: 1 },
-        attributes: ['name'],
-        order: [['sort_order', 'ASC'], ['id', 'ASC']],
-        raw: true,
-      })
-      : await db.all(
-        `
-      SELECT name
-      FROM applications
-      WHERE COALESCE(is_active, 1) = 1
-      ORDER BY COALESCE(sort_order, 0) ASC, id ASC
-    `,
-      );
+    if (!Application) throw new Error('Application model is not initialized');
+    const rows = await Application.findAll({
+      where: { is_active: 1 },
+      attributes: ['name'],
+      order: [['sort_order', 'ASC'], ['id', 'ASC']],
+      raw: true,
+    });
     const names = (rows || []).map((row) => String(row.name || '').trim()).filter(Boolean);
     return names.length > 0 ? names : [...DEFAULT_APPLICATIONS];
   } catch {
@@ -621,21 +569,13 @@ async function getEnhancementRequestTypes(db) {
   try {
     const dbModels = dbApi.getModels() || {};
     const EnhancementRequestType = dbModels.EnhancementRequestType;
-    const rows = EnhancementRequestType
-      ? await EnhancementRequestType.findAll({
-        where: { is_active: 1 },
-        attributes: ['name'],
-        order: [['sort_order', 'ASC'], ['id', 'ASC']],
-        raw: true,
-      })
-      : await db.all(
-        `
-      SELECT name
-      FROM enhancement_request_types
-      WHERE COALESCE(is_active, 1) = 1
-      ORDER BY COALESCE(sort_order, 0) ASC, id ASC
-    `,
-      );
+    if (!EnhancementRequestType) throw new Error('EnhancementRequestType model is not initialized');
+    const rows = await EnhancementRequestType.findAll({
+      where: { is_active: 1 },
+      attributes: ['name'],
+      order: [['sort_order', 'ASC'], ['id', 'ASC']],
+      raw: true,
+    });
     const names = (rows || []).map((row) => String(row.name || '').trim()).filter(Boolean);
     return names.length > 0 ? names : [...DEFAULT_ENHANCEMENT_REQUEST_TYPES];
   } catch {
@@ -647,21 +587,13 @@ async function getPriorityLevels(db) {
   try {
     const dbModels = dbApi.getModels() || {};
     const PriorityLevel = dbModels.PriorityLevel;
-    const rows = PriorityLevel
-      ? await PriorityLevel.findAll({
-        where: { is_active: 1 },
-        attributes: ['name'],
-        order: [['sort_order', 'ASC'], ['id', 'ASC']],
-        raw: true,
-      })
-      : await db.all(
-        `
-      SELECT name
-      FROM priority_levels
-      WHERE COALESCE(is_active, 1) = 1
-      ORDER BY COALESCE(sort_order, 0) ASC, id ASC
-    `,
-      );
+    if (!PriorityLevel) throw new Error('PriorityLevel model is not initialized');
+    const rows = await PriorityLevel.findAll({
+      where: { is_active: 1 },
+      attributes: ['name'],
+      order: [['sort_order', 'ASC'], ['id', 'ASC']],
+      raw: true,
+    });
     const names = (rows || []).map((row) => String(row.name || '').trim()).filter(Boolean);
     return names.length > 0 ? names : [...DEFAULT_PRIORITY_LEVELS];
   } catch {
@@ -673,21 +605,13 @@ async function getSubmissionSources(db) {
   try {
     const dbModels = dbApi.getModels() || {};
     const SubmissionSource = dbModels.SubmissionSource;
-    const rows = SubmissionSource
-      ? await SubmissionSource.findAll({
-        where: { is_active: 1 },
-        attributes: ['name'],
-        order: [['sort_order', 'ASC'], ['id', 'ASC']],
-        raw: true,
-      })
-      : await db.all(
-        `
-      SELECT name
-      FROM submission_sources
-      WHERE COALESCE(is_active, 1) = 1
-      ORDER BY COALESCE(sort_order, 0) ASC, id ASC
-    `,
-      );
+    if (!SubmissionSource) throw new Error('SubmissionSource model is not initialized');
+    const rows = await SubmissionSource.findAll({
+      where: { is_active: 1 },
+      attributes: ['name'],
+      order: [['sort_order', 'ASC'], ['id', 'ASC']],
+      raw: true,
+    });
     const names = (rows || []).map((row) => String(row.name || '').trim().toLowerCase()).filter(Boolean);
     return names.length > 0 ? names : [...DEFAULT_SUBMISSION_SOURCES];
   } catch {
@@ -712,22 +636,16 @@ async function getLookupIdByName(db, table, value, { lowercase = false } = {}) {
   };
 
   const model = tableToModel[table];
-  if (model) {
-    const rows = await model.findAll({ attributes: ['id', 'name'], raw: true });
-    const target = lowercase ? normalizedValue.toLowerCase() : normalizedValue;
-    const match = rows.find((row) => {
-      const candidate = String(row.name || '').trim();
-      return lowercase ? candidate.toLowerCase() === target : candidate === target;
-    });
-    return match?.id ? Number(match.id) : null;
+  if (!model) {
+    throw new Error(`Lookup model not initialized for ${table}`);
   }
-
-  const compareValue = lowercase ? normalizedValue.toLowerCase() : normalizedValue;
-  const row = await db.get(
-    `SELECT id FROM ${table} WHERE ${lowercase ? 'LOWER(name) = ?' : 'name = ?'} LIMIT 1`,
-    [compareValue],
-  );
-  return row?.id ? Number(row.id) : null;
+  const rows = await model.findAll({ attributes: ['id', 'name'], raw: true });
+  const target = lowercase ? normalizedValue.toLowerCase() : normalizedValue;
+  const match = rows.find((row) => {
+    const candidate = String(row.name || '').trim();
+    return lowercase ? candidate.toLowerCase() === target : candidate === target;
+  });
+  return match?.id ? Number(match.id) : null;
 }
 
 function getLookupModelByTable(table) {
@@ -849,9 +767,10 @@ async function getSubmissionLookupMigrationAudit(db) {
 
   for (const config of SUBMISSION_LOOKUP_AUDIT_CONFIG) {
     const LookupModel = getLookupModelByTable(config.lookupTable);
-    const lookupRows = LookupModel
-      ? await LookupModel.findAll({ attributes: ['id'], raw: true })
-      : await db.all(`SELECT id FROM ${config.lookupTable}`);
+    if (!LookupModel) {
+      throw new Error(`Lookup model is not initialized for ${config.lookupTable}`);
+    }
+    const lookupRows = await LookupModel.findAll({ attributes: ['id'], raw: true });
     const lookupIds = new Set(lookupRows.map((row) => Number(row.id)).filter((id) => Number.isFinite(id)));
 
     let missingForTextCount = 0;
@@ -1371,24 +1290,16 @@ async function persistUploadedFiles(db, submissionId, files, uploadedByRole) {
 async function logStatusChange(db, submissionId, status, changedBy, changedAt) {
   const dbModels = dbApi.getModels() || {};
   const SubmissionStatusEvent = dbModels.SubmissionStatusEvent;
-
-  if (SubmissionStatusEvent) {
-    await SubmissionStatusEvent.create({
-      submission_id: submissionId,
-      status,
-      changed_at: changedAt || new Date().toISOString(),
-      changed_by: changedBy || null,
-    });
-    return;
+  if (!SubmissionStatusEvent) {
+    throw new Error('SubmissionStatusEvent model is not initialized');
   }
 
-  await db.run(
-    `
-    INSERT INTO submission_status_events (submission_id, status, changed_at, changed_by)
-    VALUES (?, ?, ?, ?)
-  `,
-    [submissionId, status, changedAt || new Date().toISOString(), changedBy || null],
-  );
+  await SubmissionStatusEvent.create({
+    submission_id: submissionId,
+    status,
+    changed_at: changedAt || new Date().toISOString(),
+    changed_by: changedBy || null,
+  });
 }
 
 app.get('/api/health', (_req, res) => {
@@ -1435,19 +1346,14 @@ app.get('/api/admin/meta/options', ensureAdmin, async (_req, res) => {
       const category = resolveLookupCategory(categoryKey);
       if (!category) return [];
       const LookupModel = resolveLookupModel(category);
-      const rows = LookupModel
-        ? await LookupModel.findAll({
-          attributes: ['id', 'name', 'sort_order', 'is_active', ...(category.hasRetiredFlag ? ['is_retired'] : [])],
-          order: [['sort_order', 'ASC'], ['id', 'ASC']],
-          raw: true,
-        })
-        : await db.all(
-          `
-        SELECT id, name, sort_order, is_active${category.hasRetiredFlag ? ', is_retired' : ''}
-        FROM ${category.table}
-        ORDER BY COALESCE(sort_order, 0) ASC, id ASC
-      `,
-        );
+      if (!LookupModel) {
+        throw new Error(`Lookup model is not initialized for ${category.key}`);
+      }
+      const rows = await LookupModel.findAll({
+        attributes: ['id', 'name', 'sort_order', 'is_active', ...(category.hasRetiredFlag ? ['is_retired'] : [])],
+        order: [['sort_order', 'ASC'], ['id', 'ASC']],
+        raw: true,
+      });
       return (rows || []).map((row) => ({
         ...mapRow(row, category.hasRetiredFlag),
       }));
@@ -1481,49 +1387,31 @@ app.post('/api/admin/meta/:category', ensureAdmin, async (req, res) => {
 
   return withDb(async (db) => {
     const LookupModel = resolveLookupModel(category);
+    if (!LookupModel) {
+      return res.status(500).json({ error: `Lookup model is not initialized for ${category.key}` });
+    }
     const normalizedName = category.normalize(req.body?.name);
     if (!normalizedName) {
       return res.status(400).json({ error: 'Name is required' });
     }
 
-    const existing = LookupModel
-      ? (await LookupModel.findAll({ attributes: ['id', 'name'], raw: true })).find(
-        (row) => String(row.name || '').trim().toLowerCase() === normalizedName.toLowerCase(),
-      )
-      : await db.get(
-        `SELECT id FROM ${category.table} WHERE LOWER(name) = LOWER(?) LIMIT 1`,
-        [normalizedName],
-      );
+    const existing = (await LookupModel.findAll({ attributes: ['id', 'name'], raw: true })).find(
+      (row) => String(row.name || '').trim().toLowerCase() === normalizedName.toLowerCase(),
+    );
     if (existing) {
       return res.status(409).json({ error: 'Value already exists' });
     }
 
-    const nextSort = LookupModel
-      ? ((await LookupModel.findAll({ attributes: ['sort_order'], raw: true }))
-        .reduce((max, row) => Math.max(max, Number(row.sort_order || 0)), 0) + 1)
-      : (Number((await db.get(`SELECT COALESCE(MAX(sort_order), 0) AS maxSort FROM ${category.table}`))?.maxSort || 0) + 1);
+    const nextSort = ((await LookupModel.findAll({ attributes: ['sort_order'], raw: true }))
+      .reduce((max, row) => Math.max(max, Number(row.sort_order || 0)), 0) + 1);
     const isRetired = category.hasRetiredFlag && Boolean(req.body?.isRetired);
 
-    const created = LookupModel
-      ? (await LookupModel.create({
-        name: normalizedName,
-        sort_order: nextSort,
-        is_active: 1,
-        ...(category.hasRetiredFlag ? { is_retired: toBooleanSql(isRetired) } : {}),
-      })).toJSON()
-      : (async () => {
-        const insertSql = category.hasRetiredFlag
-          ? `INSERT INTO ${category.table} (name, sort_order, is_active, is_retired) VALUES (?, ?, 1, ?)`
-          : `INSERT INTO ${category.table} (name, sort_order, is_active) VALUES (?, ?, 1)`;
-        const params = category.hasRetiredFlag
-          ? [normalizedName, nextSort, toBooleanSql(isRetired)]
-          : [normalizedName, nextSort];
-        const inserted = await db.run(insertSql, params);
-        return db.get(
-          `SELECT id, name, sort_order, is_active${category.hasRetiredFlag ? ', is_retired' : ''} FROM ${category.table} WHERE id = ?`,
-          [inserted.lastID],
-        );
-      })();
+    const created = (await LookupModel.create({
+      name: normalizedName,
+      sort_order: nextSort,
+      is_active: 1,
+      ...(category.hasRetiredFlag ? { is_retired: toBooleanSql(isRetired) } : {}),
+    })).toJSON();
 
     return res.status(201).json({
       id: Number(created.id),
@@ -1548,9 +1436,10 @@ app.put('/api/admin/meta/:category/:id', ensureAdmin, async (req, res) => {
 
   return withDb(async (db) => {
     const LookupModel = resolveLookupModel(category);
-    const existing = LookupModel
-      ? await LookupModel.findByPk(recordId, { raw: true })
-      : await db.get(`SELECT * FROM ${category.table} WHERE id = ?`, [recordId]);
+    if (!LookupModel) {
+      return res.status(500).json({ error: `Lookup model is not initialized for ${category.key}` });
+    }
+    const existing = await LookupModel.findByPk(recordId, { raw: true });
     if (!existing) {
       return res.status(404).json({ error: 'Metadata entry not found' });
     }
@@ -1568,15 +1457,10 @@ app.put('/api/admin/meta/:category/:id', ensureAdmin, async (req, res) => {
       return res.status(400).json({ error: 'Name is required' });
     }
 
-    const duplicate = LookupModel
-      ? (await LookupModel.findAll({ attributes: ['id', 'name'], raw: true })).find(
-        (row) => Number(row.id) !== recordId
-          && String(row.name || '').trim().toLowerCase() === nextNameRaw.toLowerCase(),
-      )
-      : await db.get(
-        `SELECT id FROM ${category.table} WHERE LOWER(name) = LOWER(?) AND id <> ? LIMIT 1`,
-        [nextNameRaw, recordId],
-      );
+    const duplicate = (await LookupModel.findAll({ attributes: ['id', 'name'], raw: true })).find(
+      (row) => Number(row.id) !== recordId
+        && String(row.name || '').trim().toLowerCase() === nextNameRaw.toLowerCase(),
+    );
     if (duplicate) {
       return res.status(409).json({ error: 'Value already exists' });
     }
@@ -1600,17 +1484,7 @@ app.put('/api/admin/meta/:category/:id', ensureAdmin, async (req, res) => {
       ...(category.hasRetiredFlag ? { is_retired: nextIsRetired } : {}),
     };
 
-    if (LookupModel) {
-      await LookupModel.update(updatePayload, { where: { id: recordId } });
-    } else {
-      const updateSql = category.hasRetiredFlag
-        ? `UPDATE ${category.table} SET name = ?, sort_order = ?, is_active = ?, is_retired = ? WHERE id = ?`
-        : `UPDATE ${category.table} SET name = ?, sort_order = ?, is_active = ? WHERE id = ?`;
-      const params = category.hasRetiredFlag
-        ? [nextNameRaw, nextSortOrder, nextIsActive, nextIsRetired, recordId]
-        : [nextNameRaw, nextSortOrder, nextIsActive, recordId];
-      await db.run(updateSql, params);
-    }
+    await LookupModel.update(updatePayload, { where: { id: recordId } });
 
     if (
       category.submissionIdColumn
@@ -1619,28 +1493,19 @@ app.put('/api/admin/meta/:category/:id', ensureAdmin, async (req, res) => {
     ) {
       const dbModels = dbApi.getModels() || {};
       const Submission = dbModels.Submission;
-      if (Submission) {
-        await Submission.update(
-          { [category.submissionTextColumn]: nextNameRaw },
-          { where: { [category.submissionIdColumn]: recordId } },
-        );
-      } else {
-        await db.run(
-          `UPDATE submissions SET ${category.submissionTextColumn} = ? WHERE ${category.submissionIdColumn} = ?`,
-          [nextNameRaw, recordId],
-        );
+      if (!Submission) {
+        throw new Error('Submission model is not initialized');
       }
+      await Submission.update(
+        { [category.submissionTextColumn]: nextNameRaw },
+        { where: { [category.submissionIdColumn]: recordId } },
+      );
     }
 
-    const updated = LookupModel
-      ? await LookupModel.findByPk(recordId, {
-        attributes: ['id', 'name', 'sort_order', 'is_active', ...(category.hasRetiredFlag ? ['is_retired'] : [])],
-        raw: true,
-      })
-      : await db.get(
-        `SELECT id, name, sort_order, is_active${category.hasRetiredFlag ? ', is_retired' : ''} FROM ${category.table} WHERE id = ?`,
-        [recordId],
-      );
+    const updated = await LookupModel.findByPk(recordId, {
+      attributes: ['id', 'name', 'sort_order', 'is_active', ...(category.hasRetiredFlag ? ['is_retired'] : [])],
+      raw: true,
+    });
 
     return res.json({
       id: Number(updated.id),
@@ -1668,13 +1533,14 @@ app.post('/api/admin/meta/:category/reorder', ensureAdmin, async (req, res) => {
 
   return withDb(async (db) => {
     const LookupModel = resolveLookupModel(category);
-    const rows = LookupModel
-      ? await LookupModel.findAll({
-        attributes: ['id'],
-        order: [['sort_order', 'ASC'], ['id', 'ASC']],
-        raw: true,
-      })
-      : await db.all(`SELECT id FROM ${category.table} ORDER BY COALESCE(sort_order, 0) ASC, id ASC`);
+    if (!LookupModel) {
+      return res.status(500).json({ error: `Lookup model is not initialized for ${category.key}` });
+    }
+    const rows = await LookupModel.findAll({
+      attributes: ['id'],
+      order: [['sort_order', 'ASC'], ['id', 'ASC']],
+      raw: true,
+    });
     const existingIds = rows.map((row) => Number(row.id));
     const existingSet = new Set(existingIds);
 
@@ -1688,26 +1554,14 @@ app.post('/api/admin/meta/:category/reorder', ensureAdmin, async (req, res) => {
     const finalOrder = [...orderedIds, ...remaining];
 
     for (let index = 0; index < finalOrder.length; index += 1) {
-      if (LookupModel) {
-        await LookupModel.update({ sort_order: index + 1 }, { where: { id: finalOrder[index] } });
-      } else {
-        await db.run(`UPDATE ${category.table} SET sort_order = ? WHERE id = ?`, [index + 1, finalOrder[index]]);
-      }
+      await LookupModel.update({ sort_order: index + 1 }, { where: { id: finalOrder[index] } });
     }
 
-    const refreshed = LookupModel
-      ? await LookupModel.findAll({
-        attributes: ['id', 'name', 'sort_order', 'is_active', ...(category.hasRetiredFlag ? ['is_retired'] : [])],
-        order: [['sort_order', 'ASC'], ['id', 'ASC']],
-        raw: true,
-      })
-      : await db.all(
-        `
-      SELECT id, name, sort_order, is_active${category.hasRetiredFlag ? ', is_retired' : ''}
-      FROM ${category.table}
-      ORDER BY COALESCE(sort_order, 0) ASC, id ASC
-    `,
-      );
+    const refreshed = await LookupModel.findAll({
+      attributes: ['id', 'name', 'sort_order', 'is_active', ...(category.hasRetiredFlag ? ['is_retired'] : [])],
+      order: [['sort_order', 'ASC'], ['id', 'ASC']],
+      raw: true,
+    });
 
     return res.json(
       refreshed.map((row) => ({
@@ -2082,22 +1936,20 @@ app.get('/api/public/submissions/:id', async (req, res) => {
   return withDb(async (db) => {
     const dbModels = dbApi.getModels() || {};
     const Attachment = dbModels.Attachment;
+    if (!Attachment) {
+      return res.status(500).json({ error: 'Attachment model is not available' });
+    }
     const submission = await getSubmissionByIdWithLookups(db, req.params.id, { publicOnly: true });
 
     if (!submission) {
       return res.status(404).json({ error: 'Submission not found' });
     }
 
-    const attachments = Attachment
-      ? await Attachment.findAll({
-        where: { submission_id: Number(req.params.id) },
-        order: [['uploaded_at', 'DESC']],
-        raw: true,
-      })
-      : await db.all(
-        'SELECT * FROM attachments WHERE submission_id = ? ORDER BY uploaded_at DESC',
-        [req.params.id],
-      );
+    const attachments = await Attachment.findAll({
+      where: { submission_id: Number(req.params.id) },
+      order: [['uploaded_at', 'DESC']],
+      raw: true,
+    });
 
     return res.json({
       ...mapSubmission(submission),
@@ -2318,38 +2170,26 @@ app.get('/api/admin/submissions/:id', ensureAdmin, async (req, res) => {
     const dbModels = dbApi.getModels() || {};
     const Attachment = dbModels.Attachment;
     const SubmissionStatusEvent = dbModels.SubmissionStatusEvent;
+    if (!Attachment || !SubmissionStatusEvent) {
+      return res.status(500).json({ error: 'Required models are not available' });
+    }
     const submission = await getSubmissionByIdWithLookups(db, req.params.id);
     if (!submission) {
       return res.status(404).json({ error: 'Submission not found' });
     }
 
-    const attachments = Attachment
-      ? await Attachment.findAll({
-        where: { submission_id: Number(req.params.id) },
-        order: [['uploaded_at', 'DESC']],
-        raw: true,
-      })
-      : await db.all(
-        'SELECT * FROM attachments WHERE submission_id = ? ORDER BY uploaded_at DESC',
-        [req.params.id],
-      );
+    const attachments = await Attachment.findAll({
+      where: { submission_id: Number(req.params.id) },
+      order: [['uploaded_at', 'DESC']],
+      raw: true,
+    });
 
-    const status_events = SubmissionStatusEvent
-      ? await SubmissionStatusEvent.findAll({
-        where: { submission_id: Number(req.params.id) },
-        attributes: ['id', 'submission_id', 'status', 'changed_at', 'changed_by'],
-        order: [['changed_at', 'DESC'], ['id', 'DESC']],
-        raw: true,
-      })
-      : await db.all(
-        `
-      SELECT id, submission_id, status, changed_at, changed_by
-      FROM submission_status_events
-      WHERE submission_id = ?
-      ORDER BY changed_at DESC, id DESC
-    `,
-        [req.params.id],
-      );
+    const status_events = await SubmissionStatusEvent.findAll({
+      where: { submission_id: Number(req.params.id) },
+      attributes: ['id', 'submission_id', 'status', 'changed_at', 'changed_by'],
+      order: [['changed_at', 'DESC'], ['id', 'DESC']],
+      raw: true,
+    });
 
     const timeline = buildStatusTimeline(submission, status_events);
 
@@ -2374,6 +2214,9 @@ app.post('/api/admin/submissions', ensureAdmin, async (req, res) => {
   return withDb(async (db) => {
     const dbModels = dbApi.getModels() || {};
     const Submission = dbModels.Submission;
+    if (!Submission) {
+      return res.status(500).json({ error: 'Submission model is not available' });
+    }
     const allowedStatuses = await getDefectEnhancementStatuses(db, { includeRetired: false });
     const historicalStatuses = await getDefectEnhancementStatuses(db, { includeRetired: true });
     const allowedSubmissionTypes = await getSubmissionTypes(db);
@@ -2609,9 +2452,7 @@ app.put('/api/admin/submissions/:id', ensureAdmin, async (req, res) => {
     const allowedCleanupStatuses = await getCleanupStatuses(db);
     const allowedCleanupTagTypes = await getCleanupTagTypes(db);
 
-    const existing = Submission
-      ? await Submission.findByPk(Number(req.params.id), { raw: true })
-      : await db.get('SELECT * FROM submissions WHERE id = ?', [req.params.id]);
+    const existing = await Submission.findByPk(Number(req.params.id), { raw: true });
     if (!existing) {
       return res.status(404).json({ error: 'Submission not found' });
     }
@@ -2823,108 +2664,9 @@ app.put('/api/admin/submissions/:id', ensureAdmin, async (req, res) => {
       easyvista_submitted_by: next.easyvista_submitted_by,
     };
 
-    if (Submission) {
-      await Submission.update(updatePayload, {
-        where: { id: Number(req.params.id) },
-      });
-    } else {
-      await db.run(
-        `
-      UPDATE submissions
-      SET
-        updated_at = ?,
-        type = ?,
-        type_id = ?,
-        application_name = ?,
-        application_id = ?,
-        policy_num = ?,
-        account_num = ?,
-        transaction_num = ?,
-        screen_title = ?,
-        summary_of_issue = ?,
-        steps_to_reproduce = ?,
-        what_happened_exact_details = ?,
-        request = ?,
-        date_time_of_error = ?,
-        status = ?,
-        status_id = ?,
-        reviewer = ?,
-        decision_notes = ?,
-        fingerprint = ?,
-        desired_completion_date = ?,
-        impact_details = ?,
-        impact_notes = ?,
-        policy_premium_impact = ?,
-        direct_dollar_impact = ?,
-        policies_affected_count = ?,
-        logged_defect = ?,
-        enhancement_request_type = ?,
-        enhancement_request_type_id = ?,
-        priority_level = ?,
-        priority_level_id = ?,
-        jira_number = ?,
-        release_number = ?,
-        release_notes = ?,
-        is_cleanup = ?,
-        cleanup_status = ?,
-        cleanup_status_id = ?,
-        cleanup_tag_type = ?,
-        cleanup_tag_type_id = ?,
-        is_retired = ?,
-        duplicate_reference = ?,
-        duplicate_of = ?,
-        is_public = ?,
-        easyvista_submitted_by = ?
-      WHERE id = ?
-    `,
-        [
-          updatePayload.updated_at,
-          updatePayload.type,
-          updatePayload.type_id,
-          updatePayload.application_name,
-          updatePayload.application_id,
-          updatePayload.policy_num,
-          updatePayload.account_num,
-          updatePayload.transaction_num,
-          updatePayload.screen_title,
-          updatePayload.summary_of_issue,
-          updatePayload.steps_to_reproduce,
-          updatePayload.what_happened_exact_details,
-          updatePayload.request,
-          updatePayload.date_time_of_error,
-          updatePayload.status,
-          updatePayload.status_id,
-          updatePayload.reviewer,
-          updatePayload.decision_notes,
-          updatePayload.fingerprint,
-          updatePayload.desired_completion_date,
-          updatePayload.impact_details,
-          updatePayload.impact_notes,
-          updatePayload.policy_premium_impact,
-          updatePayload.direct_dollar_impact,
-          updatePayload.policies_affected_count,
-          updatePayload.logged_defect,
-          updatePayload.enhancement_request_type,
-          updatePayload.enhancement_request_type_id,
-          updatePayload.priority_level,
-          updatePayload.priority_level_id,
-          updatePayload.jira_number,
-          updatePayload.release_number,
-          updatePayload.release_notes,
-          updatePayload.is_cleanup,
-          updatePayload.cleanup_status,
-          updatePayload.cleanup_status_id,
-          updatePayload.cleanup_tag_type,
-          updatePayload.cleanup_tag_type_id,
-          updatePayload.is_retired,
-          updatePayload.duplicate_reference,
-          updatePayload.duplicate_of,
-          updatePayload.is_public,
-          updatePayload.easyvista_submitted_by,
-          req.params.id,
-        ],
-      );
-    }
+    await Submission.update(updatePayload, {
+      where: { id: Number(req.params.id) },
+    });
 
     const statusChanged = String(next.status || '') !== String(existing.status || '');
     const retiredStateChanged = Boolean(next.is_retired) !== Boolean(existing.is_retired);
@@ -3084,26 +2826,20 @@ app.post(
     return withDb(async (db) => {
       const dbModels = dbApi.getModels() || {};
       const Submission = dbModels.Submission;
-      const existing = Submission
-        ? await Submission.findByPk(Number(req.params.id), { raw: true })
-        : await db.get('SELECT * FROM submissions WHERE id = ?', [req.params.id]);
+      if (!Submission) {
+        return res.status(500).json({ error: 'Submission model is not available' });
+      }
+      const existing = await Submission.findByPk(Number(req.params.id), { raw: true });
       if (!existing) {
         return res.status(404).json({ error: 'Submission not found' });
       }
 
       const created = await persistUploadedFiles(db, existing.id, req.files || [], 'admin');
 
-      if (Submission) {
-        await Submission.update(
-          { updated_at: new Date().toISOString() },
-          { where: { id: Number(existing.id) } },
-        );
-      } else {
-        await db.run('UPDATE submissions SET updated_at = ? WHERE id = ?', [
-          new Date().toISOString(),
-          existing.id,
-        ]);
-      }
+      await Submission.update(
+        { updated_at: new Date().toISOString() },
+        { where: { id: Number(existing.id) } },
+      );
 
       emitAdminNotification('attachment:added', {
         submission_id: existing.id,
@@ -3120,9 +2856,10 @@ app.delete('/api/admin/attachments/:id', ensureAdmin, async (req, res) => {
     const dbModels = dbApi.getModels() || {};
     const Attachment = dbModels.Attachment;
     const Submission = dbModels.Submission;
-    const attachment = Attachment
-      ? await Attachment.findByPk(Number(req.params.id), { raw: true })
-      : await db.get('SELECT * FROM attachments WHERE id = ?', [req.params.id]);
+    if (!Attachment || !Submission) {
+      return res.status(500).json({ error: 'Required models are not available' });
+    }
+    const attachment = await Attachment.findByPk(Number(req.params.id), { raw: true });
     if (!attachment) {
       return res.status(404).json({ error: 'Attachment not found' });
     }
@@ -3132,23 +2869,12 @@ app.delete('/api/admin/attachments/:id', ensureAdmin, async (req, res) => {
       fs.rmSync(absolute, { force: true });
     }
 
-    if (Attachment) {
-      await Attachment.destroy({ where: { id: Number(req.params.id) } });
-    } else {
-      await db.run('DELETE FROM attachments WHERE id = ?', [req.params.id]);
-    }
+    await Attachment.destroy({ where: { id: Number(req.params.id) } });
 
-    if (Submission) {
-      await Submission.update(
-        { updated_at: new Date().toISOString() },
-        { where: { id: Number(attachment.submission_id) } },
-      );
-    } else {
-      await db.run('UPDATE submissions SET updated_at = ? WHERE id = ?', [
-        new Date().toISOString(),
-        attachment.submission_id,
-      ]);
-    }
+    await Submission.update(
+      { updated_at: new Date().toISOString() },
+      { where: { id: Number(attachment.submission_id) } },
+    );
 
     emitAdminNotification('attachment:removed', {
       id: attachment.id,
@@ -3578,19 +3304,15 @@ app.post('/api/admin/submissions/import-xlsx', ensureAdmin, tempUpload.single('f
               toBooleanSql(row.is_retired),
               toBooleanSql(row.logged_defect),
             ];
-            const submissionId = Submission
-              ? Number((await Submission.create(
-                insertColumns.reduce((acc, column, columnIndex) => {
-                  acc[column] = insertValues[columnIndex];
-                  return acc;
-                }, {}),
-              )).id)
-              : (await db.run(
-                `INSERT INTO submissions (
-                ${insertColumns.join(', ')}
-              ) VALUES (${insertColumns.map(() => '?').join(',')})`,
-                insertValues,
-              )).lastID;
+            if (!Submission) {
+              throw new Error('Submission model is not initialized');
+            }
+            const submissionId = Number((await Submission.create(
+              insertColumns.reduce((acc, column, columnIndex) => {
+                acc[column] = insertValues[columnIndex];
+                return acc;
+              }, {}),
+            )).id);
             await logStatusChange(db, submissionId, 'New', changedBy, row.created_at);
             if (row.status !== 'New') {
               await logStatusChange(db, submissionId, row.status, changedBy, row.updated_at);
@@ -3652,35 +3374,10 @@ app.post('/api/admin/submissions/import-xlsx', ensureAdmin, tempUpload.single('f
         errors_json: JSON.stringify(combinedErrors),
       };
 
-      const historyEntry = ExcelImportRun
-        ? (await ExcelImportRun.create(historyPayload)).toJSON()
-        : (async () => {
-          const historyInsert = await db.run(
-            `
-        INSERT INTO excel_import_runs (
-          created_at, created_by, file_name, sheet_name, import_mode,
-          total_rows, valid_rows, invalid_rows, inserted_rows, dry_run,
-          status, summary_message, errors_json
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `,
-            [
-              historyPayload.created_at,
-              historyPayload.created_by,
-              historyPayload.file_name,
-              historyPayload.sheet_name,
-              historyPayload.import_mode,
-              historyPayload.total_rows,
-              historyPayload.valid_rows,
-              historyPayload.invalid_rows,
-              historyPayload.inserted_rows,
-              historyPayload.dry_run,
-              historyPayload.status,
-              historyPayload.summary_message,
-              historyPayload.errors_json,
-            ],
-          );
-          return db.get('SELECT * FROM excel_import_runs WHERE id = ?', [historyInsert.lastID]);
-        })();
+      if (!ExcelImportRun) {
+        throw new Error('ExcelImportRun model is not initialized');
+      }
+      const historyEntry = (await ExcelImportRun.create(historyPayload)).toJSON();
 
       return res.json({
         ...responseBase,
@@ -3700,9 +3397,10 @@ app.post('/api/admin/submissions/:id/submit-easyvista', ensureAdmin, async (req,
     const dbModels = dbApi.getModels() || {};
     const Submission = dbModels.Submission;
     const Attachment = dbModels.Attachment;
-    const submission = Submission
-      ? await Submission.findByPk(Number(req.params.id), { raw: true })
-      : await db.get('SELECT * FROM submissions WHERE id = ?', [req.params.id]);
+    if (!Submission || !Attachment) {
+      return res.status(500).json({ error: 'Required models are not available' });
+    }
+    const submission = await Submission.findByPk(Number(req.params.id), { raw: true });
     if (!submission) {
       return res.status(404).json({ error: 'Submission not found' });
     }
@@ -4027,103 +3725,43 @@ app.post('/api/admin/submissions/:id/submit-easyvista', ensureAdmin, async (req,
     if (missingLookupFields.length > 0) {
       return res.status(400).json({ error: formatMissingLookupError(missingLookupFields) });
     }
-    if (Submission) {
-      await Submission.update({
-        created_via_id: createdLookupIds.created_via_id,
-        type_id: createdLookupIds.type_id,
-        application_id: createdLookupIds.application_id,
-        status_id: createdLookupIds.status_id,
-        cleanup_status_id: createdLookupIds.cleanup_status_id,
-        cleanup_tag_type_id: createdLookupIds.cleanup_tag_type_id,
-        enhancement_request_type_id: createdLookupIds.enhancement_request_type_id,
-        priority_level_id: createdLookupIds.priority_level_id,
-      }, {
-        where: { id: Number(resubmissionId) },
-      });
-    } else {
-      await db.run(
-        `
-      UPDATE submissions
-      SET created_via_id = ?, type_id = ?, application_id = ?, status_id = ?, cleanup_status_id = ?,
-          cleanup_tag_type_id = ?, enhancement_request_type_id = ?, priority_level_id = ?
-      WHERE id = ?
-    `,
-        [
-          createdLookupIds.created_via_id,
-          createdLookupIds.type_id,
-          createdLookupIds.application_id,
-          createdLookupIds.status_id,
-          createdLookupIds.cleanup_status_id,
-          createdLookupIds.cleanup_tag_type_id,
-          createdLookupIds.enhancement_request_type_id,
-          createdLookupIds.priority_level_id,
-          resubmissionId,
-        ],
-      );
-    }
+    await Submission.update({
+      created_via_id: createdLookupIds.created_via_id,
+      type_id: createdLookupIds.type_id,
+      application_id: createdLookupIds.application_id,
+      status_id: createdLookupIds.status_id,
+      cleanup_status_id: createdLookupIds.cleanup_status_id,
+      cleanup_tag_type_id: createdLookupIds.cleanup_tag_type_id,
+      enhancement_request_type_id: createdLookupIds.enhancement_request_type_id,
+      priority_level_id: createdLookupIds.priority_level_id,
+    }, {
+      where: { id: Number(resubmissionId) },
+    });
 
-    const existingAttachments = Attachment
-      ? await Attachment.findAll({
-        where: { submission_id: Number(submission.id) },
-        attributes: ['filename', 'mime_type', 'file_path', 'uploaded_by_role'],
-        raw: true,
-      })
-      : await db.all(
-        'SELECT filename, mime_type, file_path, uploaded_by_role FROM attachments WHERE submission_id = ?',
-        [submission.id],
-      );
+    const existingAttachments = await Attachment.findAll({
+      where: { submission_id: Number(submission.id) },
+      attributes: ['filename', 'mime_type', 'file_path', 'uploaded_by_role'],
+      raw: true,
+    });
     for (const attachment of existingAttachments) {
-      if (Attachment) {
-        await Attachment.create({
-          submission_id: resubmissionId,
-          filename: attachment.filename,
-          mime_type: attachment.mime_type,
-          file_path: attachment.file_path,
-          uploaded_at: updatedAt,
-          uploaded_by_role: attachment.uploaded_by_role,
-        });
-      } else {
-        await db.run(
-          `
-        INSERT INTO attachments (
-          submission_id, filename, mime_type, file_path, uploaded_at, uploaded_by_role
-        ) VALUES (?, ?, ?, ?, ?, ?)
-      `,
-          [
-            resubmissionId,
-            attachment.filename,
-            attachment.mime_type,
-            attachment.file_path,
-            updatedAt,
-            attachment.uploaded_by_role,
-          ],
-        );
-      }
+      await Attachment.create({
+        submission_id: resubmissionId,
+        filename: attachment.filename,
+        mime_type: attachment.mime_type,
+        file_path: attachment.file_path,
+        uploaded_at: updatedAt,
+        uploaded_by_role: attachment.uploaded_by_role,
+      });
     }
 
-    if (Submission) {
-      await Submission.update({
-        has_resubmission: 1,
-        latest_resubmission_submission_id: resubmissionId,
-        latest_resubmission_easyvista_ticket_id: result.ticketId,
-        updated_at: updatedAt,
-      }, {
-        where: { id: Number(submission.id) },
-      });
-    } else {
-      await db.run(
-        `
-      UPDATE submissions
-      SET
-        has_resubmission = 1,
-        latest_resubmission_submission_id = ?,
-        latest_resubmission_easyvista_ticket_id = ?,
-        updated_at = ?
-      WHERE id = ?
-    `,
-        [resubmissionId, result.ticketId, updatedAt, submission.id],
-      );
-    }
+    await Submission.update({
+      has_resubmission: 1,
+      latest_resubmission_submission_id: resubmissionId,
+      latest_resubmission_easyvista_ticket_id: result.ticketId,
+      updated_at: updatedAt,
+    }, {
+      where: { id: Number(submission.id) },
+    });
 
     await logStatusChange(
       db,
