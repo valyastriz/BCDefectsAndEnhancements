@@ -1,18 +1,39 @@
 # BC Defects & Enhancements (Localhost App)
 
-Full-stack local app for rep submissions and admin triage with SQLite, file attachments, role-based access, modal detail editing, EasyVista submit/resubmit, and live Socket.IO notifications.
+Full-stack app for rep submissions and admin triage with local DB support, attachments, role-based access, EasyVista submit/resubmit, Excel backfill import, and live Socket.IO notifications.
 
 ## Stack
 
 - Frontend: React + Vite + React Router
 - Backend: Node.js + Express + express-session + Socket.IO
-- Database: SQLite (file-based)
+- Database: SQL.js/SQLite (local) with optional Postgres adapter
 - Uploads: stored on disk in `server/uploads/<submissionId>/...`
 
 ## Project Structure
 
-- `server` - API, auth, SQLite schema, uploads, EasyVista integration stub
-- `client` - Rep form, public updates, admin login/dashboard UI
+- `server` - API, auth, DB schema/migrations, uploads, EasyVista integration
+- `client` - Rep form, public updates, admin login/dashboard/import UI
+
+## Key Functionality Implemented
+
+- Rep submission form with attachments and validation
+- Admin queue with advanced filtering, sorting, modal editing, and timeline/status events
+- Retired handling separated from status filters (`non_retired`, `retired_only`, `all`)
+- Expanded statuses:
+  - `Backlog - Monitoring Impact`
+  - `Future Consideration`
+  - `Deferred – Not in Current Scope`
+- Cleanup workflows (`cleanup_only`, `defect+cleanup`, `enhancement+cleanup`)
+- EasyVista submit + resubmit flow with ticket linkage
+- Excel import flow for historical/backdated records:
+  - Analyze file first (`.xlsx`/`.xls`)
+  - Column mapping UI (header → DB field)
+  - Unknown status value mapping prompts
+  - Required application fallback prompt when file has no app column
+  - Per-row fault tolerance (skip bad row, continue others)
+  - Import run persistence and review history in modal
+- Submission provenance/source tagging via `created_via` (rep form, backdated, cleanup, excel import, resubmission)
+- Admin source filter (`Created Via`) for auditing/import verification
 
 ## 1) Install
 
@@ -103,12 +124,42 @@ Rep/Public:
 
 Admin:
 
-- `GET /api/admin/submissions?status=&type=&search=`
+- `GET /api/admin/submissions?statuses=&type=&search=&retiredFilter=&createdVia=&sort=`
 - `GET /api/admin/submissions/:id`
 - `PUT /api/admin/submissions/:id`
+- `POST /api/admin/submissions` (admin create/backdated/cleanup)
 - `POST /api/admin/submissions/:id/attachments`
 - `DELETE /api/admin/attachments/:id`
 - `POST /api/admin/submissions/:id/submit-easyvista`
+- `POST /api/admin/submissions/import-xlsx/analyze`
+- `POST /api/admin/submissions/import-xlsx`
+- `GET /api/admin/submissions/import-xlsx/history?limit=5`
+
+## Excel Import Notes
+
+- Upload type is required: `defect`, `enhancement`, or `cleanup`
+- Mapping supports fields like:
+  - Status, application, policy/account/combined identifiers
+  - JIRA/release fields
+  - EasyVista fields (`EASYVISTA Number`, `EasyVista Submitted By`)
+  - Date fields (`Created At`, `Updated At`, `Closed Date`)
+- `Closed Date` is used as the final update/close timestamp when provided
+- Blank status defaults to `New`
+- Unknown statuses must be explicitly mapped in the modal before import
+- If no application column is detected, admin must choose a default application in modal
+- Text fields can be auto-filled with `-` where applicable; dropdown/enum-like required fields follow configured defaults/rules
+- Import history is saved in DB (`excel_import_runs`) and surfaced in the modal (recent runs)
+
+## Data Provenance / Auditing
+
+Submissions are tagged with `created_via` for traceability:
+
+- `rep_form`
+- `admin_backdated`
+- `admin_cleanup`
+- `admin_excel_import`
+- `admin_manual`
+- `admin_easyvista_resubmission`
 
 ## EasyVista Integration
 
