@@ -2,6 +2,10 @@
 
 Full-stack app for rep submissions and admin triage with local DB support, attachments, role-based access, EasyVista submit/resubmit, Excel backfill import, and live Socket.IO notifications.
 
+## Live Site
+
+- https://bc-defects-and-enhancements.vercel.app/
+
 ## Stack
 
 - Frontend: React + Vite + React Router
