@@ -2083,12 +2083,12 @@ export function AdminDashboardPage({ user, onLogout }) {
   return (
     <div className="stack">
       {/* ── Page header ── */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div className="page-header" style={{ marginBottom: 0 }}>
+      <div className="admin-header-row">
+        <div className="page-header admin-page-header" style={{ marginBottom: 0 }}>
           <h2>Admin Queue</h2>
           <p>Signed in as <strong>{user.username}</strong></p>
         </div>
-        <div className="bs-actions">
+        <div className="bs-actions admin-header-actions">
           <input
             ref={importFileInputRef}
             type="file"

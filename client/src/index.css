@@ -1217,6 +1217,35 @@ tr.clickable:hover td { background: var(--blue-50); }
   justify-self: start;
 }
 
+.admin-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.admin-page-header {
+  min-width: 0;
+  flex: 1 1 260px;
+}
+
+.admin-header-actions {
+  margin-left: auto;
+  justify-content: flex-end;
+  min-width: 0;
+  max-width: 100%;
+  flex: 1 1 auto;
+}
+
+@media (max-width: 980px) {
+  .admin-header-actions {
+    flex: 1 1 100%;
+    margin-left: 0;
+    justify-content: flex-start;
+  }
+}
+
 /* ─────────────────────────────────────────────
    Stat tiles (admin header row)
    ───────────────────────────────────────────── */
