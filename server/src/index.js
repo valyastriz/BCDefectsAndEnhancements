@@ -19,17 +19,50 @@ const dbApi = require('../db');
 const app = express();
 const server = http.createServer(app);
 
+const NODE_ENV = String(process.env.NODE_ENV || 'development').toLowerCase();
+const IS_PRODUCTION = NODE_ENV === 'production';
 const PORT = Number(process.env.PORT || 4000);
-const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN || 'http://localhost:5173';
+const CLIENT_ORIGINS = String(process.env.CLIENT_ORIGIN || 'http://localhost:5173')
+  .split(',')
+  .map((value) => String(value || '').trim())
+  .filter(Boolean);
+const CLIENT_ORIGIN = CLIENT_ORIGINS[0] || 'http://localhost:5173';
 const SESSION_SECRET = process.env.SESSION_SECRET || 'local-dev-secret-change-me';
+const SESSION_COOKIE_SAME_SITE = String(
+  process.env.SESSION_COOKIE_SAME_SITE || (IS_PRODUCTION ? 'none' : 'lax'),
+).toLowerCase();
+const SESSION_COOKIE_SECURE = String(process.env.SESSION_COOKIE_SECURE || (IS_PRODUCTION ? 'true' : 'false')).toLowerCase() === 'true';
+const SESSION_COOKIE_DOMAIN = String(process.env.SESSION_COOKIE_DOMAIN || '').trim() || null;
+
+const SUPABASE_URL = String(process.env.SUPABASE_URL || '').trim();
+const SUPABASE_SERVICE_ROLE_KEY = String(process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
+const SUPABASE_STORAGE_BUCKET = String(process.env.SUPABASE_STORAGE_BUCKET || 'attachments').trim();
+const SUPABASE_STORAGE_ENABLED = Boolean(SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY && SUPABASE_STORAGE_BUCKET);
+
 const uploadsRoot = path.join(__dirname, '..', 'uploads');
 const tempUploadDir = path.join(uploadsRoot, 'tmp');
 
 fs.mkdirSync(tempUploadDir, { recursive: true });
 
+if (IS_PRODUCTION || SESSION_COOKIE_SECURE) {
+  app.set('trust proxy', 1);
+}
+
+function isAllowedCorsOrigin(origin) {
+  if (!origin) return true;
+  return CLIENT_ORIGINS.includes(String(origin || '').trim());
+}
+
+function corsOriginHandler(origin, callback) {
+  if (isAllowedCorsOrigin(origin)) {
+    return callback(null, true);
+  }
+  return callback(new Error(`Origin ${origin} is not allowed by CORS`));
+}
+
 const io = new Server(server, {
   cors: {
-    origin: CLIENT_ORIGIN,
+    origin: CLIENT_ORIGINS,
     credentials: true,
   },
 });
@@ -41,15 +74,16 @@ const sessionMiddleware = session({
   saveUninitialized: false,
   cookie: {
     httpOnly: true,
-    sameSite: 'lax',
-    secure: false,
+    sameSite: SESSION_COOKIE_SAME_SITE,
+    secure: SESSION_COOKIE_SECURE,
     maxAge: 1000 * 60 * 60 * 8,
+    ...(SESSION_COOKIE_DOMAIN ? { domain: SESSION_COOKIE_DOMAIN } : {}),
   },
 });
 
 app.use(
   cors({
-    origin: CLIENT_ORIGIN,
+    origin: corsOriginHandler,
     credentials: true,
   }),
 );
@@ -1491,6 +1525,100 @@ function mapExcelImportRun(row) {
   };
 }
 
+function sanitizeUploadFilename(fileName) {
+  return String(fileName || 'file').replace(/[^a-zA-Z0-9._-]/g, '_');
+}
+
+function buildSupabaseObjectPath(submissionId, originalName) {
+  const safeName = sanitizeUploadFilename(originalName);
+  const uniquePrefix = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  return `${submissionId}/${uniquePrefix}-${safeName}`;
+}
+
+function encodeStoragePath(pathValue) {
+  return String(pathValue || '')
+    .split('/')
+    .map((segment) => encodeURIComponent(segment))
+    .join('/');
+}
+
+function buildSupabasePublicUrl(objectPath) {
+  const baseUrl = String(SUPABASE_URL || '').replace(/\/+$/, '');
+  return `${baseUrl}/storage/v1/object/public/${encodeURIComponent(SUPABASE_STORAGE_BUCKET)}/${encodeStoragePath(objectPath)}`;
+}
+
+async function uploadFileToSupabaseStorage(tempFilePath, submissionId, originalName, mimeType) {
+  if (!SUPABASE_STORAGE_ENABLED) return null;
+
+  const objectPath = buildSupabaseObjectPath(submissionId, originalName);
+  const uploadUrl = `${String(SUPABASE_URL).replace(/\/+$/, '')}/storage/v1/object/${encodeURIComponent(SUPABASE_STORAGE_BUCKET)}/${encodeStoragePath(objectPath)}`;
+  const fileBuffer = fs.readFileSync(tempFilePath);
+
+  const response = await fetch(uploadUrl, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+      apikey: SUPABASE_SERVICE_ROLE_KEY,
+      'Content-Type': mimeType || 'application/octet-stream',
+      'x-upsert': 'false',
+    },
+    body: fileBuffer,
+  });
+
+  if (!response.ok) {
+    const bodyText = await response.text();
+    throw new Error(bodyText || `Supabase storage upload failed (${response.status})`);
+  }
+
+  return {
+    objectPath,
+    publicUrl: buildSupabasePublicUrl(objectPath),
+  };
+}
+
+function extractSupabaseObjectPathFromUrl(filePath) {
+  const value = String(filePath || '').trim();
+  if (!value) return null;
+
+  try {
+    const parsed = new URL(value);
+    const marker = `/storage/v1/object/public/${SUPABASE_STORAGE_BUCKET}/`;
+    const index = parsed.pathname.indexOf(marker);
+    if (index === -1) return null;
+    const encodedPath = parsed.pathname.slice(index + marker.length);
+    if (!encodedPath) return null;
+    return encodedPath
+      .split('/')
+      .map((segment) => decodeURIComponent(segment))
+      .join('/');
+  } catch {
+    return null;
+  }
+}
+
+async function deleteSupabaseStoredFileByUrl(filePath) {
+  if (!SUPABASE_STORAGE_ENABLED) return false;
+
+  const objectPath = extractSupabaseObjectPathFromUrl(filePath);
+  if (!objectPath) return false;
+
+  const deleteUrl = `${String(SUPABASE_URL).replace(/\/+$/, '')}/storage/v1/object/${encodeURIComponent(SUPABASE_STORAGE_BUCKET)}/${encodeStoragePath(objectPath)}`;
+  const response = await fetch(deleteUrl, {
+    method: 'DELETE',
+    headers: {
+      Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+      apikey: SUPABASE_SERVICE_ROLE_KEY,
+    },
+  });
+
+  if (!response.ok && response.status !== 404) {
+    const bodyText = await response.text();
+    throw new Error(bodyText || `Supabase storage delete failed (${response.status})`);
+  }
+
+  return true;
+}
+
 async function persistUploadedFiles(db, submissionId, files, uploadedByRole) {
   if (!files || files.length === 0) return [];
 
@@ -1501,23 +1629,42 @@ async function persistUploadedFiles(db, submissionId, files, uploadedByRole) {
   }
 
   const destDir = path.join(uploadsRoot, String(submissionId));
-  fs.mkdirSync(destDir, { recursive: true });
+  if (!SUPABASE_STORAGE_ENABLED) {
+    fs.mkdirSync(destDir, { recursive: true });
+  }
 
   const inserted = [];
 
   for (const file of files) {
-    const safeName = file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_');
-    const finalName = `${Date.now()}-${safeName}`;
-    const finalPath = path.join(destDir, finalName);
-    fs.renameSync(file.path, finalPath);
+    let storedPath = '';
+    try {
+      if (SUPABASE_STORAGE_ENABLED) {
+        const uploaded = await uploadFileToSupabaseStorage(
+          file.path,
+          submissionId,
+          file.originalname,
+          file.mimetype,
+        );
+        storedPath = uploaded.publicUrl;
+      } else {
+        const safeName = sanitizeUploadFilename(file.originalname);
+        const finalName = `${Date.now()}-${safeName}`;
+        const finalPath = path.join(destDir, finalName);
+        fs.renameSync(file.path, finalPath);
+        storedPath = path.relative(path.join(__dirname, '..'), finalPath).replaceAll('\\', '/');
+      }
+    } finally {
+      if (fs.existsSync(file.path)) {
+        fs.rmSync(file.path, { force: true });
+      }
+    }
 
     const uploadedAt = new Date().toISOString();
-    const relativePath = path.relative(path.join(__dirname, '..'), finalPath).replaceAll('\\', '/');
     const createdAttachment = await Attachment.create({
       submission_id: submissionId,
       filename: file.originalname,
       mime_type: file.mimetype || 'application/octet-stream',
-      file_path: relativePath,
+      file_path: storedPath,
       uploaded_at: uploadedAt,
       uploaded_by_role: uploadedByRole,
     });
@@ -1528,7 +1675,7 @@ async function persistUploadedFiles(db, submissionId, files, uploadedByRole) {
       submission_id: submissionId,
       filename: file.originalname,
       mime_type: file.mimetype || 'application/octet-stream',
-      file_path: relativePath,
+      file_path: storedPath,
       uploaded_at: uploadedAt,
       uploaded_by_role: uploadedByRole,
     });
@@ -2899,9 +3046,12 @@ app.delete('/api/admin/attachments/:id', ensureAdmin, async (req, res) => {
       return res.status(404).json({ error: 'Attachment not found' });
     }
 
-    const absolute = path.join(__dirname, '..', attachment.file_path);
-    if (fs.existsSync(absolute)) {
-      fs.rmSync(absolute, { force: true });
+    const removedFromSupabase = await deleteSupabaseStoredFileByUrl(attachment.file_path);
+    if (!removedFromSupabase) {
+      const absolute = path.join(__dirname, '..', attachment.file_path);
+      if (fs.existsSync(absolute)) {
+        fs.rmSync(absolute, { force: true });
+      }
     }
 
     await Attachment.destroy({ where: { id: Number(req.params.id) } });
