@@ -1,5 +1,47 @@
 const API_BASE = import.meta.env.VITE_API_BASE || '';
 
+function buildAdminSubmissionsQuery({
+  status = '',
+  statuses = [],
+  type = '',
+  search = '',
+  requester = '',
+  submittedBy = '',
+  createdVia = '',
+  retiredFilter = 'non_retired',
+  year = '',
+  inJira = '',
+  jiraNumber = '',
+  easyvistaNumber = '',
+  releaseNumber = '',
+  sort = 'updated_desc',
+  fields = [],
+} = {}) {
+  const params = new URLSearchParams();
+  if (Array.isArray(statuses) && statuses.length > 0) {
+    params.set('statuses', statuses.join(','));
+  } else if (status) {
+    params.set('status', status);
+  }
+  if (type) params.set('type', type);
+  if (search) params.set('search', search);
+  if (requester) params.set('requester', requester);
+  if (submittedBy) params.set('submittedBy', submittedBy);
+  if (createdVia) params.set('createdVia', createdVia);
+  if (retiredFilter) params.set('retiredFilter', retiredFilter);
+  if (year) params.set('year', year);
+  if (inJira) params.set('inJira', inJira);
+  if (jiraNumber) params.set('jiraNumber', jiraNumber);
+  if (easyvistaNumber) params.set('easyvistaNumber', easyvistaNumber);
+  if (releaseNumber) params.set('releaseNumber', releaseNumber);
+  if (sort) params.set('sort', sort);
+  if (Array.isArray(fields) && fields.length > 0) {
+    params.set('fields', fields.join(','));
+  }
+  const query = params.toString();
+  return query ? `?${query}` : '';
+}
+
 async function request(path, options = {}) {
   const { allowStatuses = [], ...fetchOptions } = options;
   const response = await fetch(`${API_BASE}${path}`, {
@@ -91,26 +133,58 @@ export const api = {
     releaseNumber = '',
     sort = 'updated_desc',
   }) => {
-    const params = new URLSearchParams();
-    if (Array.isArray(statuses) && statuses.length > 0) {
-      params.set('statuses', statuses.join(','));
-    } else if (status) {
-      params.set('status', status);
-    }
-    if (type) params.set('type', type);
-    if (search) params.set('search', search);
-    if (requester) params.set('requester', requester);
-    if (submittedBy) params.set('submittedBy', submittedBy);
-    if (createdVia) params.set('createdVia', createdVia);
-    if (retiredFilter) params.set('retiredFilter', retiredFilter);
-    if (year) params.set('year', year);
-    if (inJira) params.set('inJira', inJira);
-    if (jiraNumber) params.set('jiraNumber', jiraNumber);
-    if (easyvistaNumber) params.set('easyvistaNumber', easyvistaNumber);
-    if (releaseNumber) params.set('releaseNumber', releaseNumber);
-    if (sort) params.set('sort', sort);
-    const query = params.toString() ? `?${params.toString()}` : '';
+    const query = buildAdminSubmissionsQuery({
+      status,
+      statuses,
+      type,
+      search,
+      requester,
+      submittedBy,
+      createdVia,
+      retiredFilter,
+      year,
+      inJira,
+      jiraNumber,
+      easyvistaNumber,
+      releaseNumber,
+      sort,
+    });
     return request(`/api/admin/submissions${query}`);
+  },
+  exportAdminSubmissionsXlsx: async ({ filters = {}, fields = [] } = {}) => {
+    const query = buildAdminSubmissionsQuery({ ...(filters || {}), fields });
+    const response = await fetch(`${API_BASE}/api/admin/submissions/export-xlsx${query}`, {
+      method: 'GET',
+      credentials: 'include',
+    });
+
+    if (!response.ok) {
+      let message = `Request failed (${response.status})`;
+      const text = await response.text();
+      if (text) {
+        try {
+          const body = JSON.parse(text);
+          message = body?.error || text;
+        } catch {
+          message = text;
+        }
+      }
+      throw new Error(message);
+    }
+
+    const blob = await response.blob();
+    const contentDisposition = response.headers.get('content-disposition') || '';
+    const match = contentDisposition.match(/filename="([^"]+)"/i);
+    const fileName = match?.[1] || `admin-submissions-export-${new Date().toISOString().slice(0, 10)}.xlsx`;
+
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
   },
   getAdminSubmissionDetail: (id) => request(`/api/admin/submissions/${id}`),
   updateAdminSubmission: (id, data) =>
@@ -136,6 +210,7 @@ export const api = {
     const query = params.toString() ? `?${params.toString()}` : '';
     return request(`/api/admin/submissions/import-xlsx/history${query}`);
   },
+  getAdminExportFields: () => request('/api/admin/submissions/export-fields'),
   importAdminSubmissionsXlsx: (formData, {
     dryRun = false,
     sheet = '',

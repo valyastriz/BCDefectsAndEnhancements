@@ -463,6 +463,12 @@ export function AdminDashboardPage({ user, onLogout }) {
   const [importUnknownStatuses, setImportUnknownStatuses] = useState([]);
   const [importAllowedStatuses, setImportAllowedStatuses] = useState([]);
   const [importStatusValueMappings, setImportStatusValueMappings] = useState({});
+  const [exportModalOpen, setExportModalOpen] = useState(false);
+  const [exportWorking, setExportWorking] = useState(false);
+  const [exportError, setExportError] = useState('');
+  const [exportFields, setExportFields] = useState([]);
+  const [selectedExportFieldKeys, setSelectedExportFieldKeys] = useState([]);
+  const [exportFieldSearch, setExportFieldSearch] = useState('');
   const [showHeaderSaveTooltip, setShowHeaderSaveTooltip] = useState(false);
   const [showFooterSaveTooltip, setShowFooterSaveTooltip] = useState(false);
   const [showEasyVistaRequirements, setShowEasyVistaRequirements] = useState(false);
@@ -489,7 +495,7 @@ export function AdminDashboardPage({ user, onLogout }) {
   const [metaDraftNames, setMetaDraftNames] = useState({});
 
   const isDetailModalOpen = Boolean(openId && detail && edit);
-  const isAnyAdminModalOpen = isDetailModalOpen || backdatedOpen || cleanupOpen || importModalOpen;
+  const isAnyAdminModalOpen = isDetailModalOpen || backdatedOpen || cleanupOpen || importModalOpen || exportModalOpen;
 
   const clearPendingAttachmentDrafts = useCallback(() => {
     setPendingAttachmentFiles((prev) => {
@@ -758,6 +764,21 @@ export function AdminDashboardPage({ user, onLogout }) {
     [importAvailableHeaders],
   );
 
+  const visibleExportFields = useMemo(() => {
+    const needle = String(exportFieldSearch || '').trim().toLowerCase();
+    if (!needle) return exportFields;
+    return exportFields.filter((field) => {
+      const label = String(field?.label || '').toLowerCase();
+      const key = String(field?.key || '').toLowerCase();
+      return label.includes(needle) || key.includes(needle);
+    });
+  }, [exportFields, exportFieldSearch]);
+
+  const selectedExportFieldSet = useMemo(
+    () => new Set((selectedExportFieldKeys || []).map((value) => String(value || ''))),
+    [selectedExportFieldKeys],
+  );
+
   const loadRows = useCallback(async (filtersParam) => {
     const f = filtersParam ?? filtersRef.current;
     try {
@@ -866,6 +887,106 @@ export function AdminDashboardPage({ user, onLogout }) {
     if (!importModalOpen) return;
     loadImportHistory();
   }, [importModalOpen, loadImportHistory]);
+
+  const loadExportFields = useCallback(async () => {
+    try {
+      setExportError('');
+      const response = await api.getAdminExportFields();
+      const fields = Array.isArray(response?.fields) ? response.fields : [];
+      setExportFields(fields);
+      setSelectedExportFieldKeys((prev) => {
+        if (Array.isArray(prev) && prev.length > 0) {
+          const allowed = new Set(fields.map((field) => String(field?.key || '')));
+          const retained = prev
+            .map((value) => String(value || ''))
+            .filter((value) => allowed.has(value));
+          if (retained.length > 0) return retained;
+        }
+        return fields.map((field) => String(field?.key || '')).filter(Boolean);
+      });
+    } catch (loadError) {
+      setExportFields([]);
+      setSelectedExportFieldKeys([]);
+      setExportError(loadError.message || 'Failed to load export fields.');
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!exportModalOpen) return;
+    loadExportFields();
+  }, [exportModalOpen, loadExportFields]);
+
+  const closeExportModal = useCallback(() => {
+    if (exportWorking) return;
+    setExportModalOpen(false);
+    setExportError('');
+    setExportFieldSearch('');
+  }, [exportWorking]);
+
+  const toggleExportField = useCallback((fieldKey) => {
+    const normalizedFieldKey = String(fieldKey || '').trim();
+    if (!normalizedFieldKey) return;
+    setSelectedExportFieldKeys((prev) => {
+      const nextSet = new Set((prev || []).map((value) => String(value || '')));
+      if (nextSet.has(normalizedFieldKey)) {
+        nextSet.delete(normalizedFieldKey);
+      } else {
+        nextSet.add(normalizedFieldKey);
+      }
+      return Array.from(nextSet);
+    });
+  }, []);
+
+  const selectAllVisibleExportFields = useCallback(() => {
+    setSelectedExportFieldKeys((prev) => {
+      const nextSet = new Set((prev || []).map((value) => String(value || '')));
+      visibleExportFields.forEach((field) => {
+        const key = String(field?.key || '').trim();
+        if (key) nextSet.add(key);
+      });
+      return Array.from(nextSet);
+    });
+  }, [visibleExportFields]);
+
+  const clearVisibleExportFields = useCallback(() => {
+    const visibleKeys = new Set(
+      visibleExportFields
+        .map((field) => String(field?.key || '').trim())
+        .filter(Boolean),
+    );
+    setSelectedExportFieldKeys((prev) =>
+      (prev || [])
+        .map((value) => String(value || ''))
+        .filter((value) => !visibleKeys.has(value)),
+    );
+  }, [visibleExportFields]);
+
+  const exportFilteredSubmissions = useCallback(async () => {
+    const selectedKeys = (selectedExportFieldKeys || [])
+      .map((value) => String(value || '').trim())
+      .filter(Boolean);
+
+    if (selectedKeys.length === 0) {
+      setExportError('Select at least one field to export.');
+      return;
+    }
+
+    try {
+      setExportWorking(true);
+      setExportError('');
+      await api.exportAdminSubmissionsXlsx({
+        filters: filtersRef.current,
+        fields: selectedKeys,
+      });
+      setExportModalOpen(false);
+      setExportFieldSearch('');
+      setNotice('Export downloaded successfully.');
+    } catch (downloadError) {
+      setExportError(downloadError.message || 'Failed to export submissions.');
+    } finally {
+      setExportWorking(false);
+    }
+  }, [selectedExportFieldKeys]);
 
   useEffect(() => {
     const editChanged = previousDetailEditRef.current !== edit;
@@ -1991,6 +2112,17 @@ export function AdminDashboardPage({ user, onLogout }) {
           </Button>
           <Button
             kind="secondary"
+            disabled={exportWorking}
+            onClick={() => {
+              setExportError('');
+              setExportFieldSearch('');
+              setExportModalOpen(true);
+            }}
+          >
+            {exportWorking ? 'Exporting…' : 'Export Excel (.xlsx)'}
+          </Button>
+          <Button
+            kind="secondary"
             onClick={() => {
               setBackdatedError('');
               resetBackdatedForm();
@@ -2675,6 +2807,71 @@ export function AdminDashboardPage({ user, onLogout }) {
               }}
               disabled={cleanupWorking}
             >
+              Cancel
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        open={exportModalOpen}
+        onClose={closeExportModal}
+        title="Export to Excel"
+      >
+        <div className="stack">
+          <p className="muted" style={{ marginTop: 0 }}>
+            Exports currently filtered admin items. Choose which fields to include in the spreadsheet.
+          </p>
+
+          <Input
+            label="Search fields"
+            placeholder="Filter by field name"
+            value={exportFieldSearch}
+            onChange={(event) => setExportFieldSearch(event.target.value)}
+          />
+
+          <div className="bs-actions" style={{ marginTop: 0 }}>
+            <Button type="button" kind="ghost" onClick={selectAllVisibleExportFields} disabled={exportWorking || visibleExportFields.length === 0}>
+              Select Visible
+            </Button>
+            <Button type="button" kind="ghost" onClick={clearVisibleExportFields} disabled={exportWorking || visibleExportFields.length === 0}>
+              Clear Visible
+            </Button>
+          </div>
+
+          {exportError && <Notice text={exportError} />}
+
+          <Card title={`Fields (${selectedExportFieldKeys.length} selected)`}>
+            <div style={{ maxHeight: 320, overflowY: 'auto', paddingRight: 4 }}>
+              {visibleExportFields.length === 0 ? (
+                <p className="muted" style={{ margin: 0 }}>No fields match the current search.</p>
+              ) : (
+                <div className="stack" style={{ gap: 8 }}>
+                  {visibleExportFields.map((field) => {
+                    const fieldKey = String(field?.key || '').trim();
+                    const checked = selectedExportFieldSet.has(fieldKey);
+                    return (
+                      <label key={fieldKey} className="toggle-row" style={{ cursor: exportWorking ? 'default' : 'pointer', justifyContent: 'flex-start', gap: 8 }}>
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => toggleExportField(fieldKey)}
+                          disabled={exportWorking}
+                        />
+                        <span>{field.label}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </Card>
+
+          <div className="bs-actions">
+            <Button type="button" onClick={exportFilteredSubmissions} disabled={exportWorking || selectedExportFieldKeys.length === 0}>
+              {exportWorking ? 'Exporting…' : 'Download Excel'}
+            </Button>
+            <Button type="button" kind="ghost" onClick={closeExportModal} disabled={exportWorking}>
               Cancel
             </Button>
           </div>

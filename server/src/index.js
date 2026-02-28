@@ -249,6 +249,273 @@ function mapSubmission(row) {
   };
 }
 
+function buildAdminExportFields() {
+  return [
+    { key: 'id', label: 'Submission ID', value: (row) => row.id },
+    { key: 'created_at', label: 'Reported Date', value: (row) => row.created_at },
+    { key: 'status_update_at', label: 'Status Update Date', value: (row) => row.status_update_at },
+    { key: 'latest_status_update', label: 'Latest Status Update', value: (row) => row.latest_status_update },
+    { key: 'latest_status_update_at', label: 'Latest Status Update Date', value: (row) => row.latest_status_update_at },
+    { key: 'type', label: 'Type', value: (row) => row.type },
+    { key: 'status', label: 'Defect/Enhancement Status', value: (row) => row.status },
+    { key: 'is_cleanup', label: 'Is Cleanup', value: (row) => Boolean(row.is_cleanup) ? 'Yes' : 'No' },
+    { key: 'cleanup_status', label: 'Cleanup Status', value: (row) => row.cleanup_status },
+    { key: 'cleanup_tag_type', label: 'Cleanup Tag Type', value: (row) => row.cleanup_tag_type },
+    { key: 'is_public', label: 'Public', value: (row) => Boolean(row.is_public) ? 'Yes' : 'No' },
+    { key: 'is_retired', label: 'Retired', value: (row) => Boolean(row.is_retired) ? 'Yes' : 'No' },
+    { key: 'summary_of_issue', label: 'Summary', value: (row) => row.summary_of_issue },
+    { key: 'what_happened_exact_details', label: 'What Happened (Exact Details)', value: (row) => row.what_happened_exact_details },
+    { key: 'request', label: 'Request Details', value: (row) => row.request },
+    { key: 'created_by', label: 'Requester Name', value: (row) => row.created_by },
+    { key: 'created_by_email', label: 'Requester Email', value: (row) => row.created_by_email },
+    { key: 'reviewer', label: 'Reviewer', value: (row) => row.reviewer },
+    { key: 'created_via', label: 'Created Via', value: (row) => row.created_via },
+    { key: 'application_name', label: 'Application', value: (row) => row.application_name },
+    { key: 'policy_num', label: 'Policy Number', value: (row) => row.policy_num },
+    { key: 'account_num', label: 'Account Number', value: (row) => row.account_num },
+    { key: 'transaction_num', label: 'Transaction Number', value: (row) => row.transaction_num },
+    { key: 'screen_title', label: 'Screen Title', value: (row) => row.screen_title },
+    { key: 'steps_to_reproduce', label: 'Steps to Reproduce', value: (row) => row.steps_to_reproduce },
+    { key: 'date_time_of_error', label: 'Date/Time of Error', value: (row) => row.date_time_of_error },
+    { key: 'desired_completion_date', label: 'Desired Completion Date', value: (row) => row.desired_completion_date },
+    { key: 'impact_details', label: 'Impact Details', value: (row) => row.impact_details },
+    { key: 'impact_notes', label: 'Impact Notes', value: (row) => row.impact_notes },
+    { key: 'policy_premium_impact', label: 'Policy Premium Impact ($)', value: (row) => row.policy_premium_impact },
+    { key: 'direct_dollar_impact', label: 'Direct Dollar Impact ($)', value: (row) => row.direct_dollar_impact },
+    { key: 'policies_affected_count', label: 'Policies Affected Count', value: (row) => row.policies_affected_count },
+    { key: 'enhancement_request_type', label: 'Enhancement Request Type', value: (row) => row.enhancement_request_type },
+    { key: 'priority_level', label: 'Priority Level', value: (row) => row.priority_level },
+    { key: 'jira_number', label: 'JIRA Number', value: (row) => row.jira_number },
+    { key: 'easyvista_ticket_id', label: 'EasyVista Ticket', value: (row) => row.easyvista_ticket_id },
+    { key: 'easyvista_submitted_by', label: 'Submitted to EV By', value: (row) => row.easyvista_submitted_by },
+    { key: 'release_number', label: 'Release Number', value: (row) => row.release_number },
+    { key: 'release_notes', label: 'Release Notes', value: (row) => row.release_notes },
+    { key: 'decision_notes', label: 'Decision Notes', value: (row) => row.decision_notes },
+    { key: 'fingerprint', label: 'Fingerprint', value: (row) => row.fingerprint },
+    { key: 'duplicate_reference', label: 'Duplicate Reference', value: (row) => row.duplicate_reference || row.duplicate_of },
+    { key: 'has_resubmission', label: 'Has Resubmission', value: (row) => Boolean(row.has_resubmission) ? 'Yes' : 'No' },
+    { key: 'latest_resubmission_easyvista_ticket_id', label: 'Latest Resubmission Ticket', value: (row) => row.latest_resubmission_easyvista_ticket_id },
+  ];
+}
+
+const ADMIN_EXPORT_FIELDS = buildAdminExportFields();
+const ADMIN_EXPORT_FIELDS_BY_KEY = new Map(ADMIN_EXPORT_FIELDS.map((field) => [field.key, field]));
+
+function toExportCellValue(value) {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'boolean') return value ? 'Yes' : 'No';
+  return value;
+}
+
+async function listFilteredAdminSubmissions(db, query = {}) {
+  const {
+    status,
+    statuses,
+    type,
+    search,
+    requester,
+    submittedBy,
+    createdVia,
+    retiredFilter,
+    year,
+    inJira,
+    jiraNumber,
+    easyvistaNumber,
+    releaseNumber,
+    sort,
+  } = query;
+
+  const dbModels = dbApi.getModels() || {};
+  const Submission = dbModels.Submission;
+  const SubmissionStatusEvent = dbModels.SubmissionStatusEvent;
+
+  if (!Submission) {
+    throw new Error('Submission model is not available');
+  }
+
+  const statusList = String(statuses || '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean);
+
+  const cleanupOnlySelected = statusList.includes('Cleanup Only');
+  const cleanupMarkedSelected = statusList.includes('Cleanup Marked');
+  const normalizedStatuses = statusList
+    .filter((value) => value !== 'Cleanup Only' && value !== 'Cleanup Marked')
+    .map((value) => CLEANUP_TO_SUBMISSION_STATUS[value] || value);
+  const normalizedStatus = CLEANUP_TO_SUBMISSION_STATUS[String(status || '').trim()] || status;
+
+  const createdViaFilter = createdVia ? String(createdVia || '').trim().toLowerCase() : '';
+  const lookupCreatedViaId = createdViaFilter
+    ? await getLookupIdByName(db, 'submission_sources', createdViaFilter, { lowercase: true })
+    : null;
+
+  const containsIgnoreCase = (value, needle) => String(value || '').toLowerCase().includes(String(needle || '').toLowerCase());
+  const compareText = (a, b) => String(a || '').localeCompare(String(b || ''), undefined, { sensitivity: 'base' });
+  const compareNum = (a, b) => Number(a || 0) - Number(b || 0);
+  const compareBool = (a, b) => Number(Boolean(a)) - Number(Boolean(b));
+
+  const rows = await Submission.findAll({ raw: true });
+  const filteredRows = rows.filter((row) => {
+    const rowStatus = String(row.status || '').trim();
+    const rowIsCleanup = Boolean(row.is_cleanup);
+    const rowCleanupTagType = String(row.cleanup_tag_type || '').trim();
+
+    if (retiredFilter !== 'retired_only' && statusList.length > 0) {
+      const statusMatch = normalizedStatuses.includes(rowStatus);
+      const cleanupOnlyMatch = cleanupOnlySelected && rowIsCleanup && rowCleanupTagType === 'cleanup_only';
+      const cleanupMarkedMatch = cleanupMarkedSelected && rowIsCleanup;
+      if (!(statusMatch || cleanupOnlyMatch || cleanupMarkedMatch)) return false;
+    } else if (retiredFilter !== 'retired_only' && normalizedStatus) {
+      if (normalizedStatus === 'Cleanup Only') {
+        if (!(rowIsCleanup && rowCleanupTagType === 'cleanup_only')) return false;
+      } else if (normalizedStatus === 'Cleanup Marked') {
+        if (!rowIsCleanup) return false;
+      } else if (rowStatus !== normalizedStatus) {
+        return false;
+      }
+    }
+
+    if (type) {
+      if (String(type).toLowerCase() === 'cleanup') {
+        if (!rowIsCleanup) return false;
+      } else if (String(row.type || '') !== String(type)) {
+        return false;
+      }
+    }
+
+    if (search) {
+      const searchValue = String(search || '');
+      const searchMatch = containsIgnoreCase(row.policy_num, searchValue)
+        || containsIgnoreCase(row.account_num, searchValue)
+        || containsIgnoreCase(row.summary_of_issue, searchValue);
+      if (!searchMatch) return false;
+    }
+
+    if (requester && !containsIgnoreCase(row.created_by, requester)) {
+      return false;
+    }
+
+    if (submittedBy && !containsIgnoreCase(row.easyvista_submitted_by, submittedBy)) {
+      return false;
+    }
+
+    if (createdViaFilter) {
+      if (!lookupCreatedViaId) return false;
+      if (Number(row.created_via_id) !== Number(lookupCreatedViaId)) return false;
+    }
+
+    if (retiredFilter === 'retired_only') {
+      if (!(Boolean(row.is_retired) || rowStatus === 'Retired')) return false;
+    } else if (retiredFilter === 'non_retired') {
+      if (Boolean(row.is_retired) || rowStatus === 'Retired') return false;
+    }
+
+    if (year && String(row.created_at || '').slice(0, 4) !== String(year).trim()) {
+      return false;
+    }
+
+    if (inJira === 'yes' && !Boolean(row.logged_defect)) return false;
+    if (inJira === 'no' && Boolean(row.logged_defect)) return false;
+
+    if (jiraNumber && !containsIgnoreCase(row.jira_number, jiraNumber)) return false;
+    if (easyvistaNumber && !containsIgnoreCase(row.easyvista_ticket_id, easyvistaNumber)) return false;
+    if (releaseNumber && !containsIgnoreCase(row.release_number, releaseNumber)) return false;
+
+    return true;
+  });
+
+  const filteredIds = filteredRows.map((row) => Number(row.id)).filter((id) => Number.isFinite(id));
+  const statusUpdateAtById = new Map();
+  const latestStatusEventById = new Map();
+
+  if (SubmissionStatusEvent && filteredIds.length > 0) {
+    const events = await SubmissionStatusEvent.findAll({
+      where: { submission_id: filteredIds },
+      attributes: ['id', 'submission_id', 'status', 'changed_at'],
+      raw: true,
+    });
+
+    const submissionById = new Map(filteredRows.map((row) => [Number(row.id), row]));
+    for (const event of events) {
+      const submissionId = Number(event.submission_id);
+      const row = submissionById.get(submissionId);
+      if (!row) continue;
+
+      const statusValue = String(event.status || '');
+      const currentStatus = String(row.status || '');
+      const eligible = statusValue === 'Retired'
+        || statusValue === 'Unretired'
+        || statusValue === currentStatus
+        || statusValue === `Defect/Enhancement Status: ${currentStatus}`;
+
+      if (eligible) {
+        const currentMax = statusUpdateAtById.get(submissionId);
+        if (!currentMax || new Date(event.changed_at).getTime() > new Date(currentMax).getTime()) {
+          statusUpdateAtById.set(submissionId, event.changed_at);
+        }
+      }
+
+      const latest = latestStatusEventById.get(submissionId);
+      const nextChangedAt = new Date(event.changed_at || 0).getTime();
+      const latestChangedAt = new Date(latest?.changed_at || 0).getTime();
+      if (!latest || nextChangedAt > latestChangedAt || (nextChangedAt === latestChangedAt && Number(event.id) > Number(latest.id || 0))) {
+        latestStatusEventById.set(submissionId, event);
+      }
+    }
+  }
+
+  const enrichedRows = filteredRows.map((row) => {
+    const rowId = Number(row.id);
+    const statusUpdateAt = statusUpdateAtById.get(rowId) || row.updated_at;
+    const latestStatusEvent = latestStatusEventById.get(rowId);
+    return {
+      ...row,
+      status_update_at: statusUpdateAt,
+      latest_status_update: latestStatusEvent?.status || row.status || '',
+      latest_status_update_at: latestStatusEvent?.changed_at || statusUpdateAt,
+    };
+  });
+
+  const sortKey = String(sort || 'updated_desc');
+  const comparatorMap = {
+    updated_desc: (a, b) => compareText(b.status_update_at, a.status_update_at),
+    updated_asc: (a, b) => compareText(a.status_update_at, b.status_update_at),
+    created_desc: (a, b) => compareText(b.created_at, a.created_at),
+    created_asc: (a, b) => compareText(a.created_at, b.created_at),
+    requester_asc: (a, b) => compareText(a.created_by, b.created_by),
+    requester_desc: (a, b) => compareText(b.created_by, a.created_by),
+    submitted_by_asc: (a, b) => compareText(a.easyvista_submitted_by, b.easyvista_submitted_by),
+    submitted_by_desc: (a, b) => compareText(b.easyvista_submitted_by, a.easyvista_submitted_by),
+    policy_premium_impact_desc: (a, b) => compareNum(b.policy_premium_impact, a.policy_premium_impact),
+    policy_premium_impact_asc: (a, b) => compareNum(a.policy_premium_impact, b.policy_premium_impact),
+    direct_dollar_impact_desc: (a, b) => compareNum(b.direct_dollar_impact, a.direct_dollar_impact),
+    direct_dollar_impact_asc: (a, b) => compareNum(a.direct_dollar_impact, b.direct_dollar_impact),
+    policies_affected_count_desc: (a, b) => compareNum(b.policies_affected_count, a.policies_affected_count),
+    policies_affected_count_asc: (a, b) => compareNum(a.policies_affected_count, b.policies_affected_count),
+    logged_defect_desc: (a, b) => compareBool(b.logged_defect, a.logged_defect),
+    logged_defect_asc: (a, b) => compareBool(a.logged_defect, b.logged_defect),
+    jira_number_asc: (a, b) => compareText(a.jira_number, b.jira_number),
+    jira_number_desc: (a, b) => compareText(b.jira_number, a.jira_number),
+    type_asc: (a, b) => compareText(a.type, b.type),
+    type_desc: (a, b) => compareText(b.type, a.type),
+    summary_asc: (a, b) => compareText(a.summary_of_issue, b.summary_of_issue),
+    summary_desc: (a, b) => compareText(b.summary_of_issue, a.summary_of_issue),
+    status_asc: (a, b) => compareText(a.status, b.status),
+    status_desc: (a, b) => compareText(b.status, a.status),
+    public_asc: (a, b) => compareBool(a.is_public, b.is_public),
+    public_desc: (a, b) => compareBool(b.is_public, a.is_public),
+    release_number_asc: (a, b) => compareText(a.release_number, b.release_number),
+    release_number_desc: (a, b) => compareText(b.release_number, a.release_number),
+    easyvista_asc: (a, b) => compareText(a.easyvista_ticket_id, b.easyvista_ticket_id),
+    easyvista_desc: (a, b) => compareText(b.easyvista_ticket_id, a.easyvista_ticket_id),
+  };
+
+  const comparator = comparatorMap[sortKey] || comparatorMap.updated_desc;
+  enrichedRows.sort(comparator);
+  return enrichedRows.map(mapSubmission);
+}
+
 const SUBMISSION_LOOKUP_JOINS = `
   LEFT JOIN defect_enhancement_statuses st ON st.id = s.status_id
   LEFT JOIN submission_types ty ON ty.id = s.type_id
@@ -1893,233 +2160,76 @@ app.get('/api/public/submissions/:id', async (req, res) => {
 });
 
 app.get('/api/admin/submissions', ensureAdmin, async (req, res) => {
-  const {
-    status,
-    statuses,
-    type,
-    search,
-    requester,
-    submittedBy,
-    createdVia,
-    retiredFilter,
-    year,
-    inJira,
-    jiraNumber,
-    easyvistaNumber,
-    releaseNumber,
-    sort,
-  } = req.query;
-
   return withDb(async (db) => {
-    const dbModels = dbApi.getModels() || {};
-    const Submission = dbModels.Submission;
-    const SubmissionStatusEvent = dbModels.SubmissionStatusEvent;
+    const rows = await listFilteredAdminSubmissions(db, req.query);
+    return res.json(rows);
+  });
+});
 
-    if (!Submission) {
-      return res.status(500).json({ error: 'Submission model is not available' });
-    }
-
-    const statusList = String(statuses || '')
+app.get('/api/admin/submissions/export-xlsx', ensureAdmin, async (req, res) => {
+  return withDb(async (db) => {
+    const rows = await listFilteredAdminSubmissions(db, req.query);
+    const requestedFieldKeys = String(req.query.fields || '')
       .split(',')
       .map((value) => value.trim())
       .filter(Boolean);
 
-    const cleanupOnlySelected = statusList.includes('Cleanup Only');
-    const cleanupMarkedSelected = statusList.includes('Cleanup Marked');
-    const normalizedStatuses = statusList
-      .filter((value) => value !== 'Cleanup Only' && value !== 'Cleanup Marked')
-      .map((value) => CLEANUP_TO_SUBMISSION_STATUS[value] || value);
-    const normalizedStatus = CLEANUP_TO_SUBMISSION_STATUS[String(status || '').trim()] || status;
+    const selectedFields = requestedFieldKeys.length > 0
+      ? requestedFieldKeys.map((key) => ADMIN_EXPORT_FIELDS_BY_KEY.get(key)).filter(Boolean)
+      : ADMIN_EXPORT_FIELDS;
 
-    const createdViaFilter = createdVia ? String(createdVia || '').trim().toLowerCase() : '';
-    const lookupCreatedViaId = createdViaFilter
-      ? await getLookupIdByName(db, 'submission_sources', createdViaFilter, { lowercase: true })
-      : null;
-
-    const containsIgnoreCase = (value, needle) => String(value || '').toLowerCase().includes(String(needle || '').toLowerCase());
-    const compareText = (a, b) => String(a || '').localeCompare(String(b || ''), undefined, { sensitivity: 'base' });
-    const compareNum = (a, b) => Number(a || 0) - Number(b || 0);
-    const compareBool = (a, b) => Number(Boolean(a)) - Number(Boolean(b));
-
-    const rows = await Submission.findAll({ raw: true });
-    const filteredRows = rows.filter((row) => {
-      const rowStatus = String(row.status || '').trim();
-      const rowIsCleanup = Boolean(row.is_cleanup);
-      const rowCleanupTagType = String(row.cleanup_tag_type || '').trim();
-
-      if (retiredFilter !== 'retired_only' && statusList.length > 0) {
-        const statusMatch = normalizedStatuses.includes(rowStatus);
-        const cleanupOnlyMatch = cleanupOnlySelected && rowIsCleanup && rowCleanupTagType === 'cleanup_only';
-        const cleanupMarkedMatch = cleanupMarkedSelected && rowIsCleanup;
-        if (!(statusMatch || cleanupOnlyMatch || cleanupMarkedMatch)) return false;
-      } else if (retiredFilter !== 'retired_only' && normalizedStatus) {
-        if (normalizedStatus === 'Cleanup Only') {
-          if (!(rowIsCleanup && rowCleanupTagType === 'cleanup_only')) return false;
-        } else if (normalizedStatus === 'Cleanup Marked') {
-          if (!rowIsCleanup) return false;
-        } else if (rowStatus !== normalizedStatus) {
-          return false;
-        }
-      }
-
-      if (type) {
-        if (String(type).toLowerCase() === 'cleanup') {
-          if (!rowIsCleanup) return false;
-        } else if (String(row.type || '') !== String(type)) {
-          return false;
-        }
-      }
-
-      if (search) {
-        const searchValue = String(search || '');
-        const searchMatch = containsIgnoreCase(row.policy_num, searchValue)
-          || containsIgnoreCase(row.account_num, searchValue)
-          || containsIgnoreCase(row.summary_of_issue, searchValue);
-        if (!searchMatch) return false;
-      }
-
-      if (requester && !containsIgnoreCase(row.created_by, requester)) {
-        return false;
-      }
-
-      if (submittedBy && !containsIgnoreCase(row.easyvista_submitted_by, submittedBy)) {
-        return false;
-      }
-
-      if (createdViaFilter) {
-        if (!lookupCreatedViaId) return false;
-        if (Number(row.created_via_id) !== Number(lookupCreatedViaId)) return false;
-      }
-
-      if (retiredFilter === 'retired_only') {
-        if (!(Boolean(row.is_retired) || rowStatus === 'Retired')) return false;
-      } else if (retiredFilter === 'non_retired') {
-        if (Boolean(row.is_retired) || rowStatus === 'Retired') return false;
-      }
-
-      if (year && String(row.created_at || '').slice(0, 4) !== String(year).trim()) {
-        return false;
-      }
-
-      if (inJira === 'yes' && !Boolean(row.logged_defect)) return false;
-      if (inJira === 'no' && Boolean(row.logged_defect)) return false;
-
-      if (jiraNumber && !containsIgnoreCase(row.jira_number, jiraNumber)) return false;
-      if (easyvistaNumber && !containsIgnoreCase(row.easyvista_ticket_id, easyvistaNumber)) return false;
-      if (releaseNumber && !containsIgnoreCase(row.release_number, releaseNumber)) return false;
-
-      return true;
-    });
-
-    const filteredIds = filteredRows.map((row) => Number(row.id)).filter((id) => Number.isFinite(id));
-    const statusUpdateAtById = new Map();
-
-    if (SubmissionStatusEvent && filteredIds.length > 0) {
-      const events = await SubmissionStatusEvent.findAll({
-        where: { submission_id: filteredIds },
-        attributes: ['submission_id', 'status', 'changed_at'],
-        raw: true,
-      });
-
-      const submissionById = new Map(filteredRows.map((row) => [Number(row.id), row]));
-      for (const event of events) {
-        const submissionId = Number(event.submission_id);
-        const row = submissionById.get(submissionId);
-        if (!row) continue;
-
-        const statusValue = String(event.status || '');
-        const currentStatus = String(row.status || '');
-        const eligible = statusValue === 'Retired'
-          || statusValue === 'Unretired'
-          || statusValue === currentStatus
-          || statusValue === `Defect/Enhancement Status: ${currentStatus}`;
-
-        if (!eligible) continue;
-        const currentMax = statusUpdateAtById.get(submissionId);
-        if (!currentMax || new Date(event.changed_at).getTime() > new Date(currentMax).getTime()) {
-          statusUpdateAtById.set(submissionId, event.changed_at);
-        }
-      }
+    if (selectedFields.length === 0) {
+      return res.status(400).json({ error: 'No valid export fields were selected.' });
     }
 
-    const enrichedRows = filteredRows.map((row) => ({
-      ...row,
-      status_update_at: statusUpdateAtById.get(Number(row.id)) || row.updated_at,
-    }));
-    if (createdVia) {
-      const normalizedCreatedVia = String(createdVia || '').trim().toLowerCase();
-      const lookupCreatedViaId = await getLookupIdByName(db, 'submission_sources', normalizedCreatedVia, {
-        lowercase: true,
-      });
-      if (lookupCreatedViaId) {
-        clauses.push('s.created_via_id = ?');
-        params.push(lookupCreatedViaId);
-      } else {
-        clauses.push('1 = 0');
-      }
-    }
-    const sortKey = String(sort || 'updated_desc');
-    const comparatorMap = {
-      updated_desc: (a, b) => compareText(b.status_update_at, a.status_update_at),
-      updated_asc: (a, b) => compareText(a.status_update_at, b.status_update_at),
-      created_desc: (a, b) => compareText(b.created_at, a.created_at),
-      created_asc: (a, b) => compareText(a.created_at, b.created_at),
-      requester_asc: (a, b) => compareText(a.created_by, b.created_by),
-      requester_desc: (a, b) => compareText(b.created_by, a.created_by),
-      submitted_by_asc: (a, b) => compareText(a.easyvista_submitted_by, b.easyvista_submitted_by),
-      submitted_by_desc: (a, b) => compareText(b.easyvista_submitted_by, a.easyvista_submitted_by),
-      policy_premium_impact_desc: (a, b) => compareNum(b.policy_premium_impact, a.policy_premium_impact),
-      policy_premium_impact_asc: (a, b) => compareNum(a.policy_premium_impact, b.policy_premium_impact),
-      direct_dollar_impact_desc: (a, b) => compareNum(b.direct_dollar_impact, a.direct_dollar_impact),
-      direct_dollar_impact_asc: (a, b) => compareNum(a.direct_dollar_impact, b.direct_dollar_impact),
-      policies_affected_count_desc: (a, b) => compareNum(b.policies_affected_count, a.policies_affected_count),
-      policies_affected_count_asc: (a, b) => compareNum(a.policies_affected_count, b.policies_affected_count),
-      logged_defect_desc: (a, b) => compareBool(b.logged_defect, a.logged_defect),
-      logged_defect_asc: (a, b) => compareBool(a.logged_defect, b.logged_defect),
-      jira_number_asc: (a, b) => compareText(a.jira_number, b.jira_number),
-      jira_number_desc: (a, b) => compareText(b.jira_number, a.jira_number),
-      type_asc: (a, b) => compareText(a.type, b.type),
-      type_desc: (a, b) => compareText(b.type, a.type),
-      summary_asc: (a, b) => compareText(a.summary_of_issue, b.summary_of_issue),
-      summary_desc: (a, b) => compareText(b.summary_of_issue, a.summary_of_issue),
-      status_asc: (a, b) => compareText(a.status, b.status),
-      status_desc: (a, b) => compareText(b.status, a.status),
-      public_asc: (a, b) => compareBool(a.is_public, b.is_public),
-      public_desc: (a, b) => compareBool(b.is_public, a.is_public),
-      release_number_asc: (a, b) => compareText(a.release_number, b.release_number),
-      release_number_desc: (a, b) => compareText(b.release_number, a.release_number),
-      easyvista_asc: (a, b) => compareText(a.easyvista_ticket_id, b.easyvista_ticket_id),
-      easyvista_desc: (a, b) => compareText(b.easyvista_ticket_id, a.easyvista_ticket_id),
-    };
+    const headerRow = selectedFields.map((field) => field.label);
+    const bodyRows = rows.map((row) => selectedFields.map((field) => toExportCellValue(field.value(row))));
+    const worksheet = XLSX.utils.aoa_to_sheet([headerRow, ...bodyRows]);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Admin Submissions');
 
-    const comparator = comparatorMap[sortKey] || comparatorMap.updated_desc;
-    enrichedRows.sort(comparator);
+    const buffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'buffer' });
+    const stamp = new Date().toISOString().slice(0, 10);
+    const fileName = `admin-submissions-export-${stamp}.xlsx`;
 
-    return res.json(enrichedRows.map(mapSubmission));
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+    return res.send(buffer);
+  });
+});
+
+app.get('/api/admin/submissions/export-fields', ensureAdmin, async (_req, res) => {
+  return res.json({
+    fields: ADMIN_EXPORT_FIELDS.map(({ key, label }) => ({ key, label })),
   });
 });
 
 app.get('/api/admin/submissions/:id', ensureAdmin, async (req, res) => {
   return withDb(async (db) => {
+    const submissionId = Number.parseInt(String(req.params.id || ''), 10);
+    if (!Number.isFinite(submissionId) || submissionId <= 0) {
+      return res.status(400).json({ error: 'Invalid submission id' });
+    }
+
     const dbModels = dbApi.getModels() || {};
     const Attachment = dbModels.Attachment;
     const SubmissionStatusEvent = dbModels.SubmissionStatusEvent;
     if (!Attachment || !SubmissionStatusEvent) {
       return res.status(500).json({ error: 'Required models are not available' });
     }
-    const submission = await getSubmissionByIdWithLookups(db, req.params.id);
+    const submission = await getSubmissionByIdWithLookups(db, submissionId);
     if (!submission) {
       return res.status(404).json({ error: 'Submission not found' });
     }
 
     const attachments = await Attachment.findAll({
-      where: { submission_id: Number(req.params.id) },
+      where: { submission_id: submissionId },
       order: [['uploaded_at', 'DESC']],
       raw: true,
     });
 
     const status_events = await SubmissionStatusEvent.findAll({
-      where: { submission_id: Number(req.params.id) },
+      where: { submission_id: submissionId },
       attributes: ['id', 'submission_id', 'status', 'changed_at', 'changed_by'],
       order: [['changed_at', 'DESC'], ['id', 'DESC']],
       raw: true,
