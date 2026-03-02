@@ -50,16 +50,6 @@ function defineModels(sequelize) {
     created_via_id: { type: DataTypes.INTEGER, allowNull: true },
     created_by: { type: DataTypes.TEXT, allowNull: false },
     created_by_email: { type: DataTypes.TEXT, allowNull: false },
-    // Legacy text columns — read-only (not written by any insert/update payload)
-    // Kept for in-memory filtering in listFilteredAdminSubmissions until a
-    // full SQL-join migration is done, at which point the DB columns can be dropped.
-    type: { type: DataTypes.TEXT, allowNull: true },
-    application_name: { type: DataTypes.TEXT, allowNull: true },
-    status: { type: DataTypes.TEXT, allowNull: true },
-    cleanup_status: { type: DataTypes.TEXT, allowNull: true },
-    cleanup_tag_type: { type: DataTypes.TEXT, allowNull: true },
-    enhancement_request_type: { type: DataTypes.TEXT, allowNull: true },
-    priority_level: { type: DataTypes.TEXT, allowNull: true },
     type_id: { type: DataTypes.INTEGER, allowNull: true },
     application_id: { type: DataTypes.INTEGER, allowNull: true },
     policy_num: { type: DataTypes.TEXT },

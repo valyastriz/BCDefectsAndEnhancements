@@ -367,6 +367,34 @@ async function listFilteredAdminSubmissions(db, query = {}) {
     throw new Error('Submission model is not available');
   }
 
+  // Build id→name lookup maps from the lookup tables (replaces reading legacy text columns)
+  async function buildIdNameMap(Model) {
+    if (!Model) return new Map();
+    try {
+      const lookupRows = await Model.findAll({ attributes: ['id', 'name'], raw: true });
+      return new Map(lookupRows.map((r) => [Number(r.id), String(r.name || '').trim()]));
+    } catch { return new Map(); }
+  }
+  const [
+    statusIdToName,
+    typeIdToName,
+    cleanupTagTypeIdToName,
+    cleanupStatusIdToName,
+    applicationIdToName,
+    enhancementRequestTypeIdToName,
+    priorityLevelIdToName,
+    createdViaIdToName,
+  ] = await Promise.all([
+    buildIdNameMap(dbModels.DefectEnhancementStatus),
+    buildIdNameMap(dbModels.SubmissionType),
+    buildIdNameMap(dbModels.CleanupTagType),
+    buildIdNameMap(dbModels.CleanupStatus),
+    buildIdNameMap(dbModels.Application),
+    buildIdNameMap(dbModels.EnhancementRequestType),
+    buildIdNameMap(dbModels.PriorityLevel),
+    buildIdNameMap(dbModels.SubmissionSource),
+  ]);
+
   const statusList = String(statuses || '')
     .split(',')
     .map((value) => value.trim())
@@ -389,7 +417,21 @@ async function listFilteredAdminSubmissions(db, query = {}) {
   const compareNum = (a, b) => Number(a || 0) - Number(b || 0);
   const compareBool = (a, b) => Number(Boolean(a)) - Number(Boolean(b));
 
-  const rows = await Submission.findAll({ raw: true });
+  const rawRows = await Submission.findAll({ raw: true });
+
+  // Augment each row with text names resolved from _id FK columns
+  const rows = rawRows.map((row) => ({
+    ...row,
+    status: statusIdToName.get(Number(row.status_id)) || '',
+    type: typeIdToName.get(Number(row.type_id)) || '',
+    cleanup_tag_type: cleanupTagTypeIdToName.get(Number(row.cleanup_tag_type_id)) || '',
+    cleanup_status: cleanupStatusIdToName.get(Number(row.cleanup_status_id)) || '',
+    application_name: applicationIdToName.get(Number(row.application_id)) || '',
+    enhancement_request_type: enhancementRequestTypeIdToName.get(Number(row.enhancement_request_type_id)) || '',
+    priority_level: priorityLevelIdToName.get(Number(row.priority_level_id)) || '',
+    created_via: createdViaIdToName.get(Number(row.created_via_id)) || '',
+  }));
+
   const filteredRows = rows.filter((row) => {
     const rowStatus = String(row.status || '').trim();
     const rowIsCleanup = Boolean(row.is_cleanup);
