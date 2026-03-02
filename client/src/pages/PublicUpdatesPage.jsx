@@ -342,7 +342,7 @@ export function PublicUpdatesPage() {
               ? `Showing all ${visibleItems.length}`
               : `Showing ${Math.min((page - 1) * pageSize + 1, visibleItems.length)}–${Math.min(page * pageSize, visibleItems.length)} of ${visibleItems.length}`}
           </span>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 'auto' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 'auto', flexWrap: 'nowrap', whiteSpace: 'nowrap' }}>
             <label style={{ fontSize: 13, color: 'var(--color-muted)' }}>Per page:</label>
             <select
               className="bs-inline-select"

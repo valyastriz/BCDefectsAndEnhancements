@@ -2339,7 +2339,7 @@ export function AdminDashboardPage({ user, onLogout }) {
                 ? `Showing all ${rows.length} item(s)`
                 : `Showing ${Math.min((page - 1) * pageSize + 1, rows.length)}–${Math.min(page * pageSize, rows.length)} of ${rows.length}`}
           </span>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 'auto' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 'auto', flexWrap: 'nowrap', whiteSpace: 'nowrap' }}>
             <label style={{ fontSize: 13, color: 'var(--color-muted)' }}>Per page:</label>
             <select
               className="bs-inline-select"
