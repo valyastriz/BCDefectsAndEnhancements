@@ -2247,8 +2247,8 @@ export function AdminDashboardPage({ user, onLogout }) {
           }}>{statusCounts['New']}</span>
           <span style={{ flex: 1 }}>
             {statusCounts['New'] === 1
-              ? '1 new submission is awaiting review'
-              : `${statusCounts['New']} new submissions are awaiting review`}
+              ? '1 new form submission is awaiting review'
+              : `${statusCounts['New']} new form submissions are awaiting review`}
           </span>
           <button
             type="button"
