@@ -2261,7 +2261,7 @@ export function AdminDashboardPage({ user, onLogout }) {
           <button
             type="button"
             onClick={() => {
-              setFilters((prev) => ({ ...prev, statuses: ['New'] }));
+              setFilters((prev) => ({ ...prev, statuses: ['New'], createdVia: 'rep_form' }));
               setTimeout(() => {
                 document.querySelector('.table-wrap')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
               }, 100);
