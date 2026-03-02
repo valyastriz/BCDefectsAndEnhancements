@@ -390,6 +390,7 @@ export function AdminDashboardPage({ user, onLogout }) {
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
   const [submissionToasts, setSubmissionToasts] = useState([]);
+  const [unreadCount, setUnreadCount] = useState(0);
 
   const [openId, setOpenId] = useState(null);
   const [detail, setDetail] = useState(null);
@@ -872,35 +873,63 @@ export function AdminDashboardPage({ user, onLogout }) {
     }
   }, []);
 
+  // Update document title with unread count; reset when tab becomes visible
+  useEffect(() => {
+    const base = 'Admin Queue | BC Defects & Enhancements';
+    document.title = unreadCount > 0 ? `(${unreadCount}) ${base}` : base;
+  }, [unreadCount]);
+
+  useEffect(() => {
+    const onVisible = () => { if (!document.hidden) setUnreadCount(0); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, []);
+
   useEffect(() => {
     const socket = getSocket();
     const onNotification = (payload) => {
       const message = payload?.event ? `Live update: ${payload.event}` : 'Live update received';
-      if (!isAnyAdminModalOpen) {
-        setNotice(message);
-      }
+      if (!isAnyAdminModalOpen) setNotice(message);
       loadRows();
-      if (openId) {
-        openDetail(openId, true);
-      }
+      if (openId) openDetail(openId, true);
 
-      // Fire a desktop notification for new rep submissions
-      if (
-        payload?.event === 'submission:new' &&
-        'Notification' in window &&
-        Notification.permission === 'granted'
-      ) {
+      if (payload?.event === 'submission:new') {
         const sub = payload?.payload;
-        const heading = sub?.summary_of_issue || 'New submission received';
-        const bodyParts = [
-          sub?.created_by ? `From: ${sub.created_by}` : null,
-          sub?.type ? `Type: ${sub.type.charAt(0).toUpperCase() + sub.type.slice(1)}` : null,
-        ].filter(Boolean);
-        const n = new Notification('New Submission', {
-          body: bodyParts.length ? `${heading}\n${bodyParts.join(' · ')}` : heading,
-          icon: '/favicon.ico',
-        });
-        n.onclick = () => { window.focus(); n.close(); };
+        if (document.hidden) {
+          // Tab is not visible — bump the title counter only
+          setUnreadCount((c) => c + 1);
+        } else {
+          // Tab is visible — show in-app toast
+          const toastId = Date.now();
+          setSubmissionToasts((prev) => [
+            ...prev,
+            {
+              id: toastId,
+              heading: sub?.summary_of_issue || 'New submission received',
+              from: sub?.created_by || null,
+              type: sub?.type ? sub.type.charAt(0).toUpperCase() + sub.type.slice(1) : null,
+            },
+          ]);
+          setTimeout(() => {
+            setSubmissionToasts((prev) => prev.filter((t) => t.id !== toastId));
+          }, 8000);
+        }
+
+        // Attempt OS desktop notification regardless of tab visibility
+        if ('Notification' in window && Notification.permission === 'granted') {
+          const heading = sub?.summary_of_issue || 'New submission received';
+          const bodyParts = [
+            sub?.created_by ? `From: ${sub.created_by}` : null,
+            sub?.type ? `Type: ${sub.type.charAt(0).toUpperCase() + sub.type.slice(1)}` : null,
+          ].filter(Boolean);
+          try {
+            const n = new Notification('📊 New Submission', {
+              body: bodyParts.length ? `${heading}\n${bodyParts.join(' · ')}` : heading,
+              icon: '/favicon.ico',
+            });
+            n.onclick = () => { window.focus(); n.close(); };
+          } catch (_) { /* silently ignore */ }
+        }
       }
     };
 
@@ -2190,6 +2219,37 @@ export function AdminDashboardPage({ user, onLogout }) {
           <Button kind="ghost" onClick={logout}>Sign Out</Button>
         </div>
       </div>
+
+      {/* ── New submissions alert card ── */}
+      {statusCounts['New'] > 0 && (
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 12,
+          padding: '12px 18px',
+          borderRadius: 8,
+          background: 'var(--color-primary)',
+          color: '#fff',
+          fontWeight: 600,
+          fontSize: 14,
+        }}>
+          <span style={{
+            background: 'rgba(255,255,255,0.25)',
+            borderRadius: '50%',
+            width: 32,
+            height: 32,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: 16,
+            fontWeight: 800,
+            flexShrink: 0,
+          }}>{statusCounts['New']}</span>
+          {statusCounts['New'] === 1
+            ? '1 submission is awaiting review with a New status'
+            : `${statusCounts['New']} submissions are awaiting review with a New status`}
+        </div>
+      )}
 
       {/* ── Stat tiles ── */}
       {rows.length > 0 && (
