@@ -71,9 +71,9 @@
 }
 
 :root[data-theme='dark'] {
-  --color-bg:            #0b1220;
-  --color-surface:       #111827;
-  --color-border:        #243041;
+  --color-bg:            #131d2e;
+  --color-surface:       #1b2638;
+  --color-border:        #2d3f56;
   --color-text:          #e5e7eb;
   --color-muted:         #9ca3af;
   --color-primary:       #60a5fa;
