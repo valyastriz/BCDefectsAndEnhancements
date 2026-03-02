@@ -2245,9 +2245,34 @@ export function AdminDashboardPage({ user, onLogout }) {
             fontWeight: 800,
             flexShrink: 0,
           }}>{statusCounts['New']}</span>
-          {statusCounts['New'] === 1
-            ? '1 new submission is awaiting review'
-            : `${statusCounts['New']} new submissions are awaiting review`}
+          <span style={{ flex: 1 }}>
+            {statusCounts['New'] === 1
+              ? '1 new submission is awaiting review'
+              : `${statusCounts['New']} new submissions are awaiting review`}
+          </span>
+          <button
+            type="button"
+            onClick={() => {
+              setFilters((prev) => ({ ...prev, statuses: ['New'] }));
+              setTimeout(() => {
+                document.querySelector('.table-wrap')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+              }, 100);
+            }}
+            style={{
+              background: 'rgba(255,255,255,0.2)',
+              border: '1px solid rgba(255,255,255,0.5)',
+              borderRadius: 6,
+              color: '#fff',
+              fontSize: 13,
+              fontWeight: 600,
+              padding: '5px 14px',
+              cursor: 'pointer',
+              whiteSpace: 'nowrap',
+              flexShrink: 0,
+            }}
+          >
+            View New Submissions
+          </button>
         </div>
       )}
 
