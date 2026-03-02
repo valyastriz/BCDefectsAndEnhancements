@@ -2246,8 +2246,8 @@ export function AdminDashboardPage({ user, onLogout }) {
             flexShrink: 0,
           }}>{statusCounts['New']}</span>
           {statusCounts['New'] === 1
-            ? '1 submission is awaiting review with a New status'
-            : `${statusCounts['New']} submissions are awaiting review with a New status`}
+            ? '1 new submission is awaiting review'
+            : `${statusCounts['New']} new submissions are awaiting review`}
         </div>
       )}
 
