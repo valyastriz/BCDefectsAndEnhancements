@@ -384,6 +384,8 @@ export function AdminDashboardPage({ user, onLogout }) {
   const filtersRef = useRef(filters);
   filtersRef.current = filters;
   const [rows, setRows] = useState([]);
+  const [pageSize, setPageSize] = useState(50);
+  const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(false);
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
@@ -1979,6 +1981,15 @@ export function AdminDashboardPage({ user, onLogout }) {
     );
   }, [rows]);
 
+  // Reset to page 1 whenever the filtered rows change
+  useEffect(() => { setPage(1); }, [rows]);
+
+  const totalPages = pageSize === 0 ? 1 : Math.max(1, Math.ceil(rows.length / pageSize));
+  const pagedRows = useMemo(
+    () => pageSize === 0 ? rows : rows.slice((page - 1) * pageSize, page * pageSize),
+    [rows, page, pageSize],
+  );
+
   const cleanupRequiresEasyVistaFields = useMemo(
     () => Boolean(cleanupForm.submit_to_easyvista)
       && (cleanupForm.cleanup_tag_type === 'defect' || cleanupForm.cleanup_tag_type === 'enhancement'),
@@ -2319,6 +2330,49 @@ export function AdminDashboardPage({ user, onLogout }) {
 
         {loading && <p className="muted">Loading…</p>}
 
+        {/* ── Pagination controls ── */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 8 }}>
+          <span className="muted" style={{ fontSize: 13 }}>
+            {rows.length === 0
+              ? 'No results'
+              : pageSize === 0
+                ? `Showing all ${rows.length} item(s)`
+                : `Showing ${Math.min((page - 1) * pageSize + 1, rows.length)}–${Math.min(page * pageSize, rows.length)} of ${rows.length}`}
+          </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 'auto' }}>
+            <label style={{ fontSize: 13, color: 'var(--color-muted)' }}>Per page:</label>
+            <select
+              className="bs-inline-select"
+              value={pageSize}
+              onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1); }}
+            >
+              <option value={50}>50</option>
+              <option value={75}>75</option>
+              <option value={100}>100</option>
+              <option value={0}>All</option>
+            </select>
+            {pageSize !== 0 && (
+              <>
+                <button
+                  type="button"
+                  className="bs-page-btn"
+                  disabled={page <= 1}
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  aria-label="Previous page"
+                >&#8592;</button>
+                <span style={{ fontSize: 13 }}>Page {page} of {totalPages}</span>
+                <button
+                  type="button"
+                  className="bs-page-btn"
+                  disabled={page >= totalPages}
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  aria-label="Next page"
+                >&#8594;</button>
+              </>
+            )}
+          </div>
+        </div>
+
         <div className="table-wrap">
           <table>
             <thead>
@@ -2341,7 +2395,7 @@ export function AdminDashboardPage({ user, onLogout }) {
               {rows.length === 0 && !loading && (
                 <tr><td colSpan={12} style={{ textAlign: 'center', color: 'var(--color-muted)', padding: '28px 12px' }}>No submissions match the current filters.</td></tr>
               )}
-              {rows.map((row) => (
+              {pagedRows.map((row) => (
                 <tr
                   key={row.id}
                   onClick={(e) => {
