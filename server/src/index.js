@@ -441,7 +441,8 @@ async function listFilteredAdminSubmissions(db, query = {}) {
     const rowCleanupTagType = String(row.cleanup_tag_type || '').trim();
 
     if (retiredFilter !== 'retired_only' && statusList.length > 0) {
-      const statusMatch = normalizedStatuses.includes(rowStatus);
+      // Cleanup-only rows don't have a meaningful D/E status — exclude them from statusMatch
+      const statusMatch = normalizedStatuses.includes(rowStatus) && !(rowIsCleanup && rowCleanupTagType === 'cleanup_only');
       const cleanupOnlyMatch = cleanupOnlySelected && rowIsCleanup && rowCleanupTagType === 'cleanup_only';
       const cleanupMarkedMatch = cleanupMarkedSelected && rowIsCleanup;
       if (!(statusMatch || cleanupOnlyMatch || cleanupMarkedMatch)) return false;
@@ -450,7 +451,7 @@ async function listFilteredAdminSubmissions(db, query = {}) {
         if (!(rowIsCleanup && rowCleanupTagType === 'cleanup_only')) return false;
       } else if (normalizedStatus === 'Cleanup Marked') {
         if (!rowIsCleanup) return false;
-      } else if (rowStatus !== normalizedStatus) {
+      } else if (rowStatus !== normalizedStatus || (rowIsCleanup && rowCleanupTagType === 'cleanup_only')) {
         return false;
       }
     }
