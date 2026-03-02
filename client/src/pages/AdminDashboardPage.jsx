@@ -889,7 +889,7 @@ export function AdminDashboardPage({ user, onLogout }) {
         'Notification' in window &&
         Notification.permission === 'granted'
       ) {
-        const sub = payload?.data;
+        const sub = payload?.payload;
         const heading = sub?.summary_of_issue || 'New submission received';
         const bodyParts = [
           sub?.created_by ? `From: ${sub.created_by}` : null,
