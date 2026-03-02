@@ -895,6 +895,8 @@ export function AdminDashboardPage({ user, onLogout }) {
 
       if (payload?.event === 'submission:new') {
         const sub = payload?.payload;
+        // Only alert for submissions from the public rep form, not admin-created entries
+        if (sub?.created_via !== 'rep_form') return;
         if (document.hidden) {
           // Tab is not visible — bump the title counter only
           setUnreadCount((c) => c + 1);
