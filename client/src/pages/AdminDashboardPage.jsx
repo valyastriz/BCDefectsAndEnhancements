@@ -864,6 +864,13 @@ export function AdminDashboardPage({ user, onLogout }) {
     setMetaDraftNames(nextDrafts);
   }, [activeMetaItems]);
 
+  // Request browser notification permission once on mount
+  useEffect(() => {
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission();
+    }
+  }, []);
+
   useEffect(() => {
     const socket = getSocket();
     const onNotification = (payload) => {
@@ -874,6 +881,25 @@ export function AdminDashboardPage({ user, onLogout }) {
       loadRows();
       if (openId) {
         openDetail(openId, true);
+      }
+
+      // Fire a desktop notification for new rep submissions
+      if (
+        payload?.event === 'submission:new' &&
+        'Notification' in window &&
+        Notification.permission === 'granted'
+      ) {
+        const sub = payload?.data;
+        const heading = sub?.summary_of_issue || 'New submission received';
+        const bodyParts = [
+          sub?.created_by ? `From: ${sub.created_by}` : null,
+          sub?.type ? `Type: ${sub.type.charAt(0).toUpperCase() + sub.type.slice(1)}` : null,
+        ].filter(Boolean);
+        const n = new Notification('New Submission', {
+          body: bodyParts.length ? `${heading}\n${bodyParts.join(' · ')}` : heading,
+          icon: '/favicon.ico',
+        });
+        n.onclick = () => { window.focus(); n.close(); };
       }
     };
 
