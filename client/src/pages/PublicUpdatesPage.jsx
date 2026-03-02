@@ -111,6 +111,8 @@ export function PublicUpdatesPage() {
   const [selectedStatuses, setSelectedStatuses] = useState(savedFilters.selectedStatuses);
   const [retiredFilter, setRetiredFilter] = useState(savedFilters.retiredFilter);
   const [sortBy, setSortBy] = useState(savedFilters.sortBy);
+  const [pageSize, setPageSize] = useState(50);
+  const [page, setPage] = useState(1);
 
   const load = useCallback(async () => {
     try {
@@ -262,6 +264,15 @@ export function PublicUpdatesPage() {
     return filtered;
   }, [items, search, typeFilter, selectedStatuses, retiredFilter, sortBy]);
 
+  // Reset to page 1 whenever visible items change
+  useEffect(() => { setPage(1); }, [visibleItems]);
+
+  const totalPages = pageSize === 0 ? 1 : Math.max(1, Math.ceil(visibleItems.length / pageSize));
+  const pagedItems = useMemo(
+    () => pageSize === 0 ? visibleItems : visibleItems.slice((page - 1) * pageSize, page * pageSize),
+    [visibleItems, page, pageSize],
+  );
+
   return (
     <>
       <div className="page-header">
@@ -323,6 +334,49 @@ export function PublicUpdatesPage() {
         Showing {visibleItems.length} of {items.length} public item(s)
       </p>
 
+      {/* ── Pagination controls ── */}
+      {visibleItems.length > 0 && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 8 }}>
+          <span className="muted" style={{ fontSize: 13 }}>
+            {pageSize === 0
+              ? `Showing all ${visibleItems.length}`
+              : `Showing ${Math.min((page - 1) * pageSize + 1, visibleItems.length)}–${Math.min(page * pageSize, visibleItems.length)} of ${visibleItems.length}`}
+          </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 'auto' }}>
+            <label style={{ fontSize: 13, color: 'var(--color-muted)' }}>Per page:</label>
+            <select
+              className="bs-inline-select"
+              value={pageSize}
+              onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1); }}
+            >
+              <option value={50}>50</option>
+              <option value={75}>75</option>
+              <option value={100}>100</option>
+              <option value={0}>All</option>
+            </select>
+            {pageSize !== 0 && (
+              <>
+                <button
+                  type="button"
+                  className="bs-page-btn"
+                  disabled={page <= 1}
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  aria-label="Previous page"
+                >&#8592;</button>
+                <span style={{ fontSize: 13 }}>Page {page} of {totalPages}</span>
+                <button
+                  type="button"
+                  className="bs-page-btn"
+                  disabled={page >= totalPages}
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  aria-label="Next page"
+                >&#8594;</button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
       {!hasItems && !error && (
         <div className="empty-state">
           <svg viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2" /><rect x="9" y="3" width="6" height="4" rx="1" /></svg>
@@ -332,7 +386,7 @@ export function PublicUpdatesPage() {
 
       {hasItems && visibleItems.length > 0 && (
         <div className="public-list">
-          {visibleItems.map((item) => (
+          {pagedItems.map((item) => (
             <article key={item.id} className="public-item">
               <div className="public-top" style={{ gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
