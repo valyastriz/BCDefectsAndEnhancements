@@ -2285,7 +2285,10 @@ export function AdminDashboardPage({ user, onLogout }) {
                 window.localStorage.removeItem(adminFiltersStorageKey);
                 window.localStorage.removeItem(adminRetiredFilterStorageKey);
               }
-              setFilters(buildDefaultFilters());
+              setFilters({
+                ...buildDefaultFilters(),
+                statuses: runtimeStatusFilterOptions.length > 0 ? [...runtimeStatusFilterOptions] : [],
+              });
             }}
           >
             Reset Saved Filters
