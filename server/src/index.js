@@ -461,7 +461,10 @@ async function listFilteredAdminSubmissions(db, query = {}) {
     if (type) {
       if (String(type).toLowerCase() === 'cleanup') {
         if (!rowIsCleanup) return false;
-      } else if (String(row.type || '') !== String(type)) {
+      } else if (
+        String(row.type || '') !== String(type) ||
+        (rowIsCleanup && rowCleanupTagType === 'cleanup_only')
+      ) {
         return false;
       }
     }
@@ -473,8 +476,10 @@ async function listFilteredAdminSubmissions(db, query = {}) {
       const regularTypes = typesList
         .filter((v) => !['cleanup only', 'cleanup_only', 'cleanup'].includes(v.toLowerCase()))
         .map((v) => v.toLowerCase());
+      // Cleanup-only rows have a stale type from before they became cleanup-only — exclude them from regular type matching
       const matchesRegularType = regularTypes.length > 0 &&
-        regularTypes.includes(String(row.type || '').toLowerCase());
+        regularTypes.includes(String(row.type || '').toLowerCase()) &&
+        !(rowIsCleanup && rowCleanupTagType === 'cleanup_only');
       const matchesCleanupOnly = cleanupOnlyTypeSelected && rowIsCleanup && rowCleanupTagType === 'cleanup_only';
       if (!(matchesRegularType || matchesCleanupOnly)) return false;
     }
