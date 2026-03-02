@@ -2023,6 +2023,12 @@ export function AdminDashboardPage({ user, onLogout }) {
     return counts;
   }, [rows]);
 
+  // Count only unreviewed submissions from the public rep form
+  const newFormSubmissionsCount = useMemo(
+    () => rows.filter((row) => row.status === 'New' && row.created_via === 'rep_form').length,
+    [rows],
+  );
+
   const impactTotals = useMemo(() => {
     return rows.reduce(
       (acc, row) => {
@@ -2223,7 +2229,7 @@ export function AdminDashboardPage({ user, onLogout }) {
       </div>
 
       {/* ── New submissions alert card ── */}
-      {statusCounts['New'] > 0 && (
+      {newFormSubmissionsCount > 0 && (
         <div style={{
           display: 'flex',
           alignItems: 'center',
@@ -2246,11 +2252,11 @@ export function AdminDashboardPage({ user, onLogout }) {
             fontSize: 16,
             fontWeight: 800,
             flexShrink: 0,
-          }}>{statusCounts['New']}</span>
+          }}>{newFormSubmissionsCount}</span>
           <span style={{ flex: 1 }}>
-            {statusCounts['New'] === 1
+            {newFormSubmissionsCount === 1
               ? '1 new form submission is awaiting review'
-              : `${statusCounts['New']} new form submissions are awaiting review`}
+              : `${newFormSubmissionsCount} new form submissions are awaiting review`}
           </span>
           <button
             type="button"
