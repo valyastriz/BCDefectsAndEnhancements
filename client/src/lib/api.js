@@ -4,6 +4,9 @@ function buildAdminSubmissionsQuery({
   status = '',
   statuses = [],
   type = '',
+  types = [],
+  cleanupRequired = '',
+  cleanupStatuses = [],
   search = '',
   requester = '',
   submittedBy = '',
@@ -24,6 +27,9 @@ function buildAdminSubmissionsQuery({
     params.set('status', status);
   }
   if (type) params.set('type', type);
+  if (Array.isArray(types) && types.length > 0) params.set('types', types.join(','));
+  if (cleanupRequired) params.set('cleanupRequired', cleanupRequired);
+  if (Array.isArray(cleanupStatuses) && cleanupStatuses.length > 0) params.set('cleanupStatuses', cleanupStatuses.join(','));
   if (search) params.set('search', search);
   if (requester) params.set('requester', requester);
   if (submittedBy) params.set('submittedBy', submittedBy);
@@ -121,6 +127,9 @@ export const api = {
     status = '',
     statuses = [],
     type = '',
+    types = [],
+    cleanupRequired = '',
+    cleanupStatuses = [],
     search = '',
     requester = '',
     submittedBy = '',
@@ -137,6 +146,9 @@ export const api = {
       status,
       statuses,
       type,
+      types,
+      cleanupRequired,
+      cleanupStatuses,
       search,
       requester,
       submittedBy,

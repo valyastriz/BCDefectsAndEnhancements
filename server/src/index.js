@@ -346,6 +346,9 @@ async function listFilteredAdminSubmissions(db, query = {}) {
     status,
     statuses,
     type,
+    types,
+    cleanupRequired,
+    cleanupStatuses,
     search,
     requester,
     submittedBy,
@@ -458,6 +461,28 @@ async function listFilteredAdminSubmissions(db, query = {}) {
       } else if (String(row.type || '') !== String(type)) {
         return false;
       }
+    }
+
+    const typesList = String(types || '').split(',').map((v) => v.trim()).filter(Boolean);
+    if (typesList.length > 0) {
+      const cleanupOnlyTypeSelected = typesList.some((v) =>
+        ['cleanup only', 'cleanup_only', 'cleanup'].includes(v.toLowerCase()));
+      const regularTypes = typesList
+        .filter((v) => !['cleanup only', 'cleanup_only', 'cleanup'].includes(v.toLowerCase()))
+        .map((v) => v.toLowerCase());
+      const matchesRegularType = regularTypes.length > 0 &&
+        regularTypes.includes(String(row.type || '').toLowerCase());
+      const matchesCleanupOnly = cleanupOnlyTypeSelected && rowIsCleanup && rowCleanupTagType === 'cleanup_only';
+      if (!(matchesRegularType || matchesCleanupOnly)) return false;
+    }
+
+    if (cleanupRequired === 'yes' && !rowIsCleanup) return false;
+    if (cleanupRequired === 'no' && rowIsCleanup) return false;
+
+    const cleanupStatusesList = String(cleanupStatuses || '').split(',').map((v) => v.trim()).filter(Boolean);
+    if (cleanupStatusesList.length > 0) {
+      if (!rowIsCleanup) return false;
+      if (!cleanupStatusesList.includes(String(row.cleanup_status || '').trim())) return false;
     }
 
     if (search) {

@@ -49,7 +49,9 @@ function buildDefaultFilters() {
   return {
     statuses: [],
     retiredFilter: 'non_retired',
-    type: '',
+    types: [],
+    cleanupRequired: '',
+    cleanupStatuses: [],
     search: '',
     requester: '',
     submittedBy: '',
@@ -105,7 +107,10 @@ function readSavedAdminFilters() {
       ...defaults,
       statuses: statusesFromStorage.length > 0 ? statusesFromStorage : defaults.statuses,
       retiredFilter,
-      type: typeof parsed?.type === 'string' ? parsed.type : defaults.type,
+      types: Array.isArray(parsed?.types) ? parsed.types
+        : (typeof parsed?.type === 'string' && parsed.type ? [formatMetaTypeLabel(parsed.type)] : defaults.types),
+      cleanupRequired: typeof parsed?.cleanupRequired === 'string' ? parsed.cleanupRequired : defaults.cleanupRequired,
+      cleanupStatuses: Array.isArray(parsed?.cleanupStatuses) ? parsed.cleanupStatuses : defaults.cleanupStatuses,
       search: typeof parsed?.search === 'string' ? parsed.search : defaults.search,
       requester: typeof parsed?.requester === 'string' ? parsed.requester : defaults.requester,
       submittedBy: typeof parsed?.submittedBy === 'string' ? parsed.submittedBy : defaults.submittedBy,
@@ -513,6 +518,11 @@ export function AdminDashboardPage({ user, onLogout }) {
     ];
   }, [adminMetaOptions]);
   const statusFilterOptionsRef = useRef(runtimeStatusFilterOptions);
+
+  const runtimeTypeFilterOptions = useMemo(
+    () => [...dynamicSubmissionTypes.map(formatMetaTypeLabel), 'Cleanup Only'],
+    [dynamicSubmissionTypes],
+  );
 
   const dynamicCoreStatusSet = useMemo(() => new Set(dynamicStatuses), [dynamicStatuses]);
   const dynamicCleanupStatusSet = useMemo(
@@ -2184,7 +2194,7 @@ export function AdminDashboardPage({ user, onLogout }) {
         {/* ── Filters ── */}
         <div className="filters-bar">
           <MultiSelectDropdown
-            label="Status"
+            label="Defect/Enhancement Status"
             options={runtimeStatusFilterOptions}
             selectedValues={filters.statuses}
             onChange={(nextStatuses) => setFilters((prev) => ({ ...prev, statuses: nextStatuses }))}
@@ -2205,17 +2215,29 @@ export function AdminDashboardPage({ user, onLogout }) {
             <option value="retired_only">Retired Only</option>
             <option value="all">Show All</option>
           </Select>
-          <Select
+          <MultiSelectDropdown
             label="Type"
-            value={filters.type}
-            onChange={(e) => setFilters((prev) => ({ ...prev, type: e.target.value }))}
+            options={runtimeTypeFilterOptions}
+            selectedValues={filters.types}
+            onChange={(nextTypes) => setFilters((prev) => ({ ...prev, types: nextTypes }))}
+            placeholder="All types"
+          />
+          <Select
+            label="Cleanup Required"
+            value={filters.cleanupRequired}
+            onChange={(e) => setFilters((prev) => ({ ...prev, cleanupRequired: e.target.value }))}
           >
-            <option value="">All types</option>
-            {dynamicSubmissionTypes.map((typeValue) => (
-              <option key={typeValue} value={typeValue}>{formatMetaTypeLabel(typeValue)}</option>
-            ))}
-            <option value="cleanup">Clean Up</option>
+            <option value="">Show All</option>
+            <option value="yes">Yes</option>
+            <option value="no">No</option>
           </Select>
+          <MultiSelectDropdown
+            label="Cleanup Status"
+            options={dynamicCleanupStatuses}
+            selectedValues={filters.cleanupStatuses}
+            onChange={(nextCleanupStatuses) => setFilters((prev) => ({ ...prev, cleanupStatuses: nextCleanupStatuses }))}
+            placeholder="All cleanup statuses"
+          />
           <Input
             label="Search"
             placeholder="ID, policy, account, or keyword…"
