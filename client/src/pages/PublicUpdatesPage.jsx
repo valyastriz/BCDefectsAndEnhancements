@@ -186,15 +186,6 @@ export function PublicUpdatesPage() {
 
   const hasItems = useMemo(() => items.length > 0, [items]);
 
-  // Reset to page 1 whenever visible items change
-  useEffect(() => { setPage(1); }, [visibleItems]);
-
-  const totalPages = pageSize === 0 ? 1 : Math.max(1, Math.ceil(visibleItems.length / pageSize));
-  const pagedItems = useMemo(
-    () => pageSize === 0 ? visibleItems : visibleItems.slice((page - 1) * pageSize, page * pageSize),
-    [visibleItems, page, pageSize],
-  );
-
   function submittedDate(value) {
     if (!value) return '-';
     const parsed = new Date(value);
@@ -272,6 +263,15 @@ export function PublicUpdatesPage() {
 
     return filtered;
   }, [items, search, typeFilter, selectedStatuses, retiredFilter, sortBy]);
+
+  // Reset to page 1 whenever visible items change
+  useEffect(() => { setPage(1); }, [visibleItems]);
+
+  const totalPages = pageSize === 0 ? 1 : Math.max(1, Math.ceil(visibleItems.length / pageSize));
+  const pagedItems = useMemo(
+    () => pageSize === 0 ? visibleItems : visibleItems.slice((page - 1) * pageSize, page * pageSize),
+    [visibleItems, page, pageSize],
+  );
 
   return (
     <>
