@@ -15,22 +15,8 @@ import {
 } from '../components/bite-size/BitsizeUI';
 
 const retiredStatus = 'Retired';
-const statuses = [
-  'New',
-  'Approved',
-  'Redirected',
-  'Backlog - Monitoring Impact',
-  'Future Consideration',
-  'Deferred – Not in Current Scope',
-  'Rejected',
-  'Duplicate',
-  'Submitted',
-  'Deployed',
-];
 const cleanupOnlyStatus = 'Cleanup Only';
 const cleanupMarkedStatus = 'Cleanup Marked';
-const statusFilterOptions = [...statuses, cleanupOnlyStatus, cleanupMarkedStatus];
-const cleanupStatuses = ['Not Started', 'In Progress', 'Completed'];
 const statusToCleanup = {
   New: 'Not Started',
   Approved: 'In Progress',
@@ -38,15 +24,6 @@ const statusToCleanup = {
   Deployed: 'Completed',
   Retired: 'Completed',
 };
-const enhancementRequestTypes = [
-  'Build-PPM Funded Project',
-  'Build-Small Enhancement',
-  'Build-Small Project (Not PPM Funded)',
-  'Run-Compliance/Regulatory/Rate Revision',
-  'Run-Other Operational Work',
-];
-const enhancementPriorityLevels = ['1 - Urgent', '2 - High', '3 - Medium', '4 - Low'];
-const applications = ['Billing Center', 'Policy Center'];
 const adminMetaCategories = [
   { key: 'statuses', label: 'Defect/Enhancement Statuses', endpointCategory: 'statuses', optionsKey: 'statuses', supportsRetired: true },
   { key: 'types', label: 'Submission Types', endpointCategory: 'types', optionsKey: 'types', supportsRetired: false },
@@ -70,7 +47,7 @@ function areAllStatusesSelected(values, options) {
 
 function buildDefaultFilters() {
   return {
-    statuses: [...statusFilterOptions],
+    statuses: [],
     retiredFilter: 'non_retired',
     type: '',
     search: '',
@@ -87,24 +64,17 @@ function buildDefaultFilters() {
 }
 
 function normalizeSavedAdminStatuses(statusesValue, statusSelectionMode = 'legacy') {
-  if (statusSelectionMode === 'all') {
-    return [...statusFilterOptions];
+  // 'all' or 'legacy' → treat as "select all" (empty array = signal for syncRuntimeOptionsFromMeta to select all)
+  if (statusSelectionMode === 'all' || statusSelectionMode === 'legacy') {
+    return [];
   }
 
-  if (!Array.isArray(statusesValue)) {
-    return [...statusFilterOptions];
+  // 'custom' → preserve whatever was saved; validation against actual DB options happens in syncRuntimeOptionsFromMeta
+  if (!Array.isArray(statusesValue) || statusesValue.length === 0) {
+    return [];
   }
 
-  const normalized = statusesValue.filter((value) => statusFilterOptions.includes(value));
-  if (normalized.length === 0) {
-    return [...statusFilterOptions];
-  }
-
-  if (statusSelectionMode === 'legacy') {
-    return [...statusFilterOptions];
-  }
-
-  return normalized;
+  return statusesValue;
 }
 
 function readSavedAdminFilters() {
@@ -254,9 +224,6 @@ function toNumeric(value) {
 function editableFromDetail(detail) {
   if (!detail) return null;
   const cleanupTagType = detail.cleanup_tag_type || (detail.is_cleanup ? 'cleanup_only' : '');
-  const normalizedEnhancementRequestType = enhancementRequestTypes.includes(detail.enhancement_request_type)
-    ? detail.enhancement_request_type
-    : '';
   return {
     type: detail.type || 'defect',
     is_cleanup: Boolean(detail.is_cleanup),
@@ -293,7 +260,7 @@ function editableFromDetail(detail) {
       detail.policies_affected_count === null || detail.policies_affected_count === undefined
         ? ''
         : String(detail.policies_affected_count),
-    enhancement_request_type: normalizedEnhancementRequestType,
+    enhancement_request_type: detail.enhancement_request_type || '',
     priority_level: detail.priority_level || '3 - Medium',
     jira_number: detail.jira_number || '',
     easyvista_submitted_by: detail.easyvista_submitted_by || '',
@@ -472,11 +439,14 @@ export function AdminDashboardPage({ user, onLogout }) {
   const [showHeaderSaveTooltip, setShowHeaderSaveTooltip] = useState(false);
   const [showFooterSaveTooltip, setShowFooterSaveTooltip] = useState(false);
   const [showEasyVistaRequirements, setShowEasyVistaRequirements] = useState(false);
-  const [dynamicStatuses, setDynamicStatuses] = useState(statuses);
-  const [dynamicFilterStatuses, setDynamicFilterStatuses] = useState(statuses);
-  const [dynamicCleanupStatuses, setDynamicCleanupStatuses] = useState(cleanupStatuses);
+  const [dynamicStatuses, setDynamicStatuses] = useState([]);
+  const [dynamicFilterStatuses, setDynamicFilterStatuses] = useState([]);
+  const [dynamicCleanupStatuses, setDynamicCleanupStatuses] = useState([]);
   const [dynamicSubmissionTypes, setDynamicSubmissionTypes] = useState(['defect', 'enhancement']);
   const [dynamicCleanupTagTypes, setDynamicCleanupTagTypes] = useState(['cleanup_only', 'defect', 'enhancement']);
+  const [dynamicApplications, setDynamicApplications] = useState([]);
+  const [dynamicEnhancementRequestTypes, setDynamicEnhancementRequestTypes] = useState([]);
+  const [dynamicPriorityLevels, setDynamicPriorityLevels] = useState([]);
   const [adminMetaOptions, setAdminMetaOptions] = useState({
     statuses: [],
     types: [],
@@ -593,6 +563,24 @@ export function AdminDashboardPage({ user, onLogout }) {
         .map((item) => String(item.name || '').trim().toLowerCase())
         .filter(Boolean)
       : [];
+    const nextApplications = Array.isArray(meta?.applications)
+      ? meta.applications
+        .filter((item) => item?.isActive)
+        .map((item) => String(item.name || '').trim())
+        .filter(Boolean)
+      : [];
+    const nextEnhancementRequestTypes = Array.isArray(meta?.enhancementRequestTypes)
+      ? meta.enhancementRequestTypes
+        .filter((item) => item?.isActive)
+        .map((item) => String(item.name || '').trim())
+        .filter(Boolean)
+      : [];
+    const nextPriorityLevels = Array.isArray(meta?.priorityLevels)
+      ? meta.priorityLevels
+        .filter((item) => item?.isActive)
+        .map((item) => String(item.name || '').trim())
+        .filter(Boolean)
+      : [];
 
     if (nextStatuses.length > 0) {
       setDynamicStatuses(nextStatuses);
@@ -604,7 +592,7 @@ export function AdminDashboardPage({ user, onLogout }) {
       setFilters((prev) => ({
         ...prev,
         statuses:
-          areAllStatusesSelected(prev.statuses, statusFilterOptionsRef.current)
+          prev.statuses.length === 0 || areAllStatusesSelected(prev.statuses, statusFilterOptionsRef.current)
             ? nextStatusFilterOptions
             : prev.statuses.filter((value) => nextStatusFilterOptions.includes(value)),
       }));
@@ -617,6 +605,15 @@ export function AdminDashboardPage({ user, onLogout }) {
     }
     if (nextCleanupTagTypes.length > 0) {
       setDynamicCleanupTagTypes(nextCleanupTagTypes);
+    }
+    if (nextApplications.length > 0) {
+      setDynamicApplications(nextApplications);
+    }
+    if (nextEnhancementRequestTypes.length > 0) {
+      setDynamicEnhancementRequestTypes(nextEnhancementRequestTypes);
+    }
+    if (nextPriorityLevels.length > 0) {
+      setDynamicPriorityLevels(nextPriorityLevels);
     }
   }, []);
 
@@ -2288,7 +2285,10 @@ export function AdminDashboardPage({ user, onLogout }) {
                 window.localStorage.removeItem(adminFiltersStorageKey);
                 window.localStorage.removeItem(adminRetiredFilterStorageKey);
               }
-              setFilters(buildDefaultFilters());
+              setFilters({
+                ...buildDefaultFilters(),
+                statuses: runtimeStatusFilterOptions.length > 0 ? [...runtimeStatusFilterOptions] : [],
+              });
             }}
           >
             Reset Saved Filters
@@ -2512,7 +2512,7 @@ export function AdminDashboardPage({ user, onLogout }) {
               value={cleanupForm.application_name}
               onChange={(e) => setCleanupForm((prev) => ({ ...prev, application_name: e.target.value }))}
             >
-              {applications.map((application) => (
+              {dynamicApplications.map((application) => (
                 <option key={application} value={application}>{application}</option>
               ))}
             </Select>
@@ -2574,7 +2574,7 @@ export function AdminDashboardPage({ user, onLogout }) {
                   onChange={(e) => setCleanupForm((prev) => ({ ...prev, enhancement_request_type: e.target.value }))}
                 >
                   <option value="">Select one</option>
-                  {enhancementRequestTypes.map((option) => (
+                  {dynamicEnhancementRequestTypes.map((option) => (
                     <option key={option} value={option}>{option}</option>
                   ))}
                 </Select>
@@ -2583,7 +2583,7 @@ export function AdminDashboardPage({ user, onLogout }) {
                   value={cleanupForm.priority_level}
                   onChange={(e) => setCleanupForm((prev) => ({ ...prev, priority_level: e.target.value }))}
                 >
-                  {enhancementPriorityLevels.map((option) => (
+                  {dynamicPriorityLevels.map((option) => (
                     <option key={option} value={option}>{option}</option>
                   ))}
                 </Select>
@@ -2985,7 +2985,7 @@ export function AdminDashboardPage({ user, onLogout }) {
                     }}
                   >
                     <option value="">Select DB status</option>
-                    {[...(importAllowedStatuses.length > 0 ? importAllowedStatuses : [...statuses, retiredStatus])]
+                    {[...(importAllowedStatuses.length > 0 ? importAllowedStatuses : [...dynamicStatuses, retiredStatus])]
                       .sort((left, right) => String(left || '').localeCompare(String(right || '')))
                       .map((allowedStatus) => (
                       <option key={`${statusValue}-${allowedStatus}`} value={allowedStatus}>{allowedStatus}</option>
@@ -3185,7 +3185,7 @@ export function AdminDashboardPage({ user, onLogout }) {
               value={backdatedForm.application_name}
               onChange={(e) => setBackdatedForm((prev) => ({ ...prev, application_name: e.target.value }))}
             >
-              {applications.map((application) => (
+              {dynamicApplications.map((application) => (
                 <option key={application} value={application}>{application}</option>
               ))}
             </Select>
@@ -3589,7 +3589,7 @@ export function AdminDashboardPage({ user, onLogout }) {
                     value={edit.application_name || 'Billing Center'}
                     onChange={(e) => setEdit((p) => ({ ...p, application_name: e.target.value }))}
                   >
-                    {applications.map((application) => (
+                    {dynamicApplications.map((application) => (
                       <option key={application} value={application}>{application}</option>
                     ))}
                   </Select>
@@ -3657,10 +3657,10 @@ export function AdminDashboardPage({ user, onLogout }) {
                     <div className="bs-grid two">
                       <Select label="Request Type" required value={edit.enhancement_request_type} onChange={(e) => setEdit((p) => ({ ...p, enhancement_request_type: e.target.value }))}>
                         <option value="">Select one</option>
-                        {enhancementRequestTypes.map((o) => <option key={o} value={o}>{o}</option>)}
+                        {dynamicEnhancementRequestTypes.map((o) => <option key={o} value={o}>{o}</option>)}
                       </Select>
                       <Select label="Priority Level" value={edit.priority_level} onChange={(e) => setEdit((p) => ({ ...p, priority_level: e.target.value }))}>
-                        {enhancementPriorityLevels.map((o) => <option key={o} value={o}>{o}</option>)}
+                        {dynamicPriorityLevels.map((o) => <option key={o} value={o}>{o}</option>)}
                       </Select>
                       <Input label="JIRA Number" value={edit.jira_number} onChange={(e) => setEdit((p) => ({ ...p, jira_number: e.target.value }))} />
                       <Select label="In JIRA" value={edit.logged_defect ? 'yes' : 'no'} onChange={(e) => setEdit((p) => ({ ...p, logged_defect: e.target.value === 'yes' }))}>
