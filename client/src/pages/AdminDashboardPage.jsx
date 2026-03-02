@@ -137,7 +137,7 @@ function defaultBackdatedForm(defaultRequester = '') {
     type: 'defect',
     status: 'New',
     is_cleanup: false,
-    cleanup_status: 'Not Started',
+    cleanup_status: 'New',
     created_by: String(defaultRequester || '').trim() || 'Admin',
     created_by_email: '',
     application_name: 'Billing Center',
@@ -170,7 +170,7 @@ function defaultCleanupForm(currentUser) {
     created_via: 'admin_cleanup',
     type: 'defect',
     is_cleanup: true,
-    cleanup_status: 'Not Started',
+    cleanup_status: 'New',
     cleanup_tag_type: 'cleanup_only',
     submit_to_easyvista: false,
     created_by: String(currentUser || '').trim() || 'Admin',
@@ -232,7 +232,7 @@ function editableFromDetail(detail) {
   return {
     type: detail.type || 'defect',
     is_cleanup: Boolean(detail.is_cleanup),
-    cleanup_status: detail.cleanup_status || statusToCleanup[detail.status] || 'Not Started',
+    cleanup_status: detail.cleanup_status || statusToCleanup[detail.status] || 'New',
     cleanup_tag_type: cleanupTagType,
     application_name: detail.application_name || 'Billing Center',
     policy_num: detail.policy_num || '',
@@ -1133,7 +1133,7 @@ export function AdminDashboardPage({ user, onLogout }) {
         ? {
           status: 'New',
           is_cleanup: true,
-          cleanup_status: rowContext?.cleanup_status || statusToCleanup[rowContext?.status] || 'Not Started',
+          cleanup_status: rowContext?.cleanup_status || statusToCleanup[rowContext?.status] || 'New',
           cleanup_tag_type: 'cleanup_only',
           type: 'defect',
         }
@@ -1159,7 +1159,7 @@ export function AdminDashboardPage({ user, onLogout }) {
             ...(status === cleanupOnlyStatus
               ? {
                 is_cleanup: true,
-                cleanup_status: row.cleanup_status || statusToCleanup[row.status] || 'Not Started',
+                cleanup_status: row.cleanup_status || statusToCleanup[row.status] || 'New',
                 cleanup_tag_type: 'cleanup_only',
                 type: 'defect',
               }
@@ -2388,7 +2388,7 @@ export function AdminDashboardPage({ user, onLogout }) {
                     <select
                       className="bs-inline-select"
                       aria-label={`Update cleanup status for #${row.id}`}
-                      value={row.is_cleanup ? (row.cleanup_status || statusToCleanup[row.status] || 'Not Started') : 'No Cleanup'}
+                      value={row.is_cleanup ? (row.cleanup_status || statusToCleanup[row.status] || 'New') : 'No Cleanup'}
                       onPointerDown={(e) => e.stopPropagation()}
                       onMouseDown={(e) => e.stopPropagation()}
                       onClick={(e) => e.stopPropagation()}
@@ -3451,8 +3451,8 @@ export function AdminDashboardPage({ user, onLogout }) {
                       ...p,
                       is_cleanup: e.target.checked,
                       cleanup_status: e.target.checked
-                        ? (p.cleanup_status || statusToCleanup[p.status] || 'Not Started')
-                        : '',
+                        ? (p.cleanup_status || statusToCleanup[p.status] || 'New')
+                        : p.cleanup_status,
                       cleanup_tag_type: e.target.checked
                         ? (
                             p.cleanup_tag_type
@@ -3519,7 +3519,7 @@ export function AdminDashboardPage({ user, onLogout }) {
               </Select>
               <Select
                 label="Cleanup Status"
-                value={edit.cleanup_status || 'Not Started'}
+                value={edit.cleanup_status || 'New'}
                 onChange={(e) => setEdit((p) => ({ ...p, cleanup_status: e.target.value }))}
                 disabled={!edit.is_cleanup}
               >

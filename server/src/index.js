@@ -255,8 +255,9 @@ function mapSubmission(row) {
   const isCleanup = Boolean(row.is_cleanup);
   const baseStatus = resolvedStatus;
   const isRetired = Boolean(row.is_retired) || String(baseStatus) === 'Retired';
-  const cleanupStatus = isCleanup
-    ? (resolvedCleanupStatus || SUBMISSION_TO_CLEANUP_STATUS[baseStatus] || 'Not Started')
+  // Gated display value (null when is_cleanup=false); used for cleanup_status_display
+  const cleanupStatusDisplay = isCleanup
+    ? (resolvedCleanupStatus || SUBMISSION_TO_CLEANUP_STATUS[baseStatus] || 'New')
     : null;
 
   return {
@@ -268,8 +269,9 @@ function mapSubmission(row) {
     is_public: Boolean(row.is_public),
     is_retired: isRetired,
     is_cleanup: isCleanup,
-    cleanup_status: cleanupStatus,
-    cleanup_status_display: cleanupStatus || 'No Cleanup',
+    // Always expose the stored name so the edit form can restore it after is_cleanup toggling
+    cleanup_status: resolvedCleanupStatus,
+    cleanup_status_display: cleanupStatusDisplay || 'No Cleanup',
     cleanup_tag_type: resolvedCleanupTagType,
     enhancement_request_type: resolvedEnhancementRequestType,
     priority_level: resolvedPriorityLevel,
@@ -2494,7 +2496,7 @@ app.post('/api/admin/submissions', ensureAdmin, async (req, res) => {
 
     const requestedCleanupStatus = String(body.cleanup_status || '').trim();
     const cleanupStatus = isCleanup
-      ? (allowedCleanupStatuses.includes(requestedCleanupStatus) ? requestedCleanupStatus : 'Not Started')
+      ? (allowedCleanupStatuses.includes(requestedCleanupStatus) ? requestedCleanupStatus : 'New')
       : null;
     const requestedFinalStatus = String(body.status || '').trim();
     const finalStatus = allowedStatuses.includes(requestedFinalStatus) ? requestedFinalStatus : 'New';
@@ -2721,7 +2723,7 @@ app.put('/api/admin/submissions/:id', ensureAdmin, async (req, res) => {
     const nextCleanupStatus = isCleanup
         ? (allowedCleanupStatuses.includes(requestedCleanupStatus)
           ? requestedCleanupStatus
-          : (existing.cleanup_status || SUBMISSION_TO_CLEANUP_STATUS[existing.status] || 'Not Started'))
+          : (existing.cleanup_status || SUBMISSION_TO_CLEANUP_STATUS[existing.status] || 'New'))
       : null;
 
     const nextCleanupTagType = isCleanup
@@ -2886,7 +2888,8 @@ app.put('/api/admin/submissions/:id', ensureAdmin, async (req, res) => {
       release_number: next.release_number,
       release_notes: next.release_notes,
       is_cleanup: toBooleanSql(next.is_cleanup),
-      cleanup_status_id: lookupIds.cleanup_status_id,
+      // When is_cleanup=false preserve the existing ID so it can be restored if re-checked later
+      cleanup_status_id: isCleanup ? lookupIds.cleanup_status_id : (existing.cleanup_status_id ?? null),
       cleanup_tag_type_id: lookupIds.cleanup_tag_type_id,
       is_retired: toBooleanSql(next.is_retired),
       duplicate_reference: next.duplicate_reference,
