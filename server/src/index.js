@@ -1052,6 +1052,41 @@ async function resolveSubmissionLookupIds(db, payload) {
   };
 }
 
+// Hydrate text fields from FK IDs — the DB stores only _id columns, no redundant text columns.
+async function resolveExistingLookupFields(existing) {
+  const dbModels = dbApi.getModels() || {};
+
+  async function getNameById(model, id, { lowercase = false } = {}) {
+    if (!id || !model) return null;
+    const row = await model.findByPk(Number(id), { attributes: ['name'], raw: true });
+    const name = row?.name ? String(row.name).trim() : null;
+    return name && lowercase ? name.toLowerCase() : name;
+  }
+
+  const [type, status, cleanupStatus, cleanupTagType, createdVia, applicationName, enhancementRequestType, priorityLevel] = await Promise.all([
+    getNameById(dbModels.SubmissionType, existing.type_id, { lowercase: true }),
+    getNameById(dbModels.DefectEnhancementStatus, existing.status_id),
+    getNameById(dbModels.CleanupStatus, existing.cleanup_status_id),
+    getNameById(dbModels.CleanupTagType, existing.cleanup_tag_type_id, { lowercase: true }),
+    getNameById(dbModels.SubmissionSource, existing.created_via_id, { lowercase: true }),
+    getNameById(dbModels.Application, existing.application_id),
+    getNameById(dbModels.EnhancementRequestType, existing.enhancement_request_type_id),
+    getNameById(dbModels.PriorityLevel, existing.priority_level_id),
+  ]);
+
+  return {
+    ...existing,
+    type: type ?? existing.type ?? null,
+    status: status ?? existing.status ?? null,
+    cleanup_status: cleanupStatus ?? existing.cleanup_status ?? null,
+    cleanup_tag_type: cleanupTagType ?? existing.cleanup_tag_type ?? null,
+    created_via: createdVia ?? existing.created_via ?? null,
+    application_name: applicationName ?? existing.application_name ?? null,
+    enhancement_request_type: enhancementRequestType ?? existing.enhancement_request_type ?? null,
+    priority_level: priorityLevel ?? existing.priority_level ?? null,
+  };
+}
+
 const SUBMISSION_LOOKUP_AUDIT_CONFIG = [
   {
     key: 'created_via',
@@ -2695,10 +2730,12 @@ app.put('/api/admin/submissions/:id', ensureAdmin, async (req, res) => {
     const allowedCleanupStatuses = await getCleanupStatuses(db);
     const allowedCleanupTagTypes = await getCleanupTagTypes(db);
 
-    const existing = await Submission.findByPk(Number(req.params.id), { raw: true });
-    if (!existing) {
+    const rawExisting = await Submission.findByPk(Number(req.params.id), { raw: true });
+    if (!rawExisting) {
       return res.status(404).json({ error: 'Submission not found' });
     }
+    // Hydrate text fields from FK IDs (DB stores only _id columns, no redundant text columns)
+    const existing = await resolveExistingLookupFields(rawExisting);
 
     const incomingDuplicateReference =
       body.duplicate_reference ?? body.duplicate_of ?? existing.duplicate_reference ?? existing.duplicate_of;
