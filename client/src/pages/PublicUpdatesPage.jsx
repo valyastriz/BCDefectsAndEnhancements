@@ -204,9 +204,12 @@ export function PublicUpdatesPage() {
   }
 
   function descriptionForItem(item) {
+    const name = String(item.created_by || 'Requester').trim();
     const defectDescription = String(item.what_happened_exact_details || '').trim();
     const enhancementDescription = String(item.request || '').trim();
-    return defectDescription || enhancementDescription || '-';
+    const body = defectDescription || enhancementDescription;
+    if (!body) return '-';
+    return `${name} submitted the following: ${body}`;
   }
 
   const visibleItems = useMemo(() => {
