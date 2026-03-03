@@ -401,7 +401,7 @@ async function backfillLookupIds(models) {
 
 async function migrateWithModels(sequelize, models) {
   await sequelize.authenticate();
-  await sequelize.sync();
+  await sequelize.sync({ alter: true });
 
   await seedLookup(models.DefectEnhancementStatus, DEFAULT_DEFECT_ENHANCEMENT_STATUSES, { retiredValue: 'Retired' });
   await seedLookup(models.SubmissionType, DEFAULT_SUBMISSION_TYPES);
