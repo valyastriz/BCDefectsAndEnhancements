@@ -3729,8 +3729,10 @@ export function AdminDashboardPage({ user, onLogout }) {
             {/* ── Submission details ── */}
             <p className="section-label">Submission Details</p>
             <Input label="Summary" value={edit.summary_of_issue} onChange={(e) => setEdit((p) => ({ ...p, summary_of_issue: e.target.value }))} />
-            <Input label="Reported Date" value={formatDateOnly(detail.created_at)} readOnly />
-            <Input label="Requester Name" value={detail.created_by || ''} readOnly />
+            <div className="bs-grid two">
+              <Input label="Reported Date" value={formatDateOnly(detail.created_at)} readOnly />
+              <Input label="Requester Name" value={detail.created_by || ''} readOnly />
+            </div>
 
             <details>
               <summary style={{ cursor: 'pointer', fontWeight: 600 }}>More Submission Details</summary>
