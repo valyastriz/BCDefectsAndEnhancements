@@ -3729,24 +3729,27 @@ export function AdminDashboardPage({ user, onLogout }) {
             {/* ── Submission details ── */}
             <p className="section-label">Submission Details</p>
             <Input label="Summary" value={edit.summary_of_issue} onChange={(e) => setEdit((p) => ({ ...p, summary_of_issue: e.target.value }))} />
-
-            {(effectiveType === 'defect' || !effectiveType) && (
-              <Input label="Date / Time of Error" type="datetime-local" value={edit.date_time_of_error} onChange={(e) => setEdit((p) => ({ ...p, date_time_of_error: e.target.value }))} />
-            )}
-            {effectiveType === 'enhancement' && (
-              <Input label="Desired Completion Date" type="date" value={edit.desired_completion_date} onChange={(e) => setEdit((p) => ({ ...p, desired_completion_date: e.target.value }))} />
-            )}
-
-            {(effectiveType === 'defect' || !effectiveType) && (
-              <Textarea label="Exact Details / What Happened" rows={3} value={edit.what_happened_exact_details} onChange={(e) => setEdit((p) => ({ ...p, what_happened_exact_details: e.target.value }))} />
-            )}
-            {effectiveType === 'enhancement' && (
-              <Textarea label="Request Details" rows={3} value={edit.request} onChange={(e) => setEdit((p) => ({ ...p, request: e.target.value }))} />
-            )}
+            <Input label="Reported Date" value={formatDateOnly(detail.created_at)} readOnly />
+            <Input label="Requester Name" value={detail.created_by || ''} readOnly />
 
             <details>
               <summary style={{ cursor: 'pointer', fontWeight: 600 }}>More Submission Details</summary>
               <div className="bs-form" style={{ marginTop: 12 }}>
+                {(effectiveType === 'defect' || !effectiveType) && (
+                  <Input label="Date / Time of Error" type="datetime-local" value={edit.date_time_of_error} onChange={(e) => setEdit((p) => ({ ...p, date_time_of_error: e.target.value }))} />
+                )}
+                {effectiveType === 'enhancement' && (
+                  <Input label="Desired Completion Date" type="date" value={edit.desired_completion_date} onChange={(e) => setEdit((p) => ({ ...p, desired_completion_date: e.target.value }))} />
+                )}
+                {(effectiveType === 'defect' || !effectiveType) && (
+                  <Textarea label="Exact Details / What Happened" rows={3} value={edit.what_happened_exact_details} onChange={(e) => setEdit((p) => ({ ...p, what_happened_exact_details: e.target.value }))} />
+                )}
+                {effectiveType === 'enhancement' && (
+                  <Textarea label="Request Details" rows={3} value={edit.request} onChange={(e) => setEdit((p) => ({ ...p, request: e.target.value }))} />
+                )}
+                {(effectiveType === 'defect' || !effectiveType) && (
+                  <Textarea label="Steps to Reproduce" rows={3} value={edit.steps_to_reproduce} onChange={(e) => setEdit((p) => ({ ...p, steps_to_reproduce: e.target.value }))} />
+                )}
                 <div className="bs-grid two">
                   <Select
                     label="Application"
@@ -3763,9 +3766,6 @@ export function AdminDashboardPage({ user, onLogout }) {
                   <Input label="Fingerprint" value={edit.fingerprint} onChange={(e) => setEdit((p) => ({ ...p, fingerprint: e.target.value }))} />
                 </div>
                 <Input label="Screen Title" value={edit.screen_title} onChange={(e) => setEdit((p) => ({ ...p, screen_title: e.target.value }))} />
-                {(effectiveType === 'defect' || !effectiveType) && (
-                  <Textarea label="Steps to Reproduce" rows={3} value={edit.steps_to_reproduce} onChange={(e) => setEdit((p) => ({ ...p, steps_to_reproduce: e.target.value }))} />
-                )}
               </div>
             </details>
 
