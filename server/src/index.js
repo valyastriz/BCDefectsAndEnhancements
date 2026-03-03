@@ -343,6 +343,73 @@ function toExportCellValue(value) {
   return value;
 }
 
+// Build a single id→name map from a lookup model
+async function buildIdNameMap(Model) {
+  if (!Model) return new Map();
+  try {
+    const lookupRows = await Model.findAll({ attributes: ['id', 'name'], raw: true });
+    return new Map(lookupRows.map((r) => [Number(r.id), String(r.name || '').trim()]));
+  } catch { return new Map(); }
+}
+
+// Load all lookup id→name maps in parallel from DB models
+async function buildAllLookupMaps(dbModels) {
+  const [
+    statusIdToName,
+    typeIdToName,
+    cleanupTagTypeIdToName,
+    cleanupStatusIdToName,
+    applicationIdToName,
+    enhancementRequestTypeIdToName,
+    priorityLevelIdToName,
+    createdViaIdToName,
+  ] = await Promise.all([
+    buildIdNameMap(dbModels.DefectEnhancementStatus),
+    buildIdNameMap(dbModels.SubmissionType),
+    buildIdNameMap(dbModels.CleanupTagType),
+    buildIdNameMap(dbModels.CleanupStatus),
+    buildIdNameMap(dbModels.Application),
+    buildIdNameMap(dbModels.EnhancementRequestType),
+    buildIdNameMap(dbModels.PriorityLevel),
+    buildIdNameMap(dbModels.SubmissionSource),
+  ]);
+  return {
+    statusIdToName,
+    typeIdToName,
+    cleanupTagTypeIdToName,
+    cleanupStatusIdToName,
+    applicationIdToName,
+    enhancementRequestTypeIdToName,
+    priorityLevelIdToName,
+    createdViaIdToName,
+  };
+}
+
+// Augment a raw Submission row with text names resolved from FK _id columns
+function hydrateRowFromMaps(row, maps) {
+  const {
+    statusIdToName,
+    typeIdToName,
+    cleanupTagTypeIdToName,
+    cleanupStatusIdToName,
+    applicationIdToName,
+    enhancementRequestTypeIdToName,
+    priorityLevelIdToName,
+    createdViaIdToName,
+  } = maps;
+  return {
+    ...row,
+    status: statusIdToName.get(Number(row.status_id)) || '',
+    type: typeIdToName.get(Number(row.type_id)) || '',
+    cleanup_tag_type: cleanupTagTypeIdToName.get(Number(row.cleanup_tag_type_id)) || '',
+    cleanup_status: cleanupStatusIdToName.get(Number(row.cleanup_status_id)) || '',
+    application_name: applicationIdToName.get(Number(row.application_id)) || '',
+    enhancement_request_type: enhancementRequestTypeIdToName.get(Number(row.enhancement_request_type_id)) || '',
+    priority_level: priorityLevelIdToName.get(Number(row.priority_level_id)) || '',
+    created_via: createdViaIdToName.get(Number(row.created_via_id)) || '',
+  };
+}
+
 async function listFilteredAdminSubmissions(db, query = {}) {
   const {
     status,
@@ -372,15 +439,7 @@ async function listFilteredAdminSubmissions(db, query = {}) {
     throw new Error('Submission model is not available');
   }
 
-  // Build id→name lookup maps from the lookup tables (replaces reading legacy text columns)
-  async function buildIdNameMap(Model) {
-    if (!Model) return new Map();
-    try {
-      const lookupRows = await Model.findAll({ attributes: ['id', 'name'], raw: true });
-      return new Map(lookupRows.map((r) => [Number(r.id), String(r.name || '').trim()]));
-    } catch { return new Map(); }
-  }
-  const [
+  const {
     statusIdToName,
     typeIdToName,
     cleanupTagTypeIdToName,
@@ -389,16 +448,7 @@ async function listFilteredAdminSubmissions(db, query = {}) {
     enhancementRequestTypeIdToName,
     priorityLevelIdToName,
     createdViaIdToName,
-  ] = await Promise.all([
-    buildIdNameMap(dbModels.DefectEnhancementStatus),
-    buildIdNameMap(dbModels.SubmissionType),
-    buildIdNameMap(dbModels.CleanupTagType),
-    buildIdNameMap(dbModels.CleanupStatus),
-    buildIdNameMap(dbModels.Application),
-    buildIdNameMap(dbModels.EnhancementRequestType),
-    buildIdNameMap(dbModels.PriorityLevel),
-    buildIdNameMap(dbModels.SubmissionSource),
-  ]);
+  } = await buildAllLookupMaps(dbModels);
 
   const statusList = String(statuses || '')
     .split(',')
@@ -425,17 +475,8 @@ async function listFilteredAdminSubmissions(db, query = {}) {
   const rawRows = await Submission.findAll({ raw: true });
 
   // Augment each row with text names resolved from _id FK columns
-  const rows = rawRows.map((row) => ({
-    ...row,
-    status: statusIdToName.get(Number(row.status_id)) || '',
-    type: typeIdToName.get(Number(row.type_id)) || '',
-    cleanup_tag_type: cleanupTagTypeIdToName.get(Number(row.cleanup_tag_type_id)) || '',
-    cleanup_status: cleanupStatusIdToName.get(Number(row.cleanup_status_id)) || '',
-    application_name: applicationIdToName.get(Number(row.application_id)) || '',
-    enhancement_request_type: enhancementRequestTypeIdToName.get(Number(row.enhancement_request_type_id)) || '',
-    priority_level: priorityLevelIdToName.get(Number(row.priority_level_id)) || '',
-    created_via: createdViaIdToName.get(Number(row.created_via_id)) || '',
-  }));
+  const maps = { statusIdToName, typeIdToName, cleanupTagTypeIdToName, cleanupStatusIdToName, applicationIdToName, enhancementRequestTypeIdToName, priorityLevelIdToName, createdViaIdToName };
+  const rows = rawRows.map((row) => hydrateRowFromMaps(row, maps));
 
   const filteredRows = rows.filter((row) => {
     const rowStatus = String(row.status || '').trim();
@@ -2337,10 +2378,14 @@ app.get('/api/public/submissions', async (_req, res) => {
       return res.status(500).json({ error: 'Submission model is not initialized' });
     }
 
-    const rows = await Submission.findAll({
+    const rawRows = await Submission.findAll({
       where: { is_public: 1 },
       raw: true,
     });
+
+    // Hydrate text fields from FK IDs (DB stores only _id columns, no redundant text columns)
+    const lookupMaps = await buildAllLookupMaps(dbModels);
+    const rows = rawRows.map((row) => hydrateRowFromMaps(row, lookupMaps));
 
     const ids = rows.map((row) => Number(row.id)).filter((id) => Number.isFinite(id));
     const events = SubmissionStatusEvent
