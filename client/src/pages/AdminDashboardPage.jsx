@@ -3726,43 +3726,6 @@ export function AdminDashboardPage({ user, onLogout }) {
               </div>
             </details>
 
-            <p className="section-label">Status Timeline</p>
-            <Card className="inner">
-              {!detail.status_events || detail.status_events.length === 0 ? (
-                <p className="muted">No status history found.</p>
-              ) : (
-                <div className="bs-form" style={{ gap: 10 }}>
-                  <div style={{ borderBottom: '1px solid var(--slate-200)', paddingBottom: 8 }}>
-                    <p style={{ margin: 0 }}>
-                      <strong>{formatTimelineStatus(detail.status_events[0].status)}</strong> on {formatDateTime(detail.status_events[0].changed_at)}
-                    </p>
-                    <p className="muted" style={{ margin: 0, fontSize: 13 }}>
-                      Updated by: {detail.status_events[0].changed_by || 'Unknown'}
-                    </p>
-                  </div>
-                  {detail.status_events.length > 1 && (
-                    <details>
-                      <summary style={{ cursor: 'pointer', fontWeight: 600 }}>
-                        Show previous statuses ({detail.status_events.length - 1})
-                      </summary>
-                      <div className="bs-form" style={{ gap: 8, marginTop: 10 }}>
-                        {detail.status_events.slice(1).map((event) => (
-                          <div key={event.id} style={{ borderBottom: '1px solid var(--slate-200)', paddingBottom: 8 }}>
-                            <p style={{ margin: 0 }}>
-                              <strong>{formatTimelineStatus(event.status)}</strong> on {formatDateTime(event.changed_at)}
-                            </p>
-                            <p className="muted" style={{ margin: 0, fontSize: 13 }}>
-                              Updated by: {event.changed_by || 'Unknown'}
-                            </p>
-                          </div>
-                        ))}
-                      </div>
-                    </details>
-                  )}
-                </div>
-              )}
-            </Card>
-
             {/* ── Submission details ── */}
             <p className="section-label">Submission Details</p>
             <Input label="Summary" value={edit.summary_of_issue} onChange={(e) => setEdit((p) => ({ ...p, summary_of_issue: e.target.value }))} />
@@ -3799,6 +3762,89 @@ export function AdminDashboardPage({ user, onLogout }) {
                 <Textarea label="Request Details" rows={3} value={edit.request} onChange={(e) => setEdit((p) => ({ ...p, request: e.target.value }))} />
               </div>
             </details>
+
+            {/* ── Description As Submitted To EasyVista ── */}
+            {detail.easyvista_ticket_id && isAutoEasyVistaReporter(detail.easyvista_submitted_by) && (() => {
+              const evDesc = [
+                `Type: ${detail.type || ''}`,
+                `Application: ${detail.application_name || ''}`,
+                `Created By: ${detail.created_by || ''} (${detail.created_by_email || ''})`,
+                `Policy #: ${detail.policy_num || 'N/A'}`,
+                `Account #: ${detail.account_num || 'N/A'}`,
+                `Transaction #: ${detail.transaction_num || 'N/A'}`,
+                `Screen Title: ${detail.screen_title || ''}`,
+                `Date/Time of Error: ${detail.date_time_of_error || ''}`,
+                `Desired Completion Date: ${detail.desired_completion_date || 'N/A'}`,
+                `Enhancement Request Type: ${detail.enhancement_request_type || 'N/A'}`,
+                `Priority Level: ${detail.priority_level || 'N/A'}`,
+                `JIRA Number: ${detail.jira_number || 'N/A'}`,
+                '',
+                'Summary:',
+                detail.summary_of_issue || '',
+                '',
+                'Steps to Reproduce:',
+                detail.steps_to_reproduce || '',
+                '',
+                'What Happened (Exact Details):',
+                `${detail.created_by || 'Requester'} submitted the following:`,
+                detail.what_happened_exact_details || '',
+                '',
+                'Request:',
+                detail.request || '',
+                '',
+                'Impact Details:',
+                detail.impact_details || 'N/A',
+              ].join('\n');
+              return (
+                <details>
+                  <summary style={{ cursor: 'pointer', fontWeight: 600, color: 'var(--color-primary)' }}>
+                    Description As Submitted To EasyVista
+                  </summary>
+                  <Card className="inner" style={{ marginTop: 10 }}>
+                    <pre style={{ margin: 0, fontFamily: 'inherit', fontSize: 13, whiteSpace: 'pre-wrap', wordBreak: 'break-word', color: 'var(--color-text)', background: 'var(--color-surface)', padding: 12, borderRadius: 6, border: '1px solid var(--color-border)' }}>
+                      {evDesc}
+                    </pre>
+                  </Card>
+                </details>
+              );
+            })()}
+
+            <p className="section-label">Status Timeline</p>
+            <Card className="inner">
+              {!detail.status_events || detail.status_events.length === 0 ? (
+                <p className="muted">No status history found.</p>
+              ) : (
+                <div className="bs-form" style={{ gap: 10 }}>
+                  <div style={{ borderBottom: '1px solid var(--slate-200)', paddingBottom: 8 }}>
+                    <p style={{ margin: 0 }}>
+                      <strong>{formatTimelineStatus(detail.status_events[0].status)}</strong> on {formatDateTime(detail.status_events[0].changed_at)}
+                    </p>
+                    <p className="muted" style={{ margin: 0, fontSize: 13 }}>
+                      Updated by: {detail.status_events[0].changed_by || 'Unknown'}
+                    </p>
+                  </div>
+                  {detail.status_events.length > 1 && (
+                    <details>
+                      <summary style={{ cursor: 'pointer', fontWeight: 600 }}>
+                        Show previous statuses ({detail.status_events.length - 1})
+                      </summary>
+                      <div className="bs-form" style={{ gap: 8, marginTop: 10 }}>
+                        {detail.status_events.slice(1).map((event) => (
+                          <div key={event.id} style={{ borderBottom: '1px solid var(--slate-200)', paddingBottom: 8 }}>
+                            <p style={{ margin: 0 }}>
+                              <strong>{formatTimelineStatus(event.status)}</strong> on {formatDateTime(event.changed_at)}
+                            </p>
+                            <p className="muted" style={{ margin: 0, fontSize: 13 }}>
+                              Updated by: {event.changed_by || 'Unknown'}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    </details>
+                  )}
+                </div>
+              )}
+            </Card>
 
             <p className="section-label">Impact Analysis</p>
             <div
