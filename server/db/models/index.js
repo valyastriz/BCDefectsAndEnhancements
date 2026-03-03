@@ -34,6 +34,7 @@ const DEFAULT_SUBMISSION_SOURCES = [
   'admin_manual',
   'admin_easyvista_resubmission',
 ];
+const DEFAULT_OCCURRENCE_TIMEFRAMES = ['Day', 'Week', 'Month', 'Quarter', 'Year'];
 
 function defineModels(sequelize) {
   const User = sequelize.define('User', {
@@ -92,12 +93,16 @@ function defineModels(sequelize) {
     latest_resubmission_easyvista_ticket_id: { type: DataTypes.TEXT },
     is_retired: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
     is_public: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
+    occurrence_count: { type: DataTypes.INTEGER, allowNull: true },
+    occurrence_timeframe_count: { type: DataTypes.INTEGER, allowNull: true },
+    occurrence_timeframe_id: { type: DataTypes.INTEGER, allowNull: true },
+    occurrence_rate: { type: DataTypes.REAL, allowNull: true },
   }, {
     tableName: 'submissions',
     timestamps: false,
     indexes: [
-      { name: 'idx_submissions_status', fields: ['status'] },
-      { name: 'idx_submissions_type', fields: ['type'] },
+      { name: 'idx_submissions_status_id', fields: ['status_id'] },
+      { name: 'idx_submissions_type_id', fields: ['type_id'] },
       { name: 'idx_submissions_public', fields: ['is_public'] },
     ],
   });
@@ -209,6 +214,14 @@ function defineModels(sequelize) {
     is_active: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 1 },
   }, { tableName: 'submission_sources', timestamps: false });
 
+  const OccurrenceTimeframe = sequelize.define('OccurrenceTimeframe', {
+    id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
+    name: { type: DataTypes.TEXT, allowNull: false, unique: true },
+    days_equivalent: { type: DataTypes.REAL, allowNull: false },
+    sort_order: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
+    is_active: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 1 },
+  }, { tableName: 'occurrence_timeframes', timestamps: false });
+
   return {
     User,
     Submission,
@@ -223,6 +236,7 @@ function defineModels(sequelize) {
     EnhancementRequestType,
     PriorityLevel,
     SubmissionSource,
+    OccurrenceTimeframe,
   };
 }
 
@@ -243,151 +257,9 @@ async function seedLookup(model, values, { retiredValue = null } = {}) {
   }
 }
 
-function normalizeLookupValue(value) {
-  return String(value || '').trim().toLowerCase();
-}
-
-async function runLookupBackfill(models, config) {
-  const Submission = models.Submission;
-  const LookupModel = models[config.lookupModelKey];
-  if (!Submission || !LookupModel) return;
-
-  const lookupRows = await LookupModel.findAll({
-    attributes: ['id', 'name'],
-    raw: true,
-  });
-  const lookupByName = new Map(
-    lookupRows.map((row) => [normalizeLookupValue(row.name), row]),
-  );
-
-  const submissionsNeedingId = await Submission.findAll({
-    attributes: ['id', config.idColumn, config.textColumn],
-    where: { [config.idColumn]: null },
-    raw: true,
-  });
-
-  for (const submission of submissionsNeedingId) {
-    const normalizedText = normalizeLookupValue(submission[config.textColumn]);
-    if (!normalizedText) continue;
-    const matchedLookup = lookupByName.get(normalizedText);
-    if (!matchedLookup) continue;
-
-    await Submission.update(
-      { [config.idColumn]: matchedLookup.id },
-      { where: { id: submission.id } },
-    );
-  }
-
-  if (config.defaultName) {
-    const normalizedDefault = normalizeLookupValue(config.defaultName);
-    const defaultLookup = lookupByName.get(normalizedDefault) || null;
-    if (defaultLookup) {
-      await Submission.update(
-        { [config.idColumn]: defaultLookup.id },
-        { where: { [config.idColumn]: null } },
-      );
-    }
-  }
-
-  const submissionsWithId = await Submission.findAll({
-    attributes: ['id', config.idColumn, config.textColumn],
-    where: {
-      [config.idColumn]: { [Op.ne]: null },
-    },
-    raw: true,
-  });
-
-  const lookupById = new Map(
-    lookupRows
-      .map((row) => [Number(row.id), row])
-      .filter(([id]) => Number.isFinite(id)),
-  );
-
-  for (const submission of submissionsWithId) {
-    const lookupId = Number(submission[config.idColumn]);
-    if (!Number.isFinite(lookupId)) continue;
-    const matchedLookup = lookupById.get(lookupId);
-    if (!matchedLookup) continue;
-
-    const currentText = String(submission[config.textColumn] || '').trim();
-    const expectedText = String(matchedLookup.name || '').trim();
-    if (currentText === expectedText) continue;
-
-    await Submission.update(
-      { [config.textColumn]: matchedLookup.name },
-      { where: { id: submission.id } },
-    );
-  }
-}
-
-async function backfillLookupIds(models) {
-  const Submission = models.Submission;
-  const SubmissionStatusEvent = models.SubmissionStatusEvent;
-  if (!Submission || !SubmissionStatusEvent) return;
-
-  const mappings = [
-    { idColumn: 'created_via_id', textColumn: 'created_via', lookupModelKey: 'SubmissionSource', defaultName: 'rep_form' },
-    { idColumn: 'type_id', textColumn: 'type', lookupModelKey: 'SubmissionType', defaultName: 'defect' },
-    { idColumn: 'application_id', textColumn: 'application_name', lookupModelKey: 'Application', defaultName: 'Billing Center' },
-    { idColumn: 'status_id', textColumn: 'status', lookupModelKey: 'DefectEnhancementStatus', defaultName: 'New' },
-    { idColumn: 'cleanup_status_id', textColumn: 'cleanup_status', lookupModelKey: 'CleanupStatus', defaultName: null },
-    { idColumn: 'cleanup_tag_type_id', textColumn: 'cleanup_tag_type', lookupModelKey: 'CleanupTagType', defaultName: null },
-    { idColumn: 'enhancement_request_type_id', textColumn: 'enhancement_request_type', lookupModelKey: 'EnhancementRequestType', defaultName: null },
-    { idColumn: 'priority_level_id', textColumn: 'priority_level', lookupModelKey: 'PriorityLevel', defaultName: null },
-  ];
-
-  for (const mapping of mappings) {
-    await runLookupBackfill(models, mapping);
-  }
-
-  const duplicateReferenceBackfillRows = await Submission.findAll({
-    attributes: ['id', 'duplicate_of', 'duplicate_reference'],
-    where: {
-      duplicate_reference: null,
-      duplicate_of: { [Op.ne]: null },
-    },
-    raw: true,
-  });
-
-  for (const row of duplicateReferenceBackfillRows) {
-    await Submission.update(
-      { duplicate_reference: String(row.duplicate_of) },
-      { where: { id: row.id } },
-    );
-  }
-
-  const existingEventRows = await SubmissionStatusEvent.findAll({
-    attributes: ['submission_id'],
-    raw: true,
-  });
-  const submissionIdsWithEvents = new Set(
-    existingEventRows
-      .map((row) => Number(row.submission_id))
-      .filter((id) => Number.isFinite(id)),
-  );
-
-  const submissions = await Submission.findAll({
-    attributes: ['id', 'status', 'updated_at'],
-    raw: true,
-  });
-
-  for (const submission of submissions) {
-    const submissionId = Number(submission.id);
-    if (!Number.isFinite(submissionId)) continue;
-    if (submissionIdsWithEvents.has(submissionId)) continue;
-
-    await SubmissionStatusEvent.create({
-      submission_id: submissionId,
-      status: submission.status,
-      changed_at: submission.updated_at,
-      changed_by: 'system-migrated',
-    });
-  }
-}
-
 async function migrateWithModels(sequelize, models) {
   await sequelize.authenticate();
-  await sequelize.sync();
+  await sequelize.sync({ alter: true });
 
   await seedLookup(models.DefectEnhancementStatus, DEFAULT_DEFECT_ENHANCEMENT_STATUSES, { retiredValue: 'Retired' });
   await seedLookup(models.SubmissionType, DEFAULT_SUBMISSION_TYPES);
@@ -398,7 +270,15 @@ async function migrateWithModels(sequelize, models) {
   await seedLookup(models.PriorityLevel, DEFAULT_PRIORITY_LEVELS);
   await seedLookup(models.SubmissionSource, DEFAULT_SUBMISSION_SOURCES);
 
-  await backfillLookupIds(models);
+  // Seed occurrence timeframes with days_equivalent values
+  for (let i = 0; i < DEFAULT_OCCURRENCE_TIMEFRAMES.length; i++) {
+    const name = DEFAULT_OCCURRENCE_TIMEFRAMES[i];
+    const daysMap = { Day: 1, Week: 7, Month: 30.44, Quarter: 91.31, Year: 365.25 };
+    await models.OccurrenceTimeframe.findOrCreate({
+      where: { name },
+      defaults: { name, days_equivalent: daysMap[name], sort_order: i + 1, is_active: 1 },
+    });
+  }
 }
 
 module.exports = {

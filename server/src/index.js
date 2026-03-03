@@ -282,6 +282,10 @@ function mapSubmission(row) {
     has_resubmission: Boolean(row.has_resubmission),
     latest_resubmission_submission_id: row.latest_resubmission_submission_id || null,
     latest_resubmission_easyvista_ticket_id: row.latest_resubmission_easyvista_ticket_id || null,
+    occurrence_count: row.occurrence_count ?? null,
+    occurrence_timeframe_count: row.occurrence_timeframe_count ?? null,
+    occurrence_timeframe: row.model_occurrence_timeframe_name || row.occurrence_timeframe || null,
+    occurrence_rate: row.occurrence_rate ?? null,
   };
 }
 
@@ -331,6 +335,10 @@ function buildAdminExportFields() {
     { key: 'duplicate_reference', label: 'Duplicate Reference', value: (row) => row.duplicate_reference || row.duplicate_of },
     { key: 'has_resubmission', label: 'Has Resubmission', value: (row) => Boolean(row.has_resubmission) ? 'Yes' : 'No' },
     { key: 'latest_resubmission_easyvista_ticket_id', label: 'Latest Resubmission Ticket', value: (row) => row.latest_resubmission_easyvista_ticket_id },
+    { key: 'occurrence_count', label: 'Occurrence Count', value: (row) => row.occurrence_count },
+    { key: 'occurrence_timeframe_count', label: 'Occurrence Timeframe #', value: (row) => row.occurrence_timeframe_count },
+    { key: 'occurrence_timeframe', label: 'Occurrence Timeframe', value: (row) => row.occurrence_timeframe },
+    { key: 'occurrence_rate', label: 'Occurrence Rate (per month)', value: (row) => row.occurrence_rate != null ? Number(row.occurrence_rate).toFixed(2) : '' },
   ];
 }
 
@@ -363,6 +371,7 @@ async function buildAllLookupMaps(dbModels) {
     enhancementRequestTypeIdToName,
     priorityLevelIdToName,
     createdViaIdToName,
+    occurrenceTimeframeIdToName,
   ] = await Promise.all([
     buildIdNameMap(dbModels.DefectEnhancementStatus),
     buildIdNameMap(dbModels.SubmissionType),
@@ -372,6 +381,7 @@ async function buildAllLookupMaps(dbModels) {
     buildIdNameMap(dbModels.EnhancementRequestType),
     buildIdNameMap(dbModels.PriorityLevel),
     buildIdNameMap(dbModels.SubmissionSource),
+    buildIdNameMap(dbModels.OccurrenceTimeframe),
   ]);
   return {
     statusIdToName,
@@ -382,6 +392,7 @@ async function buildAllLookupMaps(dbModels) {
     enhancementRequestTypeIdToName,
     priorityLevelIdToName,
     createdViaIdToName,
+    occurrenceTimeframeIdToName,
   };
 }
 
@@ -396,6 +407,7 @@ function hydrateRowFromMaps(row, maps) {
     enhancementRequestTypeIdToName,
     priorityLevelIdToName,
     createdViaIdToName,
+    occurrenceTimeframeIdToName,
   } = maps;
   return {
     ...row,
@@ -407,6 +419,7 @@ function hydrateRowFromMaps(row, maps) {
     enhancement_request_type: enhancementRequestTypeIdToName.get(Number(row.enhancement_request_type_id)) || '',
     priority_level: priorityLevelIdToName.get(Number(row.priority_level_id)) || '',
     created_via: createdViaIdToName.get(Number(row.created_via_id)) || '',
+    occurrence_timeframe: occurrenceTimeframeIdToName.get(Number(row.occurrence_timeframe_id)) || '',
   };
 }
 
@@ -448,6 +461,7 @@ async function listFilteredAdminSubmissions(db, query = {}) {
     enhancementRequestTypeIdToName,
     priorityLevelIdToName,
     createdViaIdToName,
+    occurrenceTimeframeIdToName,
   } = await buildAllLookupMaps(dbModels);
 
   const statusList = String(statuses || '')
@@ -475,7 +489,7 @@ async function listFilteredAdminSubmissions(db, query = {}) {
   const rawRows = await Submission.findAll({ raw: true });
 
   // Augment each row with text names resolved from _id FK columns
-  const maps = { statusIdToName, typeIdToName, cleanupTagTypeIdToName, cleanupStatusIdToName, applicationIdToName, enhancementRequestTypeIdToName, priorityLevelIdToName, createdViaIdToName };
+  const maps = { statusIdToName, typeIdToName, cleanupTagTypeIdToName, cleanupStatusIdToName, applicationIdToName, enhancementRequestTypeIdToName, priorityLevelIdToName, createdViaIdToName, occurrenceTimeframeIdToName };
   const rows = rawRows.map((row) => hydrateRowFromMaps(row, maps));
 
   const filteredRows = rows.filter((row) => {
@@ -659,6 +673,8 @@ async function listFilteredAdminSubmissions(db, query = {}) {
     release_number_desc: (a, b) => compareText(b.release_number, a.release_number),
     easyvista_asc: (a, b) => compareText(a.easyvista_ticket_id, b.easyvista_ticket_id),
     easyvista_desc: (a, b) => compareText(b.easyvista_ticket_id, a.easyvista_ticket_id),
+    frequency_asc: (a, b) => compareNum(a.occurrence_rate, b.occurrence_rate),
+    frequency_desc: (a, b) => compareNum(b.occurrence_rate, a.occurrence_rate),
   };
 
   const comparator = comparatorMap[sortKey] || comparatorMap.updated_desc;
@@ -707,49 +723,46 @@ async function getSubmissionByIdWithLookups(db, submissionId, { publicOnly = fal
       idColumn: 'status_id',
       table: 'defect_enhancement_statuses',
       targetKey: 'model_status_name',
-      fallbackKey: 'status',
     },
     {
       idColumn: 'type_id',
       table: 'submission_types',
       targetKey: 'model_type_name',
-      fallbackKey: 'type',
     },
     {
       idColumn: 'cleanup_status_id',
       table: 'cleanup_statuses',
       targetKey: 'model_cleanup_status_name',
-      fallbackKey: 'cleanup_status',
     },
     {
       idColumn: 'cleanup_tag_type_id',
       table: 'cleanup_tag_types',
       targetKey: 'model_cleanup_tag_type_name',
-      fallbackKey: 'cleanup_tag_type',
     },
     {
       idColumn: 'application_id',
       table: 'applications',
       targetKey: 'model_application_name',
-      fallbackKey: 'application_name',
     },
     {
       idColumn: 'enhancement_request_type_id',
       table: 'enhancement_request_types',
       targetKey: 'model_enhancement_request_type_name',
-      fallbackKey: 'enhancement_request_type',
     },
     {
       idColumn: 'priority_level_id',
       table: 'priority_levels',
       targetKey: 'model_priority_level_name',
-      fallbackKey: 'priority_level',
     },
     {
       idColumn: 'created_via_id',
       table: 'submission_sources',
       targetKey: 'model_created_via_name',
-      fallbackKey: 'created_via',
+    },
+    {
+      idColumn: 'occurrence_timeframe_id',
+      table: 'occurrence_timeframes',
+      targetKey: 'model_occurrence_timeframe_name',
     },
   ];
 
@@ -757,7 +770,7 @@ async function getSubmissionByIdWithLookups(db, submissionId, { publicOnly = fal
   for (const config of lookupConfigs) {
     const lookupId = hydrated[config.idColumn];
     if (lookupId == null) {
-      hydrated[config.targetKey] = hydrated[config.fallbackKey] || null;
+      hydrated[config.targetKey] = null;
       continue;
     }
 
@@ -769,7 +782,7 @@ async function getSubmissionByIdWithLookups(db, submissionId, { publicOnly = fal
       attributes: ['name'],
       raw: true,
     });
-    hydrated[config.targetKey] = row?.name || hydrated[config.fallbackKey] || null;
+    hydrated[config.targetKey] = row?.name || null;
   }
 
   return hydrated;
@@ -872,6 +885,19 @@ function toIsoOrNow(input) {
 
 function isBlank(value) {
   return String(value ?? '').trim().length === 0;
+}
+
+// Occurrence rate per month (30.44 days).
+const TIMEFRAME_DAYS = { day: 1, week: 7, month: 30.44, quarter: 91.31, year: 365.25 };
+function calculateOccurrenceRate(count, timeframeCount, timeframeUnit) {
+  if (!Number.isFinite(count) || count <= 0) return null;
+  if (!Number.isFinite(timeframeCount) || timeframeCount <= 0) return null;
+  const unitKey = String(timeframeUnit || '').trim().toLowerCase();
+  const daysPerUnit = TIMEFRAME_DAYS[unitKey];
+  if (!daysPerUnit) return null;
+  const totalDays = timeframeCount * daysPerUnit;
+  // Rate = occurrences per 30.44 days (month)
+  return (count / totalDays) * 30.44;
 }
 
 function normalizeCleanupTagType(value, allowedCleanupTagTypes = DEFAULT_CLEANUP_TAG_TYPES) {
@@ -1050,6 +1076,7 @@ async function getLookupIdByName(db, table, value, { lowercase = false } = {}) {
     cleanup_tag_types: dbModels.CleanupTagType,
     enhancement_request_types: dbModels.EnhancementRequestType,
     priority_levels: dbModels.PriorityLevel,
+    occurrence_timeframes: dbModels.OccurrenceTimeframe,
   };
 
   const model = tableToModel[table];
@@ -1076,6 +1103,7 @@ function getLookupModelByTable(table) {
     cleanup_tag_types: dbModels.CleanupTagType,
     enhancement_request_types: dbModels.EnhancementRequestType,
     priority_levels: dbModels.PriorityLevel,
+    occurrence_timeframes: dbModels.OccurrenceTimeframe,
   };
   return tableToModel[table] || null;
 }
@@ -1104,7 +1132,7 @@ async function resolveExistingLookupFields(existing) {
     return name && lowercase ? name.toLowerCase() : name;
   }
 
-  const [type, status, cleanupStatus, cleanupTagType, createdVia, applicationName, enhancementRequestType, priorityLevel] = await Promise.all([
+  const [type, status, cleanupStatus, cleanupTagType, createdVia, applicationName, enhancementRequestType, priorityLevel, occurrenceTimeframe] = await Promise.all([
     getNameById(dbModels.SubmissionType, existing.type_id, { lowercase: true }),
     getNameById(dbModels.DefectEnhancementStatus, existing.status_id),
     getNameById(dbModels.CleanupStatus, existing.cleanup_status_id),
@@ -1113,87 +1141,22 @@ async function resolveExistingLookupFields(existing) {
     getNameById(dbModels.Application, existing.application_id),
     getNameById(dbModels.EnhancementRequestType, existing.enhancement_request_type_id),
     getNameById(dbModels.PriorityLevel, existing.priority_level_id),
+    getNameById(dbModels.OccurrenceTimeframe, existing.occurrence_timeframe_id),
   ]);
 
   return {
     ...existing,
-    type: type ?? existing.type ?? null,
-    status: status ?? existing.status ?? null,
-    cleanup_status: cleanupStatus ?? existing.cleanup_status ?? null,
-    cleanup_tag_type: cleanupTagType ?? existing.cleanup_tag_type ?? null,
-    created_via: createdVia ?? existing.created_via ?? null,
-    application_name: applicationName ?? existing.application_name ?? null,
-    enhancement_request_type: enhancementRequestType ?? existing.enhancement_request_type ?? null,
-    priority_level: priorityLevel ?? existing.priority_level ?? null,
+    type: type ?? null,
+    status: status ?? null,
+    cleanup_status: cleanupStatus ?? null,
+    cleanup_tag_type: cleanupTagType ?? null,
+    created_via: createdVia ?? null,
+    application_name: applicationName ?? null,
+    enhancement_request_type: enhancementRequestType ?? null,
+    priority_level: priorityLevel ?? null,
+    occurrence_timeframe: occurrenceTimeframe ?? null,
   };
 }
-
-const SUBMISSION_LOOKUP_AUDIT_CONFIG = [
-  {
-    key: 'created_via',
-    label: 'Created Via',
-    textColumn: 'created_via',
-    idColumn: 'created_via_id',
-    lookupTable: 'submission_sources',
-    requiredForAll: true,
-  },
-  {
-    key: 'type',
-    label: 'Type',
-    textColumn: 'type',
-    idColumn: 'type_id',
-    lookupTable: 'submission_types',
-    requiredForAll: true,
-  },
-  {
-    key: 'application_name',
-    label: 'Application',
-    textColumn: 'application_name',
-    idColumn: 'application_id',
-    lookupTable: 'applications',
-    requiredForAll: true,
-  },
-  {
-    key: 'status',
-    label: 'Status',
-    textColumn: 'status',
-    idColumn: 'status_id',
-    lookupTable: 'defect_enhancement_statuses',
-    requiredForAll: true,
-  },
-  {
-    key: 'cleanup_status',
-    label: 'Cleanup Status',
-    textColumn: 'cleanup_status',
-    idColumn: 'cleanup_status_id',
-    lookupTable: 'cleanup_statuses',
-    requiredForAll: false,
-  },
-  {
-    key: 'cleanup_tag_type',
-    label: 'Cleanup Tag Type',
-    textColumn: 'cleanup_tag_type',
-    idColumn: 'cleanup_tag_type_id',
-    lookupTable: 'cleanup_tag_types',
-    requiredForAll: false,
-  },
-  {
-    key: 'enhancement_request_type',
-    label: 'Enhancement Request Type',
-    textColumn: 'enhancement_request_type',
-    idColumn: 'enhancement_request_type_id',
-    lookupTable: 'enhancement_request_types',
-    requiredForAll: false,
-  },
-  {
-    key: 'priority_level',
-    label: 'Priority Level',
-    textColumn: 'priority_level',
-    idColumn: 'priority_level_id',
-    lookupTable: 'priority_levels',
-    requiredForAll: false,
-  },
-];
 
 function collectMissingLookupIds(lookupIds, checks = []) {
   return checks
@@ -1206,71 +1169,6 @@ function formatMissingLookupError(missingFields) {
   return `Unresolved metadata values for: ${missingFields.join(', ')}. Update metadata options and retry.`;
 }
 
-async function getSubmissionLookupMigrationAudit(db) {
-  const dbModels = dbApi.getModels() || {};
-  const Submission = dbModels.Submission;
-  if (!Submission) {
-    throw new Error('Submission model is not initialized');
-  }
-
-  const submissions = await Submission.findAll({ raw: true });
-  const totalSubmissions = submissions.length;
-  const byField = [];
-
-  for (const config of SUBMISSION_LOOKUP_AUDIT_CONFIG) {
-    const LookupModel = getLookupModelByTable(config.lookupTable);
-    if (!LookupModel) {
-      throw new Error(`Lookup model is not initialized for ${config.lookupTable}`);
-    }
-    const lookupRows = await LookupModel.findAll({ attributes: ['id'], raw: true });
-    const lookupIds = new Set(lookupRows.map((row) => Number(row.id)).filter((id) => Number.isFinite(id)));
-
-    let missingForTextCount = 0;
-    let orphanedIdCount = 0;
-    for (const submission of submissions) {
-      const textValue = String(submission?.[config.textColumn] || '').trim();
-      const idValueRaw = submission?.[config.idColumn];
-      const idValue = idValueRaw == null ? null : Number(idValueRaw);
-
-      if (textValue && (idValueRaw == null)) {
-        missingForTextCount += 1;
-      }
-      if (idValueRaw != null && (!Number.isFinite(idValue) || !lookupIds.has(idValue))) {
-        orphanedIdCount += 1;
-      }
-    }
-
-    byField.push({
-      key: config.key,
-      label: config.label,
-      textColumn: config.textColumn,
-      idColumn: config.idColumn,
-      lookupTable: config.lookupTable,
-      requiredForAll: config.requiredForAll,
-      missingIdForTextCount: missingForTextCount,
-      orphanedIdCount,
-    });
-  }
-
-  const critical = byField.filter((field) => field.requiredForAll);
-  const optional = byField.filter((field) => !field.requiredForAll);
-
-  return {
-    generatedAt: new Date().toISOString(),
-    totalSubmissions,
-    critical: {
-      totalMissingIdForText: critical.reduce((sum, item) => sum + item.missingIdForTextCount, 0),
-      totalOrphanedIds: critical.reduce((sum, item) => sum + item.orphanedIdCount, 0),
-      fields: critical,
-    },
-    optional: {
-      totalMissingIdForText: optional.reduce((sum, item) => sum + item.missingIdForTextCount, 0),
-      totalOrphanedIds: optional.reduce((sum, item) => sum + item.orphanedIdCount, 0),
-      fields: optional,
-    },
-  };
-}
-
 const LOOKUP_TABLES = {
   statuses: {
     table: 'defect_enhancement_statuses',
@@ -1278,7 +1176,6 @@ const LOOKUP_TABLES = {
     hasRetiredFlag: true,
     normalize: (value) => String(value || '').trim(),
     submissionIdColumn: 'status_id',
-    submissionTextColumn: 'status',
   },
   types: {
     table: 'submission_types',
@@ -1286,7 +1183,6 @@ const LOOKUP_TABLES = {
     hasRetiredFlag: false,
     normalize: (value) => String(value || '').trim().toLowerCase(),
     submissionIdColumn: 'type_id',
-    submissionTextColumn: 'type',
   },
   'cleanup-statuses': {
     table: 'cleanup_statuses',
@@ -1294,7 +1190,6 @@ const LOOKUP_TABLES = {
     hasRetiredFlag: false,
     normalize: (value) => String(value || '').trim(),
     submissionIdColumn: 'cleanup_status_id',
-    submissionTextColumn: 'cleanup_status',
   },
   'cleanup-tag-types': {
     table: 'cleanup_tag_types',
@@ -1302,7 +1197,6 @@ const LOOKUP_TABLES = {
     hasRetiredFlag: false,
     normalize: (value) => String(value || '').trim().toLowerCase(),
     submissionIdColumn: 'cleanup_tag_type_id',
-    submissionTextColumn: 'cleanup_tag_type',
   },
   applications: {
     table: 'applications',
@@ -1310,7 +1204,6 @@ const LOOKUP_TABLES = {
     hasRetiredFlag: false,
     normalize: (value) => String(value || '').trim(),
     submissionIdColumn: 'application_id',
-    submissionTextColumn: 'application_name',
   },
   'enhancement-request-types': {
     table: 'enhancement_request_types',
@@ -1318,7 +1211,6 @@ const LOOKUP_TABLES = {
     hasRetiredFlag: false,
     normalize: (value) => String(value || '').trim(),
     submissionIdColumn: 'enhancement_request_type_id',
-    submissionTextColumn: 'enhancement_request_type',
   },
   'priority-levels': {
     table: 'priority_levels',
@@ -1326,7 +1218,6 @@ const LOOKUP_TABLES = {
     hasRetiredFlag: false,
     normalize: (value) => String(value || '').trim(),
     submissionIdColumn: 'priority_level_id',
-    submissionTextColumn: 'priority_level',
   },
   'submission-sources': {
     table: 'submission_sources',
@@ -1334,7 +1225,13 @@ const LOOKUP_TABLES = {
     hasRetiredFlag: false,
     normalize: (value) => String(value || '').trim().toLowerCase(),
     submissionIdColumn: 'created_via_id',
-    submissionTextColumn: 'created_via',
+  },
+  'occurrence-timeframes': {
+    table: 'occurrence_timeframes',
+    modelName: 'OccurrenceTimeframe',
+    hasRetiredFlag: false,
+    normalize: (value) => String(value || '').trim(),
+    submissionIdColumn: 'occurrence_timeframe_id',
   },
 };
 
@@ -1916,14 +1813,8 @@ app.get('/api/admin/meta/options', ensureAdmin, async (_req, res) => {
       enhancementRequestTypes: await fetchRows('enhancement-request-types'),
       priorityLevels: await fetchRows('priority-levels'),
       submissionSources: await fetchRows('submission-sources'),
+      occurrenceTimeframes: await fetchRows('occurrence-timeframes'),
     });
-  });
-});
-
-app.get('/api/admin/migration/audit', ensureAdmin, async (_req, res) => {
-  return withDb(async (db) => {
-    const audit = await getSubmissionLookupMigrationAudit(db);
-    return res.json(audit);
   });
 });
 
@@ -2033,22 +1924,6 @@ app.put('/api/admin/meta/:category/:id', ensureAdmin, async (req, res) => {
     };
 
     await LookupModel.update(updatePayload, { where: { id: recordId } });
-
-    if (
-      category.submissionIdColumn
-      && category.submissionTextColumn
-      && String(nextNameRaw || '') !== String(existing.name || '')
-    ) {
-      const dbModels = dbApi.getModels() || {};
-      const Submission = dbModels.Submission;
-      if (!Submission) {
-        throw new Error('Submission model is not initialized');
-      }
-      await Submission.update(
-        { [category.submissionTextColumn]: nextNameRaw },
-        { where: { [category.submissionIdColumn]: recordId } },
-      );
-    }
 
     const updated = await LookupModel.findByPk(recordId, {
       attributes: ['id', 'name', 'sort_order', 'is_active', ...(category.hasRetiredFlag ? ['is_retired'] : [])],
@@ -2798,6 +2673,12 @@ app.put('/api/admin/submissions/:id', ensureAdmin, async (req, res) => {
     const policiesAffectedCount = isBlank(body.policies_affected_count)
       ? null
       : Number(body.policies_affected_count);
+    const occurrenceCount = isBlank(body.occurrence_count)
+      ? null
+      : Number(body.occurrence_count);
+    const occurrenceTimeframeCount = isBlank(body.occurrence_timeframe_count)
+      ? null
+      : Number(body.occurrence_timeframe_count);
 
     const isCleanup =
       typeof body.is_cleanup === 'boolean' ? body.is_cleanup : Boolean(existing.is_cleanup);
@@ -2880,6 +2761,16 @@ app.put('/api/admin/submissions/:id', ensureAdmin, async (req, res) => {
         typeof body.is_public === 'boolean' ? body.is_public : Boolean(existing.is_public),
       easyvista_submitted_by:
         body.easyvista_submitted_by ?? existing.easyvista_submitted_by,
+      occurrence_count:
+        Object.prototype.hasOwnProperty.call(body, 'occurrence_count')
+          ? (Number.isFinite(occurrenceCount) && occurrenceCount > 0 ? Math.trunc(occurrenceCount) : null)
+          : existing.occurrence_count,
+      occurrence_timeframe_count:
+        Object.prototype.hasOwnProperty.call(body, 'occurrence_timeframe_count')
+          ? (Number.isFinite(occurrenceTimeframeCount) && occurrenceTimeframeCount > 0 ? Math.trunc(occurrenceTimeframeCount) : null)
+          : existing.occurrence_timeframe_count,
+      occurrence_timeframe:
+        body.occurrence_timeframe ?? existing.occurrence_timeframe ?? null,
     };
 
     const normalizedExistingStatusValue = String(existing.status || '').trim() || 'New';
@@ -2983,6 +2874,10 @@ app.put('/api/admin/submissions/:id', ensureAdmin, async (req, res) => {
       duplicate_of: next.duplicate_of,
       is_public: toBooleanSql(next.is_public),
       easyvista_submitted_by: next.easyvista_submitted_by,
+      occurrence_count: next.occurrence_count,
+      occurrence_timeframe_count: next.occurrence_timeframe_count,
+      occurrence_timeframe_id: await getLookupIdByName(db, 'occurrence_timeframes', next.occurrence_timeframe),
+      occurrence_rate: calculateOccurrenceRate(next.occurrence_count, next.occurrence_timeframe_count, next.occurrence_timeframe),
     };
 
     await Submission.update(updatePayload, {
