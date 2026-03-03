@@ -1210,6 +1210,11 @@ tr.clickable:hover td { background: var(--blue-50); }
   margin: 4px 0 0;
 }
 
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
 /* ─────────────────────────────────────────────
    Admin login
    ───────────────────────────────────────────── */
