@@ -3804,7 +3804,7 @@ export function AdminDashboardPage({ user, onLogout }) {
               return (
                 <details>
                   <summary style={{ cursor: 'pointer', fontWeight: 600, color: 'var(--color-primary)' }}>
-                    Description As Submitted To EasyVista
+                    As Submitted To EasyVista
                   </summary>
                   <Card className="inner" style={{ marginTop: 10 }}>
                     <pre style={{ margin: 0, fontFamily: 'inherit', fontSize: 13, whiteSpace: 'pre-wrap', wordBreak: 'break-word', color: 'var(--color-text)', background: 'var(--color-surface)', padding: 12, borderRadius: 6, border: '1px solid var(--color-border)' }}>
