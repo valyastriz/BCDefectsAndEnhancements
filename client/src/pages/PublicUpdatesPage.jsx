@@ -102,6 +102,7 @@ function readSavedPublicFilters() {
 export function PublicUpdatesPage() {
   const savedFilters = useMemo(() => readSavedPublicFilters(), []);
   const [items, setItems] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   const [live, setLive] = useState(false);
   const [dynamicPublicStatuses, setDynamicPublicStatuses] = useState(publicStatuses);
@@ -121,6 +122,8 @@ export function PublicUpdatesPage() {
       setItems(data);
     } catch (loadError) {
       setError(loadError.message);
+    } finally {
+      setIsLoading(false);
     }
   }, []);
 
@@ -330,12 +333,14 @@ export function PublicUpdatesPage() {
         </Button>
       </div>
 
-      <p className="muted" style={{ marginTop: 0 }}>
-        Showing {visibleItems.length} of {items.length} public item(s)
-      </p>
+      {!isLoading && (
+        <p className="muted" style={{ marginTop: 0 }}>
+          Showing {visibleItems.length} of {items.length} public item(s)
+        </p>
+      )}
 
       {/* ── Pagination controls ── */}
-      {visibleItems.length > 0 && (
+      {!isLoading && visibleItems.length > 0 && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 8 }}>
           <span className="muted" style={{ fontSize: 13 }}>
             {pageSize === 0
@@ -377,9 +382,18 @@ export function PublicUpdatesPage() {
         </div>
       )}
 
-      {!hasItems && !error && (
+      {isLoading && (
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '60px 0', gap: 16, color: 'var(--color-muted)' }}>
+          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="var(--color-primary)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ animation: 'spin 1s linear infinite' }}>
+            <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+          </svg>
+          <p style={{ margin: 0, fontSize: 15 }}>Loading public updates&hellip;</p>
+        </div>
+      )}
+
+      {!isLoading && !hasItems && !error && (
         <div className="empty-state">
-          <svg viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2" /><rect x="9" y="3" width="6" height="4" rx="1" /></svg>
+          <svg viewBox="0 0 24 24" fill="none" stroke="var(--color-muted)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2" /><rect x="9" y="3" width="6" height="4" rx="1" /></svg>
           <p>No public updates yet. Check back after an admin marks requests as visible.</p>
         </div>
       )}
@@ -472,9 +486,9 @@ export function PublicUpdatesPage() {
         </div>
       )}
 
-      {hasItems && visibleItems.length === 0 && !error && (
+      {!isLoading && hasItems && visibleItems.length === 0 && !error && (
         <div className="empty-state">
-          <p>No items match your current search/filter settings.</p>
+          <p>No items match your current filters. Try adjusting or clearing the filters above.</p>
         </div>
       )}
     </>
