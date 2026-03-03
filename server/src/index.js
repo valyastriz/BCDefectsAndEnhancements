@@ -282,6 +282,10 @@ function mapSubmission(row) {
     has_resubmission: Boolean(row.has_resubmission),
     latest_resubmission_submission_id: row.latest_resubmission_submission_id || null,
     latest_resubmission_easyvista_ticket_id: row.latest_resubmission_easyvista_ticket_id || null,
+    occurrence_count: row.occurrence_count ?? null,
+    occurrence_timeframe_count: row.occurrence_timeframe_count ?? null,
+    occurrence_timeframe: row.occurrence_timeframe || null,
+    occurrence_rate: row.occurrence_rate ?? null,
   };
 }
 
@@ -331,6 +335,10 @@ function buildAdminExportFields() {
     { key: 'duplicate_reference', label: 'Duplicate Reference', value: (row) => row.duplicate_reference || row.duplicate_of },
     { key: 'has_resubmission', label: 'Has Resubmission', value: (row) => Boolean(row.has_resubmission) ? 'Yes' : 'No' },
     { key: 'latest_resubmission_easyvista_ticket_id', label: 'Latest Resubmission Ticket', value: (row) => row.latest_resubmission_easyvista_ticket_id },
+    { key: 'occurrence_count', label: 'Occurrence Count', value: (row) => row.occurrence_count },
+    { key: 'occurrence_timeframe_count', label: 'Occurrence Timeframe #', value: (row) => row.occurrence_timeframe_count },
+    { key: 'occurrence_timeframe', label: 'Occurrence Timeframe', value: (row) => row.occurrence_timeframe },
+    { key: 'occurrence_rate', label: 'Occurrence Rate (per month)', value: (row) => row.occurrence_rate != null ? Number(row.occurrence_rate).toFixed(2) : '' },
   ];
 }
 
@@ -363,6 +371,7 @@ async function buildAllLookupMaps(dbModels) {
     enhancementRequestTypeIdToName,
     priorityLevelIdToName,
     createdViaIdToName,
+    occurrenceTimeframeIdToName,
   ] = await Promise.all([
     buildIdNameMap(dbModels.DefectEnhancementStatus),
     buildIdNameMap(dbModels.SubmissionType),
@@ -372,6 +381,7 @@ async function buildAllLookupMaps(dbModels) {
     buildIdNameMap(dbModels.EnhancementRequestType),
     buildIdNameMap(dbModels.PriorityLevel),
     buildIdNameMap(dbModels.SubmissionSource),
+    buildIdNameMap(dbModels.OccurrenceTimeframe),
   ]);
   return {
     statusIdToName,
@@ -382,6 +392,7 @@ async function buildAllLookupMaps(dbModels) {
     enhancementRequestTypeIdToName,
     priorityLevelIdToName,
     createdViaIdToName,
+    occurrenceTimeframeIdToName,
   };
 }
 
@@ -396,6 +407,7 @@ function hydrateRowFromMaps(row, maps) {
     enhancementRequestTypeIdToName,
     priorityLevelIdToName,
     createdViaIdToName,
+    occurrenceTimeframeIdToName,
   } = maps;
   return {
     ...row,
@@ -407,6 +419,7 @@ function hydrateRowFromMaps(row, maps) {
     enhancement_request_type: enhancementRequestTypeIdToName.get(Number(row.enhancement_request_type_id)) || '',
     priority_level: priorityLevelIdToName.get(Number(row.priority_level_id)) || '',
     created_via: createdViaIdToName.get(Number(row.created_via_id)) || '',
+    occurrence_timeframe: occurrenceTimeframeIdToName.get(Number(row.occurrence_timeframe_id)) || '',
   };
 }
 
@@ -659,6 +672,8 @@ async function listFilteredAdminSubmissions(db, query = {}) {
     release_number_desc: (a, b) => compareText(b.release_number, a.release_number),
     easyvista_asc: (a, b) => compareText(a.easyvista_ticket_id, b.easyvista_ticket_id),
     easyvista_desc: (a, b) => compareText(b.easyvista_ticket_id, a.easyvista_ticket_id),
+    frequency_asc: (a, b) => compareNum(a.occurrence_rate, b.occurrence_rate),
+    frequency_desc: (a, b) => compareNum(b.occurrence_rate, a.occurrence_rate),
   };
 
   const comparator = comparatorMap[sortKey] || comparatorMap.updated_desc;
@@ -872,6 +887,19 @@ function toIsoOrNow(input) {
 
 function isBlank(value) {
   return String(value ?? '').trim().length === 0;
+}
+
+// Occurrence rate per month (30.44 days).
+const TIMEFRAME_DAYS = { day: 1, week: 7, month: 30.44, quarter: 91.31, year: 365.25 };
+function calculateOccurrenceRate(count, timeframeCount, timeframeUnit) {
+  if (!Number.isFinite(count) || count <= 0) return null;
+  if (!Number.isFinite(timeframeCount) || timeframeCount <= 0) return null;
+  const unitKey = String(timeframeUnit || '').trim().toLowerCase();
+  const daysPerUnit = TIMEFRAME_DAYS[unitKey];
+  if (!daysPerUnit) return null;
+  const totalDays = timeframeCount * daysPerUnit;
+  // Rate = occurrences per 30.44 days (month)
+  return (count / totalDays) * 30.44;
 }
 
 function normalizeCleanupTagType(value, allowedCleanupTagTypes = DEFAULT_CLEANUP_TAG_TYPES) {
@@ -1104,7 +1132,7 @@ async function resolveExistingLookupFields(existing) {
     return name && lowercase ? name.toLowerCase() : name;
   }
 
-  const [type, status, cleanupStatus, cleanupTagType, createdVia, applicationName, enhancementRequestType, priorityLevel] = await Promise.all([
+  const [type, status, cleanupStatus, cleanupTagType, createdVia, applicationName, enhancementRequestType, priorityLevel, occurrenceTimeframe] = await Promise.all([
     getNameById(dbModels.SubmissionType, existing.type_id, { lowercase: true }),
     getNameById(dbModels.DefectEnhancementStatus, existing.status_id),
     getNameById(dbModels.CleanupStatus, existing.cleanup_status_id),
@@ -1113,6 +1141,7 @@ async function resolveExistingLookupFields(existing) {
     getNameById(dbModels.Application, existing.application_id),
     getNameById(dbModels.EnhancementRequestType, existing.enhancement_request_type_id),
     getNameById(dbModels.PriorityLevel, existing.priority_level_id),
+    getNameById(dbModels.OccurrenceTimeframe, existing.occurrence_timeframe_id),
   ]);
 
   return {
@@ -1125,6 +1154,7 @@ async function resolveExistingLookupFields(existing) {
     application_name: applicationName ?? existing.application_name ?? null,
     enhancement_request_type: enhancementRequestType ?? existing.enhancement_request_type ?? null,
     priority_level: priorityLevel ?? existing.priority_level ?? null,
+    occurrence_timeframe: occurrenceTimeframe ?? existing.occurrence_timeframe ?? null,
   };
 }
 
@@ -1335,6 +1365,14 @@ const LOOKUP_TABLES = {
     normalize: (value) => String(value || '').trim().toLowerCase(),
     submissionIdColumn: 'created_via_id',
     submissionTextColumn: 'created_via',
+  },
+  'occurrence-timeframes': {
+    table: 'occurrence_timeframes',
+    modelName: 'OccurrenceTimeframe',
+    hasRetiredFlag: false,
+    normalize: (value) => String(value || '').trim(),
+    submissionIdColumn: 'occurrence_timeframe_id',
+    submissionTextColumn: 'occurrence_timeframe',
   },
 };
 
@@ -1916,6 +1954,7 @@ app.get('/api/admin/meta/options', ensureAdmin, async (_req, res) => {
       enhancementRequestTypes: await fetchRows('enhancement-request-types'),
       priorityLevels: await fetchRows('priority-levels'),
       submissionSources: await fetchRows('submission-sources'),
+      occurrenceTimeframes: await fetchRows('occurrence-timeframes'),
     });
   });
 });
@@ -2798,6 +2837,12 @@ app.put('/api/admin/submissions/:id', ensureAdmin, async (req, res) => {
     const policiesAffectedCount = isBlank(body.policies_affected_count)
       ? null
       : Number(body.policies_affected_count);
+    const occurrenceCount = isBlank(body.occurrence_count)
+      ? null
+      : Number(body.occurrence_count);
+    const occurrenceTimeframeCount = isBlank(body.occurrence_timeframe_count)
+      ? null
+      : Number(body.occurrence_timeframe_count);
 
     const isCleanup =
       typeof body.is_cleanup === 'boolean' ? body.is_cleanup : Boolean(existing.is_cleanup);
@@ -2880,6 +2925,16 @@ app.put('/api/admin/submissions/:id', ensureAdmin, async (req, res) => {
         typeof body.is_public === 'boolean' ? body.is_public : Boolean(existing.is_public),
       easyvista_submitted_by:
         body.easyvista_submitted_by ?? existing.easyvista_submitted_by,
+      occurrence_count:
+        Object.prototype.hasOwnProperty.call(body, 'occurrence_count')
+          ? (Number.isFinite(occurrenceCount) && occurrenceCount > 0 ? Math.trunc(occurrenceCount) : null)
+          : existing.occurrence_count,
+      occurrence_timeframe_count:
+        Object.prototype.hasOwnProperty.call(body, 'occurrence_timeframe_count')
+          ? (Number.isFinite(occurrenceTimeframeCount) && occurrenceTimeframeCount > 0 ? Math.trunc(occurrenceTimeframeCount) : null)
+          : existing.occurrence_timeframe_count,
+      occurrence_timeframe:
+        body.occurrence_timeframe ?? existing.occurrence_timeframe ?? null,
     };
 
     const normalizedExistingStatusValue = String(existing.status || '').trim() || 'New';
@@ -2983,6 +3038,10 @@ app.put('/api/admin/submissions/:id', ensureAdmin, async (req, res) => {
       duplicate_of: next.duplicate_of,
       is_public: toBooleanSql(next.is_public),
       easyvista_submitted_by: next.easyvista_submitted_by,
+      occurrence_count: next.occurrence_count,
+      occurrence_timeframe_count: next.occurrence_timeframe_count,
+      occurrence_timeframe_id: await getLookupIdByName(db, 'occurrence_timeframes', next.occurrence_timeframe),
+      occurrence_rate: calculateOccurrenceRate(next.occurrence_count, next.occurrence_timeframe_count, next.occurrence_timeframe),
     };
 
     await Submission.update(updatePayload, {

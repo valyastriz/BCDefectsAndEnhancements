@@ -34,6 +34,7 @@ const DEFAULT_SUBMISSION_SOURCES = [
   'admin_manual',
   'admin_easyvista_resubmission',
 ];
+const DEFAULT_OCCURRENCE_TIMEFRAMES = ['Day', 'Week', 'Month', 'Quarter', 'Year'];
 
 function defineModels(sequelize) {
   const User = sequelize.define('User', {
@@ -92,6 +93,10 @@ function defineModels(sequelize) {
     latest_resubmission_easyvista_ticket_id: { type: DataTypes.TEXT },
     is_retired: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
     is_public: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
+    occurrence_count: { type: DataTypes.INTEGER, allowNull: true },
+    occurrence_timeframe_count: { type: DataTypes.INTEGER, allowNull: true },
+    occurrence_timeframe_id: { type: DataTypes.INTEGER, allowNull: true },
+    occurrence_rate: { type: DataTypes.REAL, allowNull: true },
   }, {
     tableName: 'submissions',
     timestamps: false,
@@ -209,6 +214,14 @@ function defineModels(sequelize) {
     is_active: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 1 },
   }, { tableName: 'submission_sources', timestamps: false });
 
+  const OccurrenceTimeframe = sequelize.define('OccurrenceTimeframe', {
+    id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
+    name: { type: DataTypes.TEXT, allowNull: false, unique: true },
+    days_equivalent: { type: DataTypes.REAL, allowNull: false },
+    sort_order: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
+    is_active: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 1 },
+  }, { tableName: 'occurrence_timeframes', timestamps: false });
+
   return {
     User,
     Submission,
@@ -223,6 +236,7 @@ function defineModels(sequelize) {
     EnhancementRequestType,
     PriorityLevel,
     SubmissionSource,
+    OccurrenceTimeframe,
   };
 }
 
@@ -397,6 +411,16 @@ async function migrateWithModels(sequelize, models) {
   await seedLookup(models.EnhancementRequestType, DEFAULT_ENHANCEMENT_REQUEST_TYPES);
   await seedLookup(models.PriorityLevel, DEFAULT_PRIORITY_LEVELS);
   await seedLookup(models.SubmissionSource, DEFAULT_SUBMISSION_SOURCES);
+
+  // Seed occurrence timeframes with days_equivalent values
+  for (let i = 0; i < DEFAULT_OCCURRENCE_TIMEFRAMES.length; i++) {
+    const name = DEFAULT_OCCURRENCE_TIMEFRAMES[i];
+    const daysMap = { Day: 1, Week: 7, Month: 30.44, Quarter: 91.31, Year: 365.25 };
+    await models.OccurrenceTimeframe.findOrCreate({
+      where: { name },
+      defaults: { name, days_equivalent: daysMap[name], sort_order: i + 1, is_active: 1 },
+    });
+  }
 
   await backfillLookupIds(models);
 }

@@ -217,6 +217,7 @@ const SORT_COLS = {
   policyPremium:    { asc: 'policy_premium_impact_asc',   desc: 'policy_premium_impact_desc' },
   directImpact:     { asc: 'direct_dollar_impact_asc',    desc: 'direct_dollar_impact_desc' },
   policiesImpacted: { asc: 'policies_affected_count_asc', desc: 'policies_affected_count_desc' },
+  frequency:        { asc: 'frequency_asc',               desc: 'frequency_desc' },
   easyvista:        { asc: 'easyvista_asc',               desc: 'easyvista_desc' },
   submittedBy:      { asc: 'submitted_by_asc',            desc: 'submitted_by_desc' },
 };
@@ -265,6 +266,15 @@ function editableFromDetail(detail) {
       detail.policies_affected_count === null || detail.policies_affected_count === undefined
         ? ''
         : String(detail.policies_affected_count),
+    occurrence_count:
+      detail.occurrence_count === null || detail.occurrence_count === undefined
+        ? ''
+        : String(detail.occurrence_count),
+    occurrence_timeframe_count:
+      detail.occurrence_timeframe_count === null || detail.occurrence_timeframe_count === undefined
+        ? ''
+        : String(detail.occurrence_timeframe_count),
+    occurrence_timeframe: detail.occurrence_timeframe || '',
     enhancement_request_type: detail.enhancement_request_type || '',
     priority_level: detail.priority_level || '3 - Medium',
     jira_number: detail.jira_number || '',
@@ -456,6 +466,7 @@ export function AdminDashboardPage({ user, onLogout }) {
   const [dynamicApplications, setDynamicApplications] = useState([]);
   const [dynamicEnhancementRequestTypes, setDynamicEnhancementRequestTypes] = useState([]);
   const [dynamicPriorityLevels, setDynamicPriorityLevels] = useState([]);
+  const [dynamicOccurrenceTimeframes, setDynamicOccurrenceTimeframes] = useState(['Day', 'Week', 'Month', 'Quarter', 'Year']);
   const [adminMetaOptions, setAdminMetaOptions] = useState({
     statuses: [],
     types: [],
@@ -595,6 +606,12 @@ export function AdminDashboardPage({ user, onLogout }) {
         .map((item) => String(item.name || '').trim())
         .filter(Boolean)
       : [];
+    const nextOccurrenceTimeframes = Array.isArray(meta?.occurrenceTimeframes)
+      ? meta.occurrenceTimeframes
+        .filter((item) => item?.isActive)
+        .map((item) => String(item.name || '').trim())
+        .filter(Boolean)
+      : [];
 
     if (nextStatuses.length > 0) {
       setDynamicStatuses(nextStatuses);
@@ -629,6 +646,9 @@ export function AdminDashboardPage({ user, onLogout }) {
     if (nextPriorityLevels.length > 0) {
       setDynamicPriorityLevels(nextPriorityLevels);
     }
+    if (nextOccurrenceTimeframes.length > 0) {
+      setDynamicOccurrenceTimeframes(nextOccurrenceTimeframes);
+    }
   }, []);
 
   const loadAdminMeta = useCallback(async () => {
@@ -645,6 +665,7 @@ export function AdminDashboardPage({ user, onLogout }) {
         enhancementRequestTypes: Array.isArray(meta?.enhancementRequestTypes) ? meta.enhancementRequestTypes : [],
         priorityLevels: Array.isArray(meta?.priorityLevels) ? meta.priorityLevels : [],
         submissionSources: Array.isArray(meta?.submissionSources) ? meta.submissionSources : [],
+        occurrenceTimeframes: Array.isArray(meta?.occurrenceTimeframes) ? meta.occurrenceTimeframes : [],
       };
       setAdminMetaOptions(normalizedMeta);
       syncRuntimeOptionsFromMeta(normalizedMeta);
@@ -2509,11 +2530,12 @@ export function AdminDashboardPage({ user, onLogout }) {
                 {sortTh('policyPremium',    'Policy Premium ($)', { width: 160 })}
                 {sortTh('directImpact',     'Direct Impact ($)',  { width: 160 })}
                 {sortTh('policiesImpacted', 'Policies Impacted',  { width: 140 })}
+                {sortTh('frequency',        'Frequency',          { width: 160 })}
               </tr>
             </thead>
             <tbody>
               {rows.length === 0 && !loading && (
-                <tr><td colSpan={12} style={{ textAlign: 'center', color: 'var(--color-muted)', padding: '28px 12px' }}>No submissions match the current filters.</td></tr>
+                <tr><td colSpan={13} style={{ textAlign: 'center', color: 'var(--color-muted)', padding: '28px 12px' }}>No submissions match the current filters.</td></tr>
               )}
               {pagedRows.map((row) => (
                 <tr
@@ -2617,6 +2639,11 @@ export function AdminDashboardPage({ user, onLogout }) {
                   <td>{formatCurrency(row.policy_premium_impact)}</td>
                   <td>{formatCurrency(row.direct_dollar_impact)}</td>
                   <td>{formatNumber(row.policies_affected_count)}</td>
+                  <td>
+                    {row.occurrence_count && row.occurrence_timeframe
+                      ? `${row.occurrence_count} per ${row.occurrence_timeframe_count > 1 ? `${row.occurrence_timeframe_count} ` : ''}${row.occurrence_timeframe}${row.occurrence_timeframe_count > 1 ? 's' : ''}`
+                      : '—'}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -3885,6 +3912,43 @@ export function AdminDashboardPage({ user, onLogout }) {
                 onChange={(e) => setEdit((p) => ({ ...p, policies_affected_count: e.target.value }))}
               />
             </div>
+
+            <p style={{ fontWeight: 600, margin: '14px 0 6px' }}>Frequency</p>
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+                gap: 12,
+              }}
+            >
+              <Input
+                label="# of Occurrences"
+                type="number"
+                step="1"
+                min="0"
+                value={edit.occurrence_count}
+                onChange={(e) => setEdit((p) => ({ ...p, occurrence_count: e.target.value }))}
+              />
+              <Input
+                label="Per How Many"
+                type="number"
+                step="1"
+                min="1"
+                value={edit.occurrence_timeframe_count}
+                onChange={(e) => setEdit((p) => ({ ...p, occurrence_timeframe_count: e.target.value }))}
+              />
+              <Select
+                label="Time Frame"
+                value={edit.occurrence_timeframe}
+                onChange={(e) => setEdit((p) => ({ ...p, occurrence_timeframe: e.target.value }))}
+              >
+                <option value="">Select</option>
+                {dynamicOccurrenceTimeframes.map((tf) => (
+                  <option key={tf} value={tf}>{tf}</option>
+                ))}
+              </Select>
+            </div>
+
             <details>
               <summary style={{ cursor: 'pointer', fontWeight: 600 }}>Impact Notes</summary>
               <div className="bs-form" style={{ marginTop: 12 }}>
