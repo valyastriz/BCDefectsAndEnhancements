@@ -1,0 +1,82 @@
+const { SUBMISSION_TO_CLEANUP_STATUS } = require('../constants');
+const { parseErrorsJson } = require('./db');
+
+function mapSubmission(row) {
+  if (!row) return null;
+  const resolvedStatus = row.model_status_name || row.status || 'New';
+  const resolvedType = row.model_type_name || row.type || 'defect';
+  const resolvedApplicationName = row.model_application_name || row.application_name || 'Billing Center';
+  const resolvedCleanupStatus = row.model_cleanup_status_name || row.cleanup_status || null;
+  const resolvedCleanupTagType = row.model_cleanup_tag_type_name || row.cleanup_tag_type || null;
+  const resolvedEnhancementRequestType =
+    row.model_enhancement_request_type_name || row.enhancement_request_type || null;
+  const resolvedPriorityLevel = row.model_priority_level_name || row.priority_level || null;
+  const resolvedCreatedVia = row.model_created_via_name || row.created_via || 'rep_form';
+  const isCleanup = Boolean(row.is_cleanup);
+  const baseStatus = resolvedStatus;
+  const isRetired = Boolean(row.is_retired) || String(baseStatus) === 'Retired';
+  // Gated display value (null when is_cleanup=false); used for cleanup_status_display
+  const cleanupStatusDisplay = isCleanup
+    ? (resolvedCleanupStatus || SUBMISSION_TO_CLEANUP_STATUS[baseStatus] || 'New')
+    : null;
+
+  return {
+    ...row,
+    type: resolvedType,
+    application_name: resolvedApplicationName,
+    status: baseStatus,
+    defect_enhancement_status: baseStatus,
+    is_public: Boolean(row.is_public),
+    is_retired: isRetired,
+    is_cleanup: isCleanup,
+    // Always expose the stored name so the edit form can restore it after is_cleanup toggling
+    cleanup_status: resolvedCleanupStatus,
+    cleanup_status_display: cleanupStatusDisplay || 'No Cleanup',
+    cleanup_tag_type: resolvedCleanupTagType,
+    enhancement_request_type: resolvedEnhancementRequestType,
+    priority_level: resolvedPriorityLevel,
+    created_via: resolvedCreatedVia,
+    is_resubmission: Boolean(row.is_resubmission),
+    resubmission_of_submission_id: row.resubmission_of_submission_id || null,
+    resubmission_of_easyvista_ticket_id: row.resubmission_of_easyvista_ticket_id || null,
+    has_resubmission: Boolean(row.has_resubmission),
+    latest_resubmission_submission_id: row.latest_resubmission_submission_id || null,
+    latest_resubmission_easyvista_ticket_id: row.latest_resubmission_easyvista_ticket_id || null,
+    occurrence_count: row.occurrence_count ?? null,
+    occurrence_timeframe_count: row.occurrence_timeframe_count ?? null,
+    occurrence_timeframe: row.model_occurrence_timeframe_name || row.occurrence_timeframe || null,
+    occurrence_rate: row.occurrence_rate ?? null,
+  };
+}
+
+function mapExcelImportRun(row) {
+  if (!row) return null;
+  return {
+    id: Number(row.id),
+    created_at: row.created_at,
+    created_by: row.created_by || null,
+    file_name: row.file_name || '',
+    sheet_name: row.sheet_name || '',
+    import_mode: row.import_mode || '',
+    total_rows: Number(row.total_rows || 0),
+    valid_rows: Number(row.valid_rows || 0),
+    invalid_rows: Number(row.invalid_rows || 0),
+    inserted_rows: Number(row.inserted_rows || 0),
+    dry_run: Boolean(row.dry_run),
+    status: row.status || 'partial',
+    summary_message: row.summary_message || '',
+    errors: parseErrorsJson(row.errors_json),
+  };
+}
+
+function toExportCellValue(value) {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'boolean') return value ? 'Yes' : 'No';
+  return value;
+}
+
+module.exports = {
+  mapSubmission,
+  mapExcelImportRun,
+  toExportCellValue,
+};
