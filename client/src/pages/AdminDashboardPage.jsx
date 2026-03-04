@@ -14,379 +14,52 @@ import {
   Textarea,
 } from '../components/bite-size/BitsizeUI';
 
-const retiredStatus = 'Retired';
-const cleanupOnlyStatus = 'Cleanup Only';
-const cleanupMarkedStatus = 'Cleanup Marked';
-const statusToCleanup = {
-  New: 'Not Started',
-  Approved: 'In Progress',
-  Submitted: 'In Progress',
-  Deployed: 'Completed',
-  Retired: 'Completed',
-};
-const adminMetaCategories = [
-  { key: 'statuses', label: 'Defect/Enhancement Statuses', endpointCategory: 'statuses', optionsKey: 'statuses', supportsRetired: true },
-  { key: 'types', label: 'Submission Types', endpointCategory: 'types', optionsKey: 'types', supportsRetired: false },
-  { key: 'cleanupStatuses', label: 'Cleanup Statuses', endpointCategory: 'cleanup-statuses', optionsKey: 'cleanupStatuses', supportsRetired: false },
-  { key: 'cleanupTagTypes', label: 'Cleanup Tag Types', endpointCategory: 'cleanup-tag-types', optionsKey: 'cleanupTagTypes', supportsRetired: false },
-  { key: 'applications', label: 'Applications', endpointCategory: 'applications', optionsKey: 'applications', supportsRetired: false },
-  { key: 'enhancementRequestTypes', label: 'Enhancement Request Types', endpointCategory: 'enhancement-request-types', optionsKey: 'enhancementRequestTypes', supportsRetired: false },
-  { key: 'priorityLevels', label: 'Priority Levels', endpointCategory: 'priority-levels', optionsKey: 'priorityLevels', supportsRetired: false },
-  { key: 'submissionSources', label: 'Submission Sources', endpointCategory: 'submission-sources', optionsKey: 'submissionSources', supportsRetired: false },
-];
-const adminFiltersStorageKey = 'bc.admin.filters';
-const adminRetiredFilterStorageKey = 'bc.admin.retiredFilter';
+// ── Extracted constants & utilities ─────────────────────────────────────────
+import {
+  RETIRED_STATUS,
+  CLEANUP_ONLY_STATUS,
+  CLEANUP_MARKED_STATUS,
+  STATUS_TO_CLEANUP,
+  ADMIN_META_CATEGORIES,
+  ADMIN_FILTERS_STORAGE_KEY,
+  ADMIN_RETIRED_FILTER_STORAGE_KEY,
+  SORT_COLS,
+} from '../constants/adminConstants';
+import {
+  toNumeric,
+  formatMetaTypeLabel,
+  formatCreatedViaLabel,
+  resolveAttachmentUrl,
+  isAutoEasyVistaReporter,
+  formatCurrency,
+  formatNumber,
+  formatDateTime,
+  formatDateOnly,
+  formatTimelineStatus,
+} from '../utils/formatUtils';
+import {
+  areAllStatusesSelected,
+  buildDefaultFilters,
+  defaultFilters,
+} from '../utils/filterUtils';
+import { defaultBackdatedForm, defaultCleanupForm } from '../utils/formDefaults';
+import {
+  editableFromDetail,
+  normalizeAdminRow,
+  inlineDisplayType,
+  buildAdminUpdatePayload,
+  hasPendingModalChanges,
+} from '../utils/mappers';
+import { isProtectedRetiredStatusMetaItem } from '../utils/metaUtils';
 
-function areAllStatusesSelected(values, options) {
-  if (!Array.isArray(values) || !Array.isArray(options) || values.length !== options.length) {
-    return false;
-  }
-  const selected = new Set(values);
-  return options.every((value) => selected.has(value));
-}
-
-function buildDefaultFilters() {
-  return {
-    statuses: [],
-    retiredFilter: 'non_retired',
-    types: [],
-    cleanupRequired: '',
-    cleanupStatuses: [],
-    search: '',
-    requester: '',
-    submittedBy: '',
-    createdVia: '',
-    year: '',
-    inJira: '',
-    jiraNumber: '',
-    easyvistaNumber: '',
-    releaseNumber: '',
-    sort: 'updated_desc',
-  };
-}
-
-function normalizeSavedAdminStatuses(statusesValue, statusSelectionMode = 'legacy') {
-  // 'all' or 'legacy' → treat as "select all" (empty array = signal for syncRuntimeOptionsFromMeta to select all)
-  if (statusSelectionMode === 'all' || statusSelectionMode === 'legacy') {
-    return [];
-  }
-
-  // 'custom' → preserve whatever was saved; validation against actual DB options happens in syncRuntimeOptionsFromMeta
-  if (!Array.isArray(statusesValue) || statusesValue.length === 0) {
-    return [];
-  }
-
-  return statusesValue;
-}
-
-function readSavedAdminFilters() {
-  const defaults = buildDefaultFilters();
-  if (typeof window === 'undefined') return defaults;
-
-  const savedRetiredFilter = window.localStorage.getItem(adminRetiredFilterStorageKey);
-  const normalizedRetiredFilter = ['non_retired', 'retired_only', 'all'].includes(savedRetiredFilter)
-    ? savedRetiredFilter
-    : defaults.retiredFilter;
-
-  const raw = window.localStorage.getItem(adminFiltersStorageKey);
-  if (!raw) {
-    return { ...defaults, retiredFilter: normalizedRetiredFilter };
-  }
-
-  try {
-    const parsed = JSON.parse(raw);
-    const retiredFilter = ['non_retired', 'retired_only', 'all'].includes(parsed?.retiredFilter)
-      ? parsed.retiredFilter
-      : normalizedRetiredFilter;
-    const statusSelectionMode = parsed?.statusSelectionMode === 'all'
-      ? 'all'
-      : (parsed?.statusSelectionMode === 'custom' ? 'custom' : 'legacy');
-    const statusesFromStorage = normalizeSavedAdminStatuses(parsed?.statuses, statusSelectionMode);
-
-    return {
-      ...defaults,
-      statuses: statusesFromStorage.length > 0 ? statusesFromStorage : defaults.statuses,
-      retiredFilter,
-      types: Array.isArray(parsed?.types) ? parsed.types
-        : (typeof parsed?.type === 'string' && parsed.type ? [formatMetaTypeLabel(parsed.type)] : defaults.types),
-      cleanupRequired: typeof parsed?.cleanupRequired === 'string' ? parsed.cleanupRequired : defaults.cleanupRequired,
-      cleanupStatuses: Array.isArray(parsed?.cleanupStatuses) ? parsed.cleanupStatuses : defaults.cleanupStatuses,
-      search: typeof parsed?.search === 'string' ? parsed.search : defaults.search,
-      requester: typeof parsed?.requester === 'string' ? parsed.requester : defaults.requester,
-      submittedBy: typeof parsed?.submittedBy === 'string' ? parsed.submittedBy : defaults.submittedBy,
-      createdVia: typeof parsed?.createdVia === 'string' ? parsed.createdVia : defaults.createdVia,
-      year: typeof parsed?.year === 'string' ? parsed.year : defaults.year,
-      inJira: typeof parsed?.inJira === 'string' ? parsed.inJira : defaults.inJira,
-      jiraNumber: typeof parsed?.jiraNumber === 'string' ? parsed.jiraNumber : defaults.jiraNumber,
-      easyvistaNumber: typeof parsed?.easyvistaNumber === 'string' ? parsed.easyvistaNumber : defaults.easyvistaNumber,
-      releaseNumber: typeof parsed?.releaseNumber === 'string' ? parsed.releaseNumber : defaults.releaseNumber,
-      sort: typeof parsed?.sort === 'string' && parsed.sort.trim() ? parsed.sort : defaults.sort,
-    };
-  } catch {
-    return { ...defaults, retiredFilter: normalizedRetiredFilter };
-  }
-}
-
-function defaultFilters() {
-  return readSavedAdminFilters();
-}
-
-function defaultBackdatedForm(defaultRequester = '') {
-  return {
-    created_via: 'admin_backdated',
-    type: 'defect',
-    status: 'New',
-    is_cleanup: false,
-    cleanup_status: 'New',
-    created_by: String(defaultRequester || '').trim() || 'Admin',
-    created_by_email: '',
-    application_name: 'Billing Center',
-    summary_of_issue: '',
-    screen_title: '',
-    request: '',
-    impact_notes: '',
-    policy_premium_impact: '',
-    direct_dollar_impact: '',
-    policies_affected_count: '',
-    reported_at: '',
-    desired_completion_date: '',
-    jira_number: '',
-    release_number: '',
-    easyvista_ticket_id: '',
-    easyvista_submitted_by: '',
-    status_dates: {
-      Approved: '',
-      Rejected: '',
-      Duplicate: '',
-      Submitted: '',
-      Deployed: '',
-      Retired: '',
-    },
-  };
-}
-
-function defaultCleanupForm(currentUser) {
-  return {
-    created_via: 'admin_cleanup',
-    type: 'defect',
-    is_cleanup: true,
-    cleanup_status: 'New',
-    cleanup_tag_type: 'cleanup_only',
-    submit_to_easyvista: false,
-    created_by: String(currentUser || '').trim() || 'Admin',
-    created_by_email: '',
-    application_name: 'Billing Center',
-    summary_of_issue: '',
-    description: '',
-    what_happened_exact_details: '',
-    screen_title: '',
-    steps_to_reproduce: '',
-    request: '',
-    date_of_error: '',
-    time_of_error: '',
-    date_time_of_error: '',
-    desired_completion_date: '',
-    impact_details: '',
-    enhancement_request_type: '',
-    priority_level: '3 - Medium',
-    impact_notes: '',
-    policy_premium_impact: '',
-    direct_dollar_impact: '',
-    policies_affected_count: '',
-    policy_num: '',
-    account_num: '',
-    transaction_num: '',
-    jira_number: '',
-    release_number: '',
-    easyvista_ticket_id: '',
-    easyvista_submitted_by: '',
-  };
-}
-
-const SORT_COLS = {
-  reportedDate:     { asc: 'created_asc',                 desc: 'created_desc' },
-  statusUpdate:     { asc: 'updated_asc',                 desc: 'updated_desc' },
-  type:             { asc: 'type_asc',                    desc: 'type_desc' },
-  requester:        { asc: 'requester_asc',               desc: 'requester_desc' },
-  summary:          { asc: 'summary_asc',                 desc: 'summary_desc' },
-  status:           { asc: 'status_asc',                  desc: 'status_desc' },
-  isPublic:         { asc: 'public_asc',                  desc: 'public_desc' },
-  inJira:           { asc: 'logged_defect_asc',           desc: 'logged_defect_desc' },
-  jiraCard:         { asc: 'jira_number_asc',             desc: 'jira_number_desc' },
-  releaseNum:       { asc: 'release_number_asc',          desc: 'release_number_desc' },
-  policyPremium:    { asc: 'policy_premium_impact_asc',   desc: 'policy_premium_impact_desc' },
-  directImpact:     { asc: 'direct_dollar_impact_asc',    desc: 'direct_dollar_impact_desc' },
-  policiesImpacted: { asc: 'policies_affected_count_asc', desc: 'policies_affected_count_desc' },
-  frequency:        { asc: 'frequency_asc',               desc: 'frequency_desc' },
-  easyvista:        { asc: 'easyvista_asc',               desc: 'easyvista_desc' },
-  submittedBy:      { asc: 'submitted_by_asc',            desc: 'submitted_by_desc' },
-};
-
-function toNumeric(value) {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : 0;
-}
-
-function editableFromDetail(detail) {
-  if (!detail) return null;
-  const cleanupTagType = detail.cleanup_tag_type || (detail.is_cleanup ? 'cleanup_only' : '');
-  return {
-    type: detail.type || 'defect',
-    is_cleanup: Boolean(detail.is_cleanup),
-    cleanup_status: detail.cleanup_status || statusToCleanup[detail.status] || 'New',
-    cleanup_tag_type: cleanupTagType,
-    application_name: detail.application_name || 'Billing Center',
-    policy_num: detail.policy_num || '',
-    account_num: detail.account_num || '',
-    transaction_num: detail.transaction_num || '',
-    screen_title: detail.screen_title || '',
-    summary_of_issue: detail.summary_of_issue || '',
-    steps_to_reproduce: detail.steps_to_reproduce || '',
-    what_happened_exact_details: detail.what_happened_exact_details || '',
-    request: detail.request || '',
-    date_time_of_error: detail.date_time_of_error ? detail.date_time_of_error.slice(0, 16) : '',
-    desired_completion_date: detail.desired_completion_date
-      ? detail.desired_completion_date.slice(0, 10)
-      : '',
-    status: detail.status || 'New',
-    reviewer: detail.reviewer || '',
-    decision_notes: detail.decision_notes || '',
-    fingerprint: detail.fingerprint || '',
-    impact_details: detail.impact_details || '',
-    impact_notes: detail.impact_notes || '',
-    policy_premium_impact:
-      detail.policy_premium_impact === null || detail.policy_premium_impact === undefined
-        ? ''
-        : String(detail.policy_premium_impact),
-    direct_dollar_impact:
-      detail.direct_dollar_impact === null || detail.direct_dollar_impact === undefined
-        ? ''
-        : String(detail.direct_dollar_impact),
-    policies_affected_count:
-      detail.policies_affected_count === null || detail.policies_affected_count === undefined
-        ? ''
-        : String(detail.policies_affected_count),
-    occurrence_count:
-      detail.occurrence_count === null || detail.occurrence_count === undefined
-        ? ''
-        : String(detail.occurrence_count),
-    occurrence_timeframe_count:
-      detail.occurrence_timeframe_count === null || detail.occurrence_timeframe_count === undefined
-        ? ''
-        : String(detail.occurrence_timeframe_count),
-    occurrence_timeframe: detail.occurrence_timeframe || '',
-    enhancement_request_type: detail.enhancement_request_type || '',
-    priority_level: detail.priority_level || '3 - Medium',
-    jira_number: detail.jira_number || '',
-    easyvista_submitted_by: detail.easyvista_submitted_by || '',
-    release_number: detail.release_number || '',
-    release_notes: detail.release_notes || '',
-    logged_defect: Boolean(detail.logged_defect),
-    duplicate_of: detail.duplicate_reference || detail.duplicate_of || '',
-    is_retired: Boolean(detail.is_retired),
-    is_public: Boolean(detail.is_public),
-  };
-}
-
-function normalizeAdminRow(row) {
-  if (!row) return row;
-  const isCleanup = Boolean(row.is_cleanup);
-  const baseStatus = row.defect_enhancement_status || row.status || 'New';
-  const isRetired = Boolean(row.is_retired) || String(baseStatus) === retiredStatus;
-  const cleanupStatus = isCleanup
-    ? (row.cleanup_status || statusToCleanup[baseStatus] || 'Not Started')
-    : null;
-
-  return {
-    ...row,
-    status: baseStatus,
-    defect_enhancement_status: baseStatus,
-    is_retired: isRetired,
-    is_cleanup: isCleanup,
-    cleanup_status: cleanupStatus,
-    cleanup_status_display: cleanupStatus || 'No Cleanup',
-    is_resubmission: Boolean(row.is_resubmission),
-    resubmission_of_submission_id: row.resubmission_of_submission_id || null,
-    resubmission_of_easyvista_ticket_id: row.resubmission_of_easyvista_ticket_id || null,
-    has_resubmission: Boolean(row.has_resubmission),
-    latest_resubmission_submission_id: row.latest_resubmission_submission_id || null,
-    latest_resubmission_easyvista_ticket_id: row.latest_resubmission_easyvista_ticket_id || null,
-  };
-}
-
-function inlineDisplayType(row) {
-  if (!row) return 'defect';
-  if (row.is_cleanup) {
-    if (row.cleanup_tag_type === 'cleanup_only') return 'Cleanup Only';
-    if (row.cleanup_tag_type === 'enhancement') return 'enhancement';
-    if (row.cleanup_tag_type === 'defect') return 'defect';
-    return 'Cleanup Only';
-  }
-  return row.type || 'defect';
-}
-
-function buildAdminUpdatePayload(editValue) {
-  if (!editValue) return null;
-  return {
-    ...editValue,
-    is_retired: Boolean(editValue.is_retired),
-    duplicate_of: editValue.duplicate_of,
-    easyvista_submitted_by: editValue.easyvista_submitted_by,
-    date_time_of_error: editValue.date_time_of_error || null,
-    desired_completion_date: editValue.desired_completion_date || null,
-  };
-}
-
-function isAutoEasyVistaReporter(value) {
-  return String(value || '').trim().toLowerCase().startsWith('automatic (system api');
-}
-
-function hasPendingModalChanges(detailValue, editValue) {
-  if (!detailValue || !editValue) return false;
-  const currentEdit = editableFromDetail(normalizeAdminRow(detailValue));
-  const currentPayload = buildAdminUpdatePayload(currentEdit);
-  const draftPayload = buildAdminUpdatePayload(editValue);
-  return JSON.stringify(currentPayload) !== JSON.stringify(draftPayload);
-}
-
-function formatMetaTypeLabel(value) {
-  const normalized = String(value || '').trim().toLowerCase();
-  if (normalized === 'cleanup_only') return 'Cleanup Only';
-  if (!normalized) return '';
-  return normalized.charAt(0).toUpperCase() + normalized.slice(1);
-}
-
-function formatCreatedViaLabel(value) {
-  const normalized = String(value || '').trim().toLowerCase();
-  if (!normalized) return '';
-  const knownLabels = {
-    rep_form: 'Submit Request Form',
-    admin_excel_import: 'Excel Import',
-    admin_backdated: 'Backdated Button',
-    admin_cleanup: 'Cleanup Button',
-    admin_manual: 'Admin Manual',
-    admin_easyvista_resubmission: 'EasyVista Resubmission',
-  };
-  if (knownLabels[normalized]) return knownLabels[normalized];
-  return normalized
-    .split('_')
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(' ');
-}
-
-function resolveAttachmentUrl(filePath) {
-  const raw = String(filePath || '').trim();
-  if (!raw) return '';
-  if (/^https?:\/\//i.test(raw)) return raw;
-  return raw.startsWith('/') ? raw : `/${raw}`;
-}
-
-function isProtectedRetiredStatusMetaItem(categoryKey, item) {
-  if (String(categoryKey || '') !== 'statuses') return false;
-  const itemName = String(item?.name || '').trim().toLowerCase();
-  return itemName === 'retired' || Boolean(item?.isRetired);
-}
+// Aliases to keep the rest of the file working with the original variable names
+const retiredStatus = RETIRED_STATUS;
+const cleanupOnlyStatus = CLEANUP_ONLY_STATUS;
+const cleanupMarkedStatus = CLEANUP_MARKED_STATUS;
+const statusToCleanup = STATUS_TO_CLEANUP;
+const adminMetaCategories = ADMIN_META_CATEGORIES;
+const adminFiltersStorageKey = ADMIN_FILTERS_STORAGE_KEY;
+const adminRetiredFilterStorageKey = ADMIN_RETIRED_FILTER_STORAGE_KEY;
 
 export function AdminDashboardPage({ user, onLogout }) {
   const navigate = useNavigate();
@@ -2091,58 +1764,6 @@ export function AdminDashboardPage({ user, onLogout }) {
       cleanupFilePreviews.forEach((preview) => URL.revokeObjectURL(preview.url));
     };
   }, [cleanupFilePreviews]);
-
-  function formatCurrency(value) {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
-      maximumFractionDigits: 2,
-    }).format(value || 0);
-  }
-
-  function formatNumber(value) {
-    return new Intl.NumberFormat('en-US').format(toNumeric(value));
-  }
-
-  function formatDateTime(value) {
-    if (!value) return '-';
-    const parsed = new Date(value);
-    if (Number.isNaN(parsed.getTime())) return '-';
-    return parsed.toLocaleString();
-  }
-
-  function formatDateOnly(value) {
-    if (!value) return '-';
-    const parsed = new Date(value);
-    if (Number.isNaN(parsed.getTime())) return '-';
-    return parsed.toLocaleDateString();
-  }
-
-  function formatTimelineStatus(statusValue) {
-    const value = String(statusValue || '').trim();
-    if (!value) {
-      return 'Status update';
-    }
-    if (value === retiredStatus) {
-      return 'Updated Status: Retired';
-    }
-    if (value === 'Unretired') {
-      return 'Updated Status: Unretired';
-    }
-    if (value.startsWith('Defect/Enhancement Status:') || value.startsWith('Cleanup Status:')) {
-      return value;
-    }
-    if (dynamicCoreStatusSet.has(value)) {
-      return `Defect/Enhancement Status: ${value}`;
-    }
-    if (dynamicCleanupStatusSet.has(value)) {
-      return `Cleanup Status: ${value}`;
-    }
-    if (value === cleanupOnlyStatus) {
-      return `Defect/Enhancement Status: ${value}`;
-    }
-    return value;
-  }
 
   function handleColSort(colKey) {
     const { asc, desc } = SORT_COLS[colKey];
@@ -3852,7 +3473,7 @@ export function AdminDashboardPage({ user, onLogout }) {
                 <div className="bs-form" style={{ gap: 10 }}>
                   <div style={{ borderBottom: '1px solid var(--slate-200)', paddingBottom: 8 }}>
                     <p style={{ margin: 0 }}>
-                      <strong>{formatTimelineStatus(detail.status_events[0].status)}</strong> on {formatDateTime(detail.status_events[0].changed_at)}
+                      <strong>{formatTimelineStatus(detail.status_events[0].status, dynamicCoreStatusSet, dynamicCleanupStatusSet)}</strong> on {formatDateTime(detail.status_events[0].changed_at)}
                     </p>
                     <p className="muted" style={{ margin: 0, fontSize: 13 }}>
                       Updated by: {detail.status_events[0].changed_by || 'Unknown'}
@@ -3867,7 +3488,7 @@ export function AdminDashboardPage({ user, onLogout }) {
                         {detail.status_events.slice(1).map((event) => (
                           <div key={event.id} style={{ borderBottom: '1px solid var(--slate-200)', paddingBottom: 8 }}>
                             <p style={{ margin: 0 }}>
-                              <strong>{formatTimelineStatus(event.status)}</strong> on {formatDateTime(event.changed_at)}
+                              <strong>{formatTimelineStatus(event.status, dynamicCoreStatusSet, dynamicCleanupStatusSet)}</strong> on {formatDateTime(event.changed_at)}
                             </p>
                             <p className="muted" style={{ margin: 0, fontSize: 13 }}>
                               Updated by: {event.changed_by || 'Unknown'}
