@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
-import { getSocket } from '../lib/socket';
 import {
   Badge,
   Button,
@@ -14,7 +13,7 @@ import {
   Textarea,
 } from '../components/bite-size/BitsizeUI';
 
-// ── Extracted constants & utilities ─────────────────────────────────────────
+// ── Constants & utilities ───────────────────────────────────────────────────
 import {
   RETIRED_STATUS,
   CLEANUP_ONLY_STATUS,
@@ -42,17 +41,22 @@ import {
   buildDefaultFilters,
   defaultFilters,
 } from '../utils/filterUtils';
-import { defaultBackdatedForm, defaultCleanupForm } from '../utils/formDefaults';
 import {
-  editableFromDetail,
   normalizeAdminRow,
   inlineDisplayType,
-  buildAdminUpdatePayload,
-  hasPendingModalChanges,
 } from '../utils/mappers';
 import { isProtectedRetiredStatusMetaItem } from '../utils/metaUtils';
 
-// Aliases to keep the rest of the file working with the original variable names
+// ── Custom hooks ────────────────────────────────────────────────────────────
+import { useAdminMeta } from '../hooks/useAdminMeta';
+import { useAdminNotifications } from '../hooks/useAdminNotifications';
+import { useDetailModal } from '../hooks/useDetailModal';
+import { useBackdatedModal } from '../hooks/useBackdatedModal';
+import { useCleanupModal } from '../hooks/useCleanupModal';
+import { useImportModal } from '../hooks/useImportModal';
+import { useExportModal } from '../hooks/useExportModal';
+
+// Aliases to keep JSX working with the original variable names
 const retiredStatus = RETIRED_STATUS;
 const cleanupOnlyStatus = CLEANUP_ONLY_STATUS;
 const cleanupMarkedStatus = CLEANUP_MARKED_STATUS;
@@ -63,6 +67,8 @@ const adminRetiredFilterStorageKey = ADMIN_RETIRED_FILTER_STORAGE_KEY;
 
 export function AdminDashboardPage({ user, onLogout }) {
   const navigate = useNavigate();
+
+  // ── Page-level state (filters, rows, pagination, notices) ─────────────────
   const [filters, setFilters] = useState(defaultFilters);
   const filtersRef = useRef(filters);
   filtersRef.current = filters;
@@ -72,418 +78,8 @@ export function AdminDashboardPage({ user, onLogout }) {
   const [loading, setLoading] = useState(false);
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
-  const [submissionToasts, setSubmissionToasts] = useState([]);
-  const [unreadCount, setUnreadCount] = useState(0);
 
-  const [openId, setOpenId] = useState(null);
-  const [detail, setDetail] = useState(null);
-  const [edit, setEdit] = useState(null);
-  const [pendingAttachmentFiles, setPendingAttachmentFiles] = useState([]);
-  const [pendingRemovedAttachmentIds, setPendingRemovedAttachmentIds] = useState([]);
-  const [modalTopNotice, setModalTopNotice] = useState('');
-  const [modalBottomNotice, setModalBottomNotice] = useState('');
-  const [detailError, setDetailError] = useState('');
-  const [working, setWorking] = useState(false);
-  const [previewAttachment, setPreviewAttachment] = useState(null);
-  const [easyVistaConfirmation, setEasyVistaConfirmation] = useState('');
-  const [backdatedOpen, setBackdatedOpen] = useState(false);
-  const [backdatedError, setBackdatedError] = useState('');
-  const [backdatedWorking, setBackdatedWorking] = useState(false);
-  const [backdatedForm, setBackdatedForm] = useState(defaultBackdatedForm(user?.username || ''));
-  const [cleanupOpen, setCleanupOpen] = useState(false);
-  const [cleanupError, setCleanupError] = useState('');
-  const [cleanupWorking, setCleanupWorking] = useState(false);
-  const [cleanupForm, setCleanupForm] = useState(defaultCleanupForm(user?.username || ''));
-  const [cleanupFiles, setCleanupFiles] = useState([]);
-  const [cleanupPreviewIndex, setCleanupPreviewIndex] = useState(null);
-  const previousDetailEditRef = useRef(null);
-  const previousDetailPendingFilesCountRef = useRef(0);
-  const previousDetailPendingRemovedCountRef = useRef(0);
-  const previousBackdatedFormRef = useRef(null);
-  const previousCleanupFormRef = useRef(null);
-  const previousCleanupFilesCountRef = useRef(0);
-  const cleanupFileInputRef = useRef(null);
-  const importFileInputRef = useRef(null);
-  const [importModalOpen, setImportModalOpen] = useState(false);
-  const [importWorking, setImportWorking] = useState(false);
-  const [importMode, setImportMode] = useState('');
-  const [importAvailableHeaders, setImportAvailableHeaders] = useState([]);
-  const [importMappingTargets, setImportMappingTargets] = useState([]);
-  const [importColumnMappings, setImportColumnMappings] = useState({});
-  const [pendingImportFile, setPendingImportFile] = useState(null);
-  const [importStatusText, setImportStatusText] = useState('');
-  const [importStatusKind, setImportStatusKind] = useState('');
-  const [importResultErrors, setImportResultErrors] = useState([]);
-  const [importSummary, setImportSummary] = useState(null);
-  const [importAction, setImportAction] = useState('');
-  const [importHistory, setImportHistory] = useState([]);
-  const [importRequiresApplicationDefault, setImportRequiresApplicationDefault] = useState(false);
-  const [importDefaultApplicationName, setImportDefaultApplicationName] = useState('');
-  const [importUnknownStatuses, setImportUnknownStatuses] = useState([]);
-  const [importAllowedStatuses, setImportAllowedStatuses] = useState([]);
-  const [importStatusValueMappings, setImportStatusValueMappings] = useState({});
-  const [exportModalOpen, setExportModalOpen] = useState(false);
-  const [exportWorking, setExportWorking] = useState(false);
-  const [exportError, setExportError] = useState('');
-  const [exportFields, setExportFields] = useState([]);
-  const [selectedExportFieldKeys, setSelectedExportFieldKeys] = useState([]);
-  const [exportFieldSearch, setExportFieldSearch] = useState('');
-  const [showHeaderSaveTooltip, setShowHeaderSaveTooltip] = useState(false);
-  const [showFooterSaveTooltip, setShowFooterSaveTooltip] = useState(false);
-  const [showEasyVistaRequirements, setShowEasyVistaRequirements] = useState(false);
-  const [dynamicStatuses, setDynamicStatuses] = useState([]);
-  const [dynamicFilterStatuses, setDynamicFilterStatuses] = useState([]);
-  const [dynamicCleanupStatuses, setDynamicCleanupStatuses] = useState([]);
-  const [dynamicSubmissionTypes, setDynamicSubmissionTypes] = useState(['defect', 'enhancement']);
-  const [dynamicCleanupTagTypes, setDynamicCleanupTagTypes] = useState(['cleanup_only', 'defect', 'enhancement']);
-  const [dynamicApplications, setDynamicApplications] = useState([]);
-  const [dynamicEnhancementRequestTypes, setDynamicEnhancementRequestTypes] = useState([]);
-  const [dynamicPriorityLevels, setDynamicPriorityLevels] = useState([]);
-  const [dynamicOccurrenceTimeframes, setDynamicOccurrenceTimeframes] = useState(['Day', 'Week', 'Month', 'Quarter', 'Year']);
-  const [adminMetaOptions, setAdminMetaOptions] = useState({
-    statuses: [],
-    types: [],
-    cleanupStatuses: [],
-    cleanupTagTypes: [],
-    applications: [],
-    enhancementRequestTypes: [],
-    priorityLevels: [],
-    submissionSources: [],
-  });
-  const [adminMetaLoading, setAdminMetaLoading] = useState(false);
-  const [adminMetaSaving, setAdminMetaSaving] = useState(false);
-  const [adminMetaError, setAdminMetaError] = useState('');
-  const [selectedMetaCategory, setSelectedMetaCategory] = useState('statuses');
-  const [newMetaName, setNewMetaName] = useState('');
-  const [metaDraftNames, setMetaDraftNames] = useState({});
-
-  const isDetailModalOpen = Boolean(openId && detail && edit);
-  const isAnyAdminModalOpen = isDetailModalOpen || backdatedOpen || cleanupOpen || importModalOpen || exportModalOpen;
-
-  const clearPendingAttachmentDrafts = useCallback(() => {
-    setPendingAttachmentFiles((prev) => {
-      prev.forEach((item) => {
-        if (item?.preview_url) {
-          URL.revokeObjectURL(item.preview_url);
-        }
-      });
-      return [];
-    });
-    setPendingRemovedAttachmentIds([]);
-  }, []);
-
-  const runtimeStatusFilterOptions = useMemo(
-    () => [...dynamicFilterStatuses, cleanupOnlyStatus, cleanupMarkedStatus],
-    [dynamicFilterStatuses],
-  );
-
-  const runtimeStatusOptions = useMemo(
-    () => [...dynamicStatuses, cleanupOnlyStatus],
-    [dynamicStatuses],
-  );
-
-  const runtimeCleanupInlineStatuses = useMemo(
-    () => ['No Cleanup', ...dynamicCleanupStatuses],
-    [dynamicCleanupStatuses],
-  );
-  const runtimeCreatedViaOptions = useMemo(() => {
-    const dynamicSources = Array.isArray(adminMetaOptions?.submissionSources)
-      ? adminMetaOptions.submissionSources
-        .filter((item) => item?.isActive)
-        .map((item) => String(item.name || '').trim().toLowerCase())
-        .filter(Boolean)
-      : [];
-    if (dynamicSources.length > 0) {
-      return dynamicSources;
-    }
-    return [
-      'rep_form',
-      'admin_excel_import',
-      'admin_backdated',
-      'admin_cleanup',
-      'admin_manual',
-      'admin_easyvista_resubmission',
-    ];
-  }, [adminMetaOptions]);
-  const statusFilterOptionsRef = useRef(runtimeStatusFilterOptions);
-
-  const runtimeTypeFilterOptions = useMemo(
-    () => [...dynamicSubmissionTypes.map(formatMetaTypeLabel), 'Cleanup Only'],
-    [dynamicSubmissionTypes],
-  );
-
-  const dynamicCoreStatusSet = useMemo(() => new Set(dynamicStatuses), [dynamicStatuses]);
-  const dynamicCleanupStatusSet = useMemo(
-    () => new Set(['No Cleanup', ...dynamicCleanupStatuses]),
-    [dynamicCleanupStatuses],
-  );
-
-  const activeMetaCategoryConfig = useMemo(
-    () => adminMetaCategories.find((category) => category.key === selectedMetaCategory) || adminMetaCategories[0],
-    [selectedMetaCategory],
-  );
-
-  const activeMetaItems = useMemo(
-    () => Array.isArray(adminMetaOptions?.[activeMetaCategoryConfig.optionsKey])
-      ? adminMetaOptions[activeMetaCategoryConfig.optionsKey]
-      : [],
-    [adminMetaOptions, activeMetaCategoryConfig],
-  );
-
-  const syncRuntimeOptionsFromMeta = useCallback((meta) => {
-    const nextStatuses = Array.isArray(meta?.statuses)
-      ? meta.statuses
-        .filter((item) => item?.isActive && !item?.isRetired)
-        .map((item) => String(item.name || '').trim())
-        .filter(Boolean)
-      : [];
-    const nextFilterStatuses = Array.isArray(meta?.statuses)
-      ? meta.statuses
-        .filter((item) => !item?.isRetired)
-        .map((item) => String(item.name || '').trim())
-        .filter(Boolean)
-      : [];
-    const nextCleanupStatuses = Array.isArray(meta?.cleanupStatuses)
-      ? meta.cleanupStatuses
-        .filter((item) => item?.isActive)
-        .map((item) => String(item.name || '').trim())
-        .filter(Boolean)
-      : [];
-    const nextSubmissionTypes = Array.isArray(meta?.types)
-      ? meta.types
-        .filter((item) => item?.isActive)
-        .map((item) => String(item.name || '').trim().toLowerCase())
-        .filter(Boolean)
-      : [];
-    const nextCleanupTagTypes = Array.isArray(meta?.cleanupTagTypes)
-      ? meta.cleanupTagTypes
-        .filter((item) => item?.isActive)
-        .map((item) => String(item.name || '').trim().toLowerCase())
-        .filter(Boolean)
-      : [];
-    const nextApplications = Array.isArray(meta?.applications)
-      ? meta.applications
-        .filter((item) => item?.isActive)
-        .map((item) => String(item.name || '').trim())
-        .filter(Boolean)
-      : [];
-    const nextEnhancementRequestTypes = Array.isArray(meta?.enhancementRequestTypes)
-      ? meta.enhancementRequestTypes
-        .filter((item) => item?.isActive)
-        .map((item) => String(item.name || '').trim())
-        .filter(Boolean)
-      : [];
-    const nextPriorityLevels = Array.isArray(meta?.priorityLevels)
-      ? meta.priorityLevels
-        .filter((item) => item?.isActive)
-        .map((item) => String(item.name || '').trim())
-        .filter(Boolean)
-      : [];
-    const nextOccurrenceTimeframes = Array.isArray(meta?.occurrenceTimeframes)
-      ? meta.occurrenceTimeframes
-        .filter((item) => item?.isActive)
-        .map((item) => String(item.name || '').trim())
-        .filter(Boolean)
-      : [];
-
-    if (nextStatuses.length > 0) {
-      setDynamicStatuses(nextStatuses);
-    }
-
-    if (nextFilterStatuses.length > 0) {
-      setDynamicFilterStatuses(nextFilterStatuses);
-      const nextStatusFilterOptions = [...nextFilterStatuses, cleanupOnlyStatus, cleanupMarkedStatus];
-      setFilters((prev) => ({
-        ...prev,
-        statuses:
-          prev.statuses.length === 0 || areAllStatusesSelected(prev.statuses, statusFilterOptionsRef.current)
-            ? nextStatusFilterOptions
-            : prev.statuses.filter((value) => nextStatusFilterOptions.includes(value)),
-      }));
-    }
-    if (nextCleanupStatuses.length > 0) {
-      setDynamicCleanupStatuses(nextCleanupStatuses);
-    }
-    if (nextSubmissionTypes.length > 0) {
-      setDynamicSubmissionTypes(nextSubmissionTypes);
-    }
-    if (nextCleanupTagTypes.length > 0) {
-      setDynamicCleanupTagTypes(nextCleanupTagTypes);
-    }
-    if (nextApplications.length > 0) {
-      setDynamicApplications(nextApplications);
-    }
-    if (nextEnhancementRequestTypes.length > 0) {
-      setDynamicEnhancementRequestTypes(nextEnhancementRequestTypes);
-    }
-    if (nextPriorityLevels.length > 0) {
-      setDynamicPriorityLevels(nextPriorityLevels);
-    }
-    if (nextOccurrenceTimeframes.length > 0) {
-      setDynamicOccurrenceTimeframes(nextOccurrenceTimeframes);
-    }
-  }, []);
-
-  const loadAdminMeta = useCallback(async () => {
-    try {
-      setAdminMetaLoading(true);
-      setAdminMetaError('');
-      const meta = await api.getAdminMetaOptions();
-      const normalizedMeta = {
-        statuses: Array.isArray(meta?.statuses) ? meta.statuses : [],
-        types: Array.isArray(meta?.types) ? meta.types : [],
-        cleanupStatuses: Array.isArray(meta?.cleanupStatuses) ? meta.cleanupStatuses : [],
-        cleanupTagTypes: Array.isArray(meta?.cleanupTagTypes) ? meta.cleanupTagTypes : [],
-        applications: Array.isArray(meta?.applications) ? meta.applications : [],
-        enhancementRequestTypes: Array.isArray(meta?.enhancementRequestTypes) ? meta.enhancementRequestTypes : [],
-        priorityLevels: Array.isArray(meta?.priorityLevels) ? meta.priorityLevels : [],
-        submissionSources: Array.isArray(meta?.submissionSources) ? meta.submissionSources : [],
-        occurrenceTimeframes: Array.isArray(meta?.occurrenceTimeframes) ? meta.occurrenceTimeframes : [],
-      };
-      setAdminMetaOptions(normalizedMeta);
-      syncRuntimeOptionsFromMeta(normalizedMeta);
-    } catch (loadError) {
-      setAdminMetaError(loadError.message || 'Failed to load metadata options.');
-    } finally {
-      setAdminMetaLoading(false);
-    }
-  }, [syncRuntimeOptionsFromMeta]);
-
-  const saveMetaItem = useCallback(async (item) => {
-    if (!item || !activeMetaCategoryConfig) return;
-    const draftName = String(metaDraftNames[item.id] ?? item.name ?? '').trim();
-    try {
-      setAdminMetaSaving(true);
-      setAdminMetaError('');
-      await api.updateAdminMetaOption(activeMetaCategoryConfig.endpointCategory, item.id, {
-        name: draftName,
-        isActive: Boolean(item.isActive),
-        isRetired: Boolean(item.isRetired),
-        sortOrder: Number(item.sortOrder || 0),
-      });
-      await loadAdminMeta();
-      setNotice('Metadata value saved.');
-    } catch (saveError) {
-      setAdminMetaError(saveError.message || 'Failed to save metadata value.');
-    } finally {
-      setAdminMetaSaving(false);
-    }
-  }, [activeMetaCategoryConfig, metaDraftNames, loadAdminMeta]);
-
-  const addMetaItem = useCallback(async () => {
-    const name = String(newMetaName || '').trim();
-    if (!name || !activeMetaCategoryConfig) return;
-    try {
-      setAdminMetaSaving(true);
-      setAdminMetaError('');
-      await api.createAdminMetaOption(activeMetaCategoryConfig.endpointCategory, { name });
-      setNewMetaName('');
-      await loadAdminMeta();
-      setNotice('Metadata value added.');
-    } catch (createError) {
-      setAdminMetaError(createError.message || 'Failed to add metadata value.');
-    } finally {
-      setAdminMetaSaving(false);
-    }
-  }, [newMetaName, activeMetaCategoryConfig, loadAdminMeta]);
-
-  const moveMetaItem = useCallback(async (itemId, direction) => {
-    if (!activeMetaCategoryConfig || !Array.isArray(activeMetaItems) || activeMetaItems.length <= 1) {
-      return;
-    }
-    const currentIndex = activeMetaItems.findIndex((item) => Number(item.id) === Number(itemId));
-    if (currentIndex === -1) return;
-    const targetIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
-    if (targetIndex < 0 || targetIndex >= activeMetaItems.length) return;
-
-    const reordered = [...activeMetaItems];
-    const [moved] = reordered.splice(currentIndex, 1);
-    reordered.splice(targetIndex, 0, moved);
-
-    try {
-      setAdminMetaSaving(true);
-      setAdminMetaError('');
-      await api.reorderAdminMetaOptions(
-        activeMetaCategoryConfig.endpointCategory,
-        reordered.map((item) => item.id),
-      );
-      await loadAdminMeta();
-      setNotice('Metadata order updated.');
-    } catch (reorderError) {
-      setAdminMetaError(reorderError.message || 'Failed to update metadata order.');
-    } finally {
-      setAdminMetaSaving(false);
-    }
-  }, [activeMetaCategoryConfig, activeMetaItems, loadAdminMeta]);
-
-  const importTargetByHeader = useMemo(() => {
-    const inverse = {};
-    for (const [targetKey, headerName] of Object.entries(importColumnMappings || {})) {
-      const normalizedHeader = String(headerName || '').trim();
-      if (!normalizedHeader) continue;
-      if (!inverse[normalizedHeader]) {
-        inverse[normalizedHeader] = targetKey;
-      }
-    }
-    return inverse;
-  }, [importColumnMappings]);
-
-  const sortedImportMappingTargets = useMemo(
-    () => [...(importMappingTargets || [])].sort((left, right) => String(left?.label || '').localeCompare(String(right?.label || ''))),
-    [importMappingTargets],
-  );
-
-  const visibleImportMappingTargets = useMemo(() => {
-    if (importMode === 'cleanup') {
-      return sortedImportMappingTargets;
-    }
-
-    const enhancementOnlyKeys = new Set([
-      'enhancement_request_type',
-      'priority_level',
-      'impact_details',
-      'desired_completion_date',
-    ]);
-    const defectOnlyKeys = new Set([
-      'policy_num',
-      'account_num',
-      'combined_policy_account',
-      'transaction_num',
-      'screen_title',
-      'steps_to_reproduce',
-      'what_happened_exact_details',
-      'date_time_of_error',
-    ]);
-
-    if (importMode === 'defect') {
-      return sortedImportMappingTargets.filter((target) => !enhancementOnlyKeys.has(target.key));
-    }
-    if (importMode === 'enhancement') {
-      return sortedImportMappingTargets.filter((target) => !defectOnlyKeys.has(target.key));
-    }
-    return sortedImportMappingTargets;
-  }, [importMode, sortedImportMappingTargets]);
-
-  const sortedImportAvailableHeaders = useMemo(
-    () => [...(importAvailableHeaders || [])].sort((left, right) => String(left || '').localeCompare(String(right || ''))),
-    [importAvailableHeaders],
-  );
-
-  const visibleExportFields = useMemo(() => {
-    const needle = String(exportFieldSearch || '').trim().toLowerCase();
-    if (!needle) return exportFields;
-    return exportFields.filter((field) => {
-      const label = String(field?.label || '').toLowerCase();
-      const key = String(field?.key || '').toLowerCase();
-      return label.includes(needle) || key.includes(needle);
-    });
-  }, [exportFields, exportFieldSearch]);
-
-  const selectedExportFieldSet = useMemo(
-    () => new Set((selectedExportFieldKeys || []).map((value) => String(value || ''))),
-    [selectedExportFieldKeys],
-  );
-
+  // ── Load rows callback (page-level so hooks can share it) ─────────────────
   const loadRows = useCallback(async (filtersParam) => {
     const f = filtersParam ?? filtersRef.current;
     try {
@@ -506,35 +102,95 @@ export function AdminDashboardPage({ user, onLogout }) {
     }
   }, []);
 
-  const openDetail = useCallback(async (id, preserveEdit = false) => {
-    try {
-      setError('');
-      if (!preserveEdit) {
-        setEasyVistaConfirmation('');
-        setShowEasyVistaRequirements(false);
-      }
-      const data = await api.getAdminSubmissionDetail(id);
-      setDetail(data);
-      if (!preserveEdit) {
-        setEdit(editableFromDetail(data));
-        clearPendingAttachmentDrafts();
-      }
-      setOpenId(id);
-      return data;
-    } catch (detailError) {
-      setError(detailError.message);
-      return null;
-    }
-  }, [clearPendingAttachmentDrafts]);
+  // ── Custom hooks ──────────────────────────────────────────────────────────
+  const meta = useAdminMeta({ setFilters, setNotice });
+  const detailModal = useDetailModal({ loadRows, setRows, setNotice, setError });
+  const backdated = useBackdatedModal({ user, loadRows, setNotice });
+  const cleanup = useCleanupModal({ user, loadRows, setNotice });
+  const importModal = useImportModal({ loadRows, setNotice });
+  const exportModal = useExportModal({ filtersRef, setNotice });
 
+  // Destructure detail modal for convenience (used extensively in JSX)
+  const {
+    openId, setOpenId, detail, edit, setEdit, isDetailModalOpen,
+    openDetail, detailError, setDetailError, working,
+    modalTopNotice, setModalTopNotice, modalBottomNotice, setModalBottomNotice,
+    previewAttachment, setPreviewAttachment,
+    easyVistaConfirmation, showEasyVistaRequirements, setShowEasyVistaRequirements,
+    showHeaderSaveTooltip, setShowHeaderSaveTooltip,
+    showFooterSaveTooltip, setShowFooterSaveTooltip,
+    modalTitle, effectiveType, easyVistaMissingRequirements,
+    hasPendingChanges, visibleAttachments, saveDisabledReason,
+    saveEdits, retireCurrentItem, unretireCurrentItem, uploadAttachment, deleteAttachment, submitEasyVista,
+    pendingAttachmentFiles, pendingRemovedAttachmentIds,
+  } = detailModal;
+
+  // Destructure meta for convenience
+  const {
+    dynamicStatuses, dynamicCleanupStatuses, dynamicSubmissionTypes, dynamicCleanupTagTypes,
+    dynamicApplications, dynamicEnhancementRequestTypes, dynamicPriorityLevels, dynamicOccurrenceTimeframes,
+    runtimeStatusFilterOptions, runtimeStatusOptions, runtimeCleanupInlineStatuses,
+    runtimeCreatedViaOptions, runtimeTypeFilterOptions,
+    dynamicCoreStatusSet, dynamicCleanupStatusSet,
+    adminMetaOptions, adminMetaLoading, adminMetaSaving, adminMetaError,
+    selectedMetaCategory, setSelectedMetaCategory, newMetaName, setNewMetaName,
+    metaDraftNames, setMetaDraftNames,
+    activeMetaCategoryConfig, activeMetaItems,
+    loadAdminMeta, saveMetaItem, addMetaItem, moveMetaItem,
+  } = meta;
+
+  // Destructure backdated modal
+  const {
+    backdatedOpen, setBackdatedOpen, backdatedError, backdatedWorking,
+    backdatedForm, setBackdatedForm, resetBackdatedForm, createBackdatedTicket,
+  } = backdated;
+
+  // Destructure cleanup modal
+  const {
+    cleanupOpen, setCleanupOpen, cleanupError, cleanupWorking,
+    cleanupForm, setCleanupForm, cleanupFiles, setCleanupFiles,
+    cleanupPreviewIndex, setCleanupPreviewIndex, cleanupFileInputRef,
+    cleanupRequiresEasyVistaFields, cleanupFilePreviews,
+    resetCleanupForm, createCleanupTask,
+  } = cleanup;
+
+  // Destructure import modal
+  const {
+    importFileInputRef, importModalOpen, setImportModalOpen, importWorking,
+    importMode, setImportMode, importAvailableHeaders,
+    importMappingTargets, importColumnMappings, setImportColumnMappings,
+    pendingImportFile, importStatusText, importStatusKind,
+    importResultErrors, importSummary, importAction, importHistory,
+    importRequiresApplicationDefault, importDefaultApplicationName, setImportDefaultApplicationName,
+    importUnknownStatuses, importAllowedStatuses,
+    importStatusValueMappings, setImportStatusValueMappings,
+    importTargetByHeader, sortedImportMappingTargets,
+    visibleImportMappingTargets, sortedImportAvailableHeaders,
+    analyzeImportFile, importBackdatedExcel,
+  } = importModal;
+
+  // Destructure export modal
+  const {
+    exportModalOpen, setExportModalOpen, exportWorking, exportError,
+    exportFields, selectedExportFieldKeys, exportFieldSearch, setExportFieldSearch,
+    visibleExportFields, selectedExportFieldSet,
+    closeExportModal, toggleExportField, selectAllVisibleExportFields,
+    clearVisibleExportFields, exportFilteredSubmissions,
+  } = exportModal;
+
+  // ── Composite flags ───────────────────────────────────────────────────────
+  const isAnyAdminModalOpen = isDetailModalOpen || backdatedOpen || cleanupOpen || importModalOpen || exportModalOpen;
+
+  // ── Notifications (depends on isAnyAdminModalOpen) ────────────────────────
+  const { submissionToasts } = useAdminNotifications({
+    loadRows, openId, openDetail, isAnyAdminModalOpen, setNotice,
+  });
+
+  // ── Filter effects ────────────────────────────────────────────────────────
   useEffect(() => {
     loadRows(filters);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filters]);
-
-  useEffect(() => {
-    loadAdminMeta();
-  }, [loadAdminMeta]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -548,332 +204,41 @@ export function AdminDashboardPage({ user, onLogout }) {
     window.localStorage.setItem(adminRetiredFilterStorageKey, filters.retiredFilter || 'non_retired');
   }, [filters, runtimeStatusFilterOptions]);
 
-  useEffect(() => {
-    statusFilterOptionsRef.current = runtimeStatusFilterOptions;
-  }, [runtimeStatusFilterOptions]);
-
-  useEffect(() => {
-    const nextDrafts = {};
-    activeMetaItems.forEach((item) => {
-      nextDrafts[item.id] = String(item.name || '');
-    });
-    setMetaDraftNames(nextDrafts);
-  }, [activeMetaItems]);
-
-  // Request browser notification permission once on mount
-  useEffect(() => {
-    if ('Notification' in window && Notification.permission === 'default') {
-      Notification.requestPermission();
+  // ── Row-derived memos ─────────────────────────────────────────────────────
+  const statusCounts = useMemo(() => {
+    const counts = {};
+    for (const row of rows) {
+      counts[row.status] = (counts[row.status] || 0) + 1;
     }
-  }, []);
+    return counts;
+  }, [rows]);
 
-  // Update document title with unread count; reset when tab becomes visible
-  useEffect(() => {
-    const base = 'Admin Queue | BC Defects & Enhancements';
-    document.title = unreadCount > 0 ? `(${unreadCount}) ${base}` : base;
-  }, [unreadCount]);
+  const newFormSubmissionsCount = useMemo(
+    () => rows.filter((row) => row.status === 'New' && row.created_via === 'rep_form').length,
+    [rows],
+  );
 
-  useEffect(() => {
-    const onVisible = () => { if (!document.hidden) setUnreadCount(0); };
-    document.addEventListener('visibilitychange', onVisible);
-    return () => document.removeEventListener('visibilitychange', onVisible);
-  }, []);
-
-  useEffect(() => {
-    const socket = getSocket();
-    const onNotification = (payload) => {
-      const message = payload?.event ? `Live update: ${payload.event}` : 'Live update received';
-      if (!isAnyAdminModalOpen) setNotice(message);
-      loadRows();
-      if (openId) openDetail(openId, true);
-
-      if (payload?.event === 'submission:new') {
-        const sub = payload?.payload;
-        // Only alert for submissions from the public rep form, not admin-created entries
-        if (sub?.created_via !== 'rep_form') return;
-        if (document.hidden) {
-          // Tab is not visible — bump the title counter only
-          setUnreadCount((c) => c + 1);
-        } else {
-          // Tab is visible — show in-app toast
-          const toastId = Date.now();
-          setSubmissionToasts((prev) => [
-            ...prev,
-            {
-              id: toastId,
-              heading: sub?.summary_of_issue || 'New submission received',
-              from: sub?.created_by || null,
-              type: sub?.type ? sub.type.charAt(0).toUpperCase() + sub.type.slice(1) : null,
-            },
-          ]);
-          setTimeout(() => {
-            setSubmissionToasts((prev) => prev.filter((t) => t.id !== toastId));
-          }, 8000);
-        }
-
-        // Attempt OS desktop notification regardless of tab visibility
-        if ('Notification' in window && Notification.permission === 'granted') {
-          const heading = sub?.summary_of_issue || 'New submission received';
-          const bodyParts = [
-            sub?.created_by ? `From: ${sub.created_by}` : null,
-            sub?.type ? `Type: ${sub.type.charAt(0).toUpperCase() + sub.type.slice(1)}` : null,
-          ].filter(Boolean);
-          try {
-            const n = new Notification('📊 New Submission', {
-              body: bodyParts.length ? `${heading}\n${bodyParts.join(' · ')}` : heading,
-              icon: '/favicon.ico',
-            });
-            n.onclick = () => { window.focus(); n.close(); };
-          } catch (_) { /* silently ignore */ }
-        }
-      }
-    };
-
-    socket.on('admin:notification', onNotification);
-    return () => {
-      socket.off('admin:notification', onNotification);
-    };
-  }, [loadRows, openId, openDetail, isAnyAdminModalOpen]);
-
-  const loadImportHistory = useCallback(async () => {
-    try {
-      const history = await api.listAdminSubmissionsImportHistory({ limit: 5 });
-      setImportHistory(Array.isArray(history) ? history : []);
-    } catch {
-      setImportHistory([]);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (!importModalOpen) return;
-    loadImportHistory();
-  }, [importModalOpen, loadImportHistory]);
-
-  const loadExportFields = useCallback(async () => {
-    try {
-      setExportError('');
-      const response = await api.getAdminExportFields();
-      const fields = Array.isArray(response?.fields) ? response.fields : [];
-      setExportFields(fields);
-      setSelectedExportFieldKeys((prev) => {
-        if (Array.isArray(prev) && prev.length > 0) {
-          const allowed = new Set(fields.map((field) => String(field?.key || '')));
-          const retained = prev
-            .map((value) => String(value || ''))
-            .filter((value) => allowed.has(value));
-          if (retained.length > 0) return retained;
-        }
-        return fields.map((field) => String(field?.key || '')).filter(Boolean);
-      });
-    } catch (loadError) {
-      setExportFields([]);
-      setSelectedExportFieldKeys([]);
-      setExportError(loadError.message || 'Failed to load export fields.');
-    }
-  }, []);
-
-  useEffect(() => {
-    if (!exportModalOpen) return;
-    loadExportFields();
-  }, [exportModalOpen, loadExportFields]);
-
-  const closeExportModal = useCallback(() => {
-    if (exportWorking) return;
-    setExportModalOpen(false);
-    setExportError('');
-    setExportFieldSearch('');
-  }, [exportWorking]);
-
-  const toggleExportField = useCallback((fieldKey) => {
-    const normalizedFieldKey = String(fieldKey || '').trim();
-    if (!normalizedFieldKey) return;
-    setSelectedExportFieldKeys((prev) => {
-      const nextSet = new Set((prev || []).map((value) => String(value || '')));
-      if (nextSet.has(normalizedFieldKey)) {
-        nextSet.delete(normalizedFieldKey);
-      } else {
-        nextSet.add(normalizedFieldKey);
-      }
-      return Array.from(nextSet);
-    });
-  }, []);
-
-  const selectAllVisibleExportFields = useCallback(() => {
-    setSelectedExportFieldKeys((prev) => {
-      const nextSet = new Set((prev || []).map((value) => String(value || '')));
-      visibleExportFields.forEach((field) => {
-        const key = String(field?.key || '').trim();
-        if (key) nextSet.add(key);
-      });
-      return Array.from(nextSet);
-    });
-  }, [visibleExportFields]);
-
-  const clearVisibleExportFields = useCallback(() => {
-    const visibleKeys = new Set(
-      visibleExportFields
-        .map((field) => String(field?.key || '').trim())
-        .filter(Boolean),
+  const impactTotals = useMemo(() => {
+    return rows.reduce(
+      (acc, row) => {
+        acc.policyPremiumImpact += toNumeric(row.policy_premium_impact);
+        acc.directDollarImpact += toNumeric(row.direct_dollar_impact);
+        acc.policiesAffectedCount += toNumeric(row.policies_affected_count);
+        return acc;
+      },
+      { policyPremiumImpact: 0, directDollarImpact: 0, policiesAffectedCount: 0 },
     );
-    setSelectedExportFieldKeys((prev) =>
-      (prev || [])
-        .map((value) => String(value || ''))
-        .filter((value) => !visibleKeys.has(value)),
-    );
-  }, [visibleExportFields]);
+  }, [rows]);
 
-  const exportFilteredSubmissions = useCallback(async () => {
-    const selectedKeys = (selectedExportFieldKeys || [])
-      .map((value) => String(value || '').trim())
-      .filter(Boolean);
+  useEffect(() => { setPage(1); }, [rows]);
 
-    if (selectedKeys.length === 0) {
-      setExportError('Select at least one field to export.');
-      return;
-    }
-
-    try {
-      setExportWorking(true);
-      setExportError('');
-      await api.exportAdminSubmissionsXlsx({
-        filters: filtersRef.current,
-        fields: selectedKeys,
-      });
-      setExportModalOpen(false);
-      setExportFieldSearch('');
-      setNotice('Export downloaded successfully.');
-    } catch (downloadError) {
-      setExportError(downloadError.message || 'Failed to export submissions.');
-    } finally {
-      setExportWorking(false);
-    }
-  }, [selectedExportFieldKeys]);
-
-  useEffect(() => {
-    const editChanged = previousDetailEditRef.current !== edit;
-    const pendingFilesChanged = previousDetailPendingFilesCountRef.current !== pendingAttachmentFiles.length;
-    const pendingRemovedChanged = previousDetailPendingRemovedCountRef.current !== pendingRemovedAttachmentIds.length;
-
-    previousDetailEditRef.current = edit;
-    previousDetailPendingFilesCountRef.current = pendingAttachmentFiles.length;
-    previousDetailPendingRemovedCountRef.current = pendingRemovedAttachmentIds.length;
-
-    if (!isDetailModalOpen || !detailError) return;
-    if (editChanged || pendingFilesChanged || pendingRemovedChanged) {
-      setDetailError('');
-    }
-  }, [edit, pendingAttachmentFiles.length, pendingRemovedAttachmentIds.length, isDetailModalOpen, detailError]);
-
-  useEffect(() => {
-    const backdatedChanged = previousBackdatedFormRef.current !== backdatedForm;
-    previousBackdatedFormRef.current = backdatedForm;
-
-    if (!backdatedOpen || !backdatedError) return;
-    if (backdatedChanged) {
-      setBackdatedError('');
-    }
-  }, [backdatedForm, backdatedOpen, backdatedError]);
-
-  useEffect(() => {
-    const cleanupFormChanged = previousCleanupFormRef.current !== cleanupForm;
-    const cleanupFilesChanged = previousCleanupFilesCountRef.current !== cleanupFiles.length;
-
-    previousCleanupFormRef.current = cleanupForm;
-    previousCleanupFilesCountRef.current = cleanupFiles.length;
-
-    if (!cleanupOpen || !cleanupError) return;
-    if (cleanupFormChanged || cleanupFilesChanged) {
-      setCleanupError('');
-    }
-  }, [cleanupForm, cleanupFiles.length, cleanupOpen, cleanupError]);
-
-  const modalTitle = useMemo(() => {
-    if (!detail) return 'Submission Details';
-    return `Submission #${detail.id}`;
-  }, [detail]);
-
-  const effectiveType = useMemo(() => {
-    if (!edit) return '';
-    if (edit.is_cleanup) {
-      if (!edit.cleanup_tag_type || edit.cleanup_tag_type === 'cleanup_only') {
-        return 'defect';
-      }
-      return edit.cleanup_tag_type;
-    }
-    return edit.type || '';
-  }, [edit]);
-
-  const easyVistaMissingRequirements = useMemo(() => {
-    if (!detail || !edit) {
-      return [];
-    }
-
-    const missing = [];
-    if (effectiveType === 'enhancement') {
-      if (!String(edit.impact_details || '').trim()) {
-        missing.push('Impact Details');
-      }
-      if (!String(edit.enhancement_request_type || '').trim()) {
-        missing.push('Request Type');
-      }
-      if (!String(edit.desired_completion_date || '').trim()) {
-        missing.push('Desired Completion Date');
-      }
-    }
-
-    if (effectiveType === 'defect') {
-      if (!String(edit.summary_of_issue || '').trim()) {
-        missing.push('Summary of Issue');
-      }
-      if (!String(edit.screen_title || '').trim()) {
-        missing.push('Screen Title');
-      }
-      if (!String(edit.what_happened_exact_details || '').trim()) {
-        missing.push('Description');
-      }
-    }
-
-    return missing;
-  }, [detail, edit, effectiveType]);
-
-  const hasPendingChanges = useMemo(
-    () => (
-      hasPendingModalChanges(detail, edit)
-      || pendingAttachmentFiles.length > 0
-      || pendingRemovedAttachmentIds.length > 0
-    ),
-    [detail, edit, pendingAttachmentFiles.length, pendingRemovedAttachmentIds.length],
+  const totalPages = pageSize === 0 ? 1 : Math.max(1, Math.ceil(rows.length / pageSize));
+  const pagedRows = useMemo(
+    () => pageSize === 0 ? rows : rows.slice((page - 1) * pageSize, page * pageSize),
+    [rows, page, pageSize],
   );
 
-  const visibleExistingAttachments = useMemo(
-    () => (detail?.attachments || []).map((att) => ({
-      ...att,
-      _isMarkedForRemoval: pendingRemovedAttachmentIds.includes(Number(att.id)),
-    })),
-    [detail, pendingRemovedAttachmentIds],
-  );
-
-  const pendingAttachmentItems = useMemo(
-    () => pendingAttachmentFiles.map((item) => ({
-      id: item.id,
-      filename: item.file?.name || 'attachment',
-      mime_type: item.file?.type || 'application/octet-stream',
-      preview_url: item.preview_url || '',
-      _isPendingUpload: true,
-    })),
-    [pendingAttachmentFiles],
-  );
-
-  const visibleAttachments = useMemo(
-    () => [...visibleExistingAttachments, ...pendingAttachmentItems],
-    [visibleExistingAttachments, pendingAttachmentItems],
-  );
-  const saveDisabledReason = working
-    ? 'Saving in progress'
-    : hasPendingChanges
-      ? 'Save changes'
-      : 'No unsaved changes';
-
+  // ── Quick-update handlers (need both rows + detail modal state) ───────────
   async function updateStatusQuick(submissionId, status, rowContext = null) {
     try {
       setError('');
@@ -894,37 +259,20 @@ export function AdminDashboardPage({ user, onLogout }) {
         : {
           status,
           ...(rowContext?.cleanup_tag_type === 'cleanup_only'
-            ? {
-              cleanup_tag_type:
-                rowContext?.type === 'enhancement' ? 'enhancement' : 'defect',
-            }
+            ? { cleanup_tag_type: rowContext?.type === 'enhancement' ? 'enhancement' : 'defect' }
             : {}),
         };
 
       setRows((prev) =>
         prev.map((row) => {
-          if (Number(row.id) !== Number(submissionId)) {
-            return row;
-          }
+          if (Number(row.id) !== Number(submissionId)) return row;
           return normalizeAdminRow({
             ...row,
             status: nextStatus,
             defect_enhancement_status: nextStatus,
             ...(status === cleanupOnlyStatus
-              ? {
-                is_cleanup: true,
-                cleanup_status: row.cleanup_status || statusToCleanup[row.status] || 'New',
-                cleanup_tag_type: 'cleanup_only',
-                type: 'defect',
-              }
-              : {
-                ...(row.cleanup_tag_type === 'cleanup_only'
-                  ? {
-                    cleanup_tag_type:
-                      row.type === 'enhancement' ? 'enhancement' : 'defect',
-                  }
-                  : {}),
-              }),
+              ? { is_cleanup: true, cleanup_status: row.cleanup_status || statusToCleanup[row.status] || 'New', cleanup_tag_type: 'cleanup_only', type: 'defect' }
+              : { ...(row.cleanup_tag_type === 'cleanup_only' ? { cleanup_tag_type: row.type === 'enhancement' ? 'enhancement' : 'defect' } : {}) }),
           });
         }),
       );
@@ -935,25 +283,16 @@ export function AdminDashboardPage({ user, onLogout }) {
           prev.map((row) => (
             Number(row.id) === Number(saved.id)
               ? normalizeAdminRow({
-                ...row,
-                ...saved,
-                status: nextStatus,
-                defect_enhancement_status: nextStatus,
+                ...row, ...saved, status: nextStatus, defect_enhancement_status: nextStatus,
                 ...(status === cleanupOnlyStatus ? { is_cleanup: true, type: 'defect' } : {}),
                 ...(nextCleanupTagType ? { cleanup_tag_type: nextCleanupTagType } : {}),
               })
               : row
           )),
         );
-        if (Number(openId) === Number(saved.id)) {
-          await openDetail(saved.id, true);
-        }
+        if (Number(openId) === Number(saved.id)) await openDetail(saved.id, true);
       }
-      if (status === cleanupOnlyStatus) {
-        setNotice('Marked as Cleanup Only.');
-      } else {
-        setNotice('Status updated.');
-      }
+      setNotice(status === cleanupOnlyStatus ? 'Marked as Cleanup Only.' : 'Status updated.');
     } catch (updateError) {
       await loadRows();
       setError(updateError.message);
@@ -963,68 +302,33 @@ export function AdminDashboardPage({ user, onLogout }) {
   async function updateCleanupStatusQuick(submissionId, cleanupStatus, rowContext = null) {
     const isNoCleanup = cleanupStatus === 'No Cleanup';
     const preservedCleanupTagType =
-      rowContext?.cleanup_tag_type
-      || (rowContext?.type === 'enhancement' ? 'enhancement' : 'defect');
+      rowContext?.cleanup_tag_type || (rowContext?.type === 'enhancement' ? 'enhancement' : 'defect');
     setRows((prev) =>
       prev.map((row) => {
-        if (Number(row.id) !== Number(submissionId)) {
-          return row;
-        }
-        return {
-          ...row,
-          is_cleanup: !isNoCleanup,
-          cleanup_status: isNoCleanup ? null : cleanupStatus,
-          cleanup_tag_type: isNoCleanup ? null : (row.cleanup_tag_type || preservedCleanupTagType),
-        };
+        if (Number(row.id) !== Number(submissionId)) return row;
+        return { ...row, is_cleanup: !isNoCleanup, cleanup_status: isNoCleanup ? null : cleanupStatus, cleanup_tag_type: isNoCleanup ? null : (row.cleanup_tag_type || preservedCleanupTagType) };
       }),
     );
-
     if (Number(openId) === Number(submissionId)) {
       setEdit((prev) => {
         if (!prev) return prev;
-        return {
-          ...prev,
-          is_cleanup: !isNoCleanup,
-          cleanup_status: isNoCleanup ? '' : cleanupStatus,
-          cleanup_tag_type: isNoCleanup
-            ? ''
-            : (prev.cleanup_tag_type || (prev.type === 'enhancement' ? 'enhancement' : 'defect')),
-        };
+        return { ...prev, is_cleanup: !isNoCleanup, cleanup_status: isNoCleanup ? '' : cleanupStatus, cleanup_tag_type: isNoCleanup ? '' : (prev.cleanup_tag_type || (prev.type === 'enhancement' ? 'enhancement' : 'defect')) };
       });
     }
-
     try {
       setError('');
-      const payload = {
-        is_cleanup: !isNoCleanup,
-        cleanup_status: isNoCleanup ? null : cleanupStatus,
-      };
-      if (isNoCleanup) {
-        payload.cleanup_tag_type = null;
-      } else {
-        payload.cleanup_tag_type = preservedCleanupTagType;
-      }
-
+      const payload = { is_cleanup: !isNoCleanup, cleanup_status: isNoCleanup ? null : cleanupStatus };
+      payload.cleanup_tag_type = isNoCleanup ? null : preservedCleanupTagType;
       const saved = await api.updateAdminSubmission(submissionId, payload);
-
       if (saved?.id) {
-        setRows((prev) =>
-          prev.map((row) => (
-            Number(row.id) === Number(saved.id) ? normalizeAdminRow({ ...row, ...saved }) : row
-          )),
-        );
-        if (Number(openId) === Number(saved.id)) {
-          await openDetail(saved.id, true);
-        }
+        setRows((prev) => prev.map((row) => (Number(row.id) === Number(saved.id) ? normalizeAdminRow({ ...row, ...saved }) : row)));
+        if (Number(openId) === Number(saved.id)) await openDetail(saved.id, true);
       }
-
       setNotice(isNoCleanup ? 'Cleanup status cleared.' : 'Cleanup status updated.');
     } catch (updateError) {
       setError(updateError.message);
       await loadRows();
-      if (Number(openId) === Number(submissionId)) {
-        await openDetail(submissionId);
-      }
+      if (Number(openId) === Number(submissionId)) await openDetail(submissionId);
     }
   }
 
@@ -1058,713 +362,7 @@ export function AdminDashboardPage({ user, onLogout }) {
     }
   }
 
-  async function importBackdatedExcel(file) {
-    if (!file) return;
-    if (!importMode) {
-      setImportStatusText('Choose Import As (Defect, Enhancement, or Cleanup) before uploading.');
-      setImportStatusKind('error');
-      if (importFileInputRef.current) {
-        importFileInputRef.current.value = '';
-      }
-      return;
-    }
-    try {
-      setImportWorking(true);
-      setImportAction('importing');
-      setImportStatusText('Importing rows...');
-      setImportStatusKind('');
-      setImportResultErrors([]);
-
-      const formData = new FormData();
-      formData.append('file', file);
-      formData.append(
-        'columnMappings',
-        JSON.stringify(importColumnMappings || {}),
-      );
-      if (importDefaultApplicationName) {
-        formData.append('defaultApplicationName', importDefaultApplicationName);
-      }
-      formData.append('statusValueMappings', JSON.stringify(importStatusValueMappings || {}));
-
-      const result = await api.importAdminSubmissionsXlsx(formData, { importMode });
-
-      await loadRows();
-      const imported = Number(result?.insertedRows || 0);
-      const total = Number(result?.totalRows || 0);
-      const invalid = Number(result?.invalidRows || 0);
-      const resultErrors = Array.isArray(result?.errors) ? result.errors : [];
-      const summaryMessage = `Import complete: ${imported} of ${total} rows added.${invalid > 0 ? ` Skipped ${invalid} invalid row(s).` : ''}`;
-
-      setImportSummary({ imported, total, invalid });
-      setImportResultErrors(resultErrors.slice(0, 20));
-      setImportStatusText(summaryMessage);
-      setImportStatusKind(invalid > 0 ? '' : 'success');
-      if (result?.historyEntry) {
-        setImportHistory((prev) => [result.historyEntry, ...prev].slice(0, 5));
-      } else {
-        await loadImportHistory();
-      }
-      setImportAvailableHeaders([]);
-      setImportMappingTargets([]);
-      setImportColumnMappings({});
-      setPendingImportFile(null);
-      setImportRequiresApplicationDefault(false);
-      setImportDefaultApplicationName('');
-      setImportUnknownStatuses([]);
-      setImportStatusValueMappings({});
-    } catch (importError) {
-      const failureMessage = importError.message || 'Import failed.';
-      const fileName = String(file?.name || 'uploaded-file.xlsx');
-      setImportStatusText(failureMessage);
-      setImportStatusKind('error');
-      const responseBody = importError?.body;
-      if (responseBody?.mappingRequired && responseBody?.mappingField === 'statusValueMappings') {
-        setImportUnknownStatuses(Array.isArray(responseBody.unknownStatuses) ? responseBody.unknownStatuses : []);
-        setImportAllowedStatuses(Array.isArray(responseBody.allowedStatuses) ? responseBody.allowedStatuses : []);
-      }
-      if (responseBody?.mappingRequired && responseBody?.mappingField === 'defaultApplicationName') {
-        setImportRequiresApplicationDefault(true);
-      }
-      setImportHistory((prev) => ([
-        {
-          id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-          createdAt: new Date().toISOString(),
-          mode: importMode,
-          fileName,
-          imported: 0,
-          total: 0,
-          invalid: 0,
-          errors: [failureMessage],
-          message: failureMessage,
-          kind: 'error',
-        },
-        ...prev,
-      ].slice(0, 5)));
-    } finally {
-      setImportWorking(false);
-      setImportAction('');
-      if (importFileInputRef.current) {
-        importFileInputRef.current.value = '';
-      }
-    }
-  }
-
-  async function analyzeImportFile(file) {
-    if (!file) return;
-    if (!importMode) {
-      setImportStatusText('Choose Import As (Defect, Enhancement, or Cleanup) before selecting a file.');
-      setImportStatusKind('error');
-      if (importFileInputRef.current) {
-        importFileInputRef.current.value = '';
-      }
-      return;
-    }
-
-    try {
-      setImportWorking(true);
-      setImportAction('analyzing');
-      setImportStatusText('Analyzing file and detecting column mappings...');
-      setImportStatusKind('');
-      setImportSummary(null);
-      setImportResultErrors([]);
-
-      const formData = new FormData();
-      formData.append('file', file);
-      const analysis = await api.analyzeAdminSubmissionsXlsx(formData);
-
-      setPendingImportFile(file);
-      setImportAvailableHeaders(Array.isArray(analysis?.headers) ? analysis.headers : []);
-      setImportMappingTargets(Array.isArray(analysis?.mappingTargets) ? analysis.mappingTargets : []);
-      setImportColumnMappings(analysis?.suggestedMappings && typeof analysis.suggestedMappings === 'object'
-        ? analysis.suggestedMappings
-        : {});
-      setImportRequiresApplicationDefault(Boolean(analysis?.requiresApplicationDefault));
-      setImportAllowedStatuses(Array.isArray(analysis?.allowedStatuses) ? analysis.allowedStatuses : []);
-      setImportUnknownStatuses(Array.isArray(analysis?.unknownStatuses) ? analysis.unknownStatuses : []);
-      setImportStatusValueMappings((prev) => {
-        const next = { ...(prev || {}) };
-        const unknowns = Array.isArray(analysis?.unknownStatuses) ? analysis.unknownStatuses : [];
-        unknowns.forEach((statusValue) => {
-          if (!Object.prototype.hasOwnProperty.call(next, statusValue)) {
-            next[statusValue] = '';
-          }
-        });
-        Object.keys(next).forEach((key) => {
-          if (!unknowns.includes(key)) {
-            delete next[key];
-          }
-        });
-        return next;
-      });
-      setImportStatusText(`Detected ${Number(analysis?.totalRows || 0)} row(s). Review mappings and click Import File.`);
-      setImportStatusKind('success');
-    } catch (analysisError) {
-      setImportStatusText(analysisError.message || 'Failed to analyze file.');
-      setImportStatusKind('error');
-      setPendingImportFile(null);
-      setImportAvailableHeaders([]);
-      setImportMappingTargets([]);
-      setImportColumnMappings({});
-      setImportRequiresApplicationDefault(false);
-      setImportDefaultApplicationName('');
-      setImportUnknownStatuses([]);
-      setImportAllowedStatuses([]);
-      setImportStatusValueMappings({});
-    } finally {
-      setImportWorking(false);
-      setImportAction('');
-      if (importFileInputRef.current) {
-        importFileInputRef.current.value = '';
-      }
-    }
-  }
-
-  async function saveEdits(source = 'footer') {
-    if (!openId || !edit) return;
-    const hasFieldChanges = hasPendingModalChanges(detail, edit);
-    const hasAttachmentChanges = pendingAttachmentFiles.length > 0 || pendingRemovedAttachmentIds.length > 0;
-    if (!hasFieldChanges && !hasAttachmentChanges) {
-      if (source === 'header') {
-        setModalTopNotice('No changes to save.');
-        setModalBottomNotice('');
-      } else {
-        setModalBottomNotice('No changes to save.');
-        setModalTopNotice('');
-      }
-      return;
-    }
-    try {
-      setWorking(true);
-      let saved = null;
-      if (hasFieldChanges) {
-        saved = await api.updateAdminSubmission(openId, buildAdminUpdatePayload(edit));
-
-        if (saved?.id) {
-          setRows((prev) =>
-            prev.map((row) => (
-              Number(row.id) === Number(saved.id) ? normalizeAdminRow({ ...row, ...saved }) : row
-            )),
-          );
-        }
-      }
-
-      const targetSubmissionId = Number(saved?.id || openId);
-
-      if (pendingAttachmentFiles.length > 0) {
-        const formData = new FormData();
-        pendingAttachmentFiles.forEach((item) => {
-          if (item?.file) {
-            formData.append('attachments', item.file);
-          }
-        });
-        await api.uploadAdminAttachment(targetSubmissionId, formData);
-      }
-
-      if (pendingRemovedAttachmentIds.length > 0) {
-        for (const attachmentId of pendingRemovedAttachmentIds) {
-          await api.deleteAdminAttachment(attachmentId);
-        }
-      }
-
-      await openDetail(targetSubmissionId);
-      await loadRows();
-      if (source === 'header') {
-        setModalTopNotice('Saved successfully.');
-        setModalBottomNotice('');
-      } else {
-        setModalBottomNotice('Saved successfully.');
-        setModalTopNotice('');
-      }
-    } catch (saveError) {
-      setModalTopNotice('');
-      setModalBottomNotice('');
-      setDetailError(saveError.message);
-    } finally {
-      setWorking(false);
-    }
-  }
-
-  async function retireCurrentItem() {
-    if (!openId || !edit || edit.is_retired) return;
-    try {
-      setWorking(true);
-      setDetailError('');
-      const saved = await api.updateAdminSubmission(openId, { is_retired: true });
-      if (saved?.id) {
-        setRows((prev) =>
-          prev.map((row) => (
-            Number(row.id) === Number(saved.id) ? normalizeAdminRow({ ...row, ...saved }) : row
-          )),
-        );
-        await openDetail(saved.id);
-      }
-      setModalTopNotice('Item retired.');
-      setModalBottomNotice('');
-    } catch (retireError) {
-      setModalTopNotice('');
-      setModalBottomNotice('');
-      setDetailError(retireError.message);
-    } finally {
-      setWorking(false);
-    }
-  }
-
-  async function unretireCurrentItem() {
-    if (!openId || !edit || !edit.is_retired) return;
-    try {
-      setWorking(true);
-      setDetailError('');
-      const saved = await api.updateAdminSubmission(openId, { is_retired: false, unretire: true });
-      if (saved?.id) {
-        setRows((prev) =>
-          prev.map((row) => (
-            Number(row.id) === Number(saved.id) ? normalizeAdminRow({ ...row, ...saved }) : row
-          )),
-        );
-        await openDetail(saved.id);
-      }
-      setModalTopNotice('Item unretired.');
-      setModalBottomNotice('');
-    } catch (unretireError) {
-      setModalTopNotice('');
-      setModalBottomNotice('');
-      setDetailError(unretireError.message);
-    } finally {
-      setWorking(false);
-    }
-  }
-
-  async function uploadAttachment(event) {
-    const files = Array.from(event.target.files || []);
-    event.target.value = '';
-    if (files.length === 0) return;
-    const queuedFiles = files.map((file) => ({
-      id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
-      file,
-      preview_url: file.type?.startsWith('image/') ? URL.createObjectURL(file) : '',
-    }));
-    setPendingAttachmentFiles((prev) => [...prev, ...queuedFiles]);
-    setModalTopNotice('Attachment changes are staged. Click Save Changes to apply.');
-    setModalBottomNotice('');
-  }
-
-  function removePendingAttachment(localId) {
-    setPendingAttachmentFiles((prev) => {
-      const target = prev.find((item) => item.id === localId);
-      if (target?.preview_url) {
-        URL.revokeObjectURL(target.preview_url);
-      }
-      return prev.filter((item) => item.id !== localId);
-    });
-  }
-
-  function toggleAttachmentRemoval(attachmentId) {
-    const normalizedId = Number(attachmentId);
-    if (!Number.isFinite(normalizedId)) return;
-    setPendingRemovedAttachmentIds((prev) => (
-      prev.includes(normalizedId)
-        ? prev.filter((id) => id !== normalizedId)
-        : [...prev, normalizedId]
-    ));
-  }
-
-  async function deleteAttachment(attachment) {
-    if (attachment?._isPendingUpload) {
-      removePendingAttachment(attachment.id);
-      return;
-    }
-
-    toggleAttachmentRemoval(attachment.id);
-    setModalTopNotice('Attachment changes are staged. Click Save Changes to apply.');
-    setModalBottomNotice('');
-  }
-
-  async function submitEasyVista() {
-    if (!openId || !edit) return;
-    if (pendingAttachmentFiles.length > 0 || pendingRemovedAttachmentIds.length > 0) {
-      setDetailError('You have unsaved attachment changes. Click Save Changes first.');
-      return;
-    }
-    setShowEasyVistaRequirements(true);
-    setEasyVistaConfirmation('');
-    setDetailError('');
-    if (easyVistaMissingRequirements.length > 0) {
-      return;
-    }
-    try {
-      setWorking(true);
-      const isResubmit = Boolean(detail?.easyvista_ticket_id);
-      const draftPayload = hasPendingModalChanges(detail, edit)
-        ? buildAdminUpdatePayload(edit)
-        : null;
-
-      if (!isResubmit && draftPayload) {
-        await api.updateAdminSubmission(openId, buildAdminUpdatePayload(edit));
-      }
-
-      const result = await api.submitToEasyVista(
-        openId,
-        isResubmit ? { draft: draftPayload } : undefined,
-      );
-
-      let refreshed = null;
-      if (result?.submission) {
-        refreshed = await openDetail(result.submission.id || openId, true);
-      } else {
-        refreshed = await openDetail(openId, true);
-      }
-
-      if (refreshed) {
-        setEdit(editableFromDetail(refreshed));
-      }
-
-      await loadRows();
-      setShowEasyVistaRequirements(false);
-      if (result?.resubmission) {
-        setEasyVistaConfirmation(
-          `Successfully re-submitted to EasyVista. New card #${result?.submission?.id || ''}, Ticket: ${result?.ticketId || 'created'}`,
-        );
-      } else {
-        setEasyVistaConfirmation(`Successfully submitted to EasyVista. Ticket: ${result?.ticketId || 'created'}`);
-      }
-    } catch (submitError) {
-      setEasyVistaConfirmation('');
-      setModalTopNotice('');
-      setModalBottomNotice('');
-      setDetailError(submitError.message);
-    } finally {
-      setWorking(false);
-    }
-  }
-
-  async function logout() {
-    await api.logout();
-    onLogout();
-  }
-
-  function resetBackdatedForm() {
-    setBackdatedForm(defaultBackdatedForm(user?.username || ''));
-  }
-
-  function resetCleanupForm() {
-    setCleanupForm(defaultCleanupForm(user?.username || ''));
-    setCleanupFiles([]);
-  }
-
-  async function createBackdatedTicket() {
-    const createdBy = String(backdatedForm.created_by || '').trim()
-      || String(user?.username || '').trim()
-      || 'Admin';
-
-    if (!String(backdatedForm.summary_of_issue || '').trim()) {
-      setBackdatedError('Backdated ticket requires Summary of Issue.');
-      return;
-    }
-
-    try {
-      setBackdatedWorking(true);
-      setBackdatedError('');
-
-      const statusEvents = [];
-
-      if (backdatedForm.reported_at) {
-        statusEvents.push({ status: 'New', changed_at: backdatedForm.reported_at });
-      }
-
-      for (const [statusKey, changedAt] of Object.entries(backdatedForm.status_dates)) {
-        if (changedAt) {
-          statusEvents.push({ status: statusKey, changed_at: changedAt });
-        }
-      }
-
-      const payload = {
-        created_via: String(backdatedForm.created_via || '').trim() || 'admin_backdated',
-        type: backdatedForm.type,
-        status: backdatedForm.status,
-        created_by: createdBy,
-        created_by_email: backdatedForm.created_by_email.trim() || '-',
-        application_name: backdatedForm.application_name || 'Billing Center',
-        summary_of_issue: backdatedForm.summary_of_issue.trim(),
-        screen_title: backdatedForm.screen_title.trim() || '-',
-        request: backdatedForm.request.trim() || '-',
-        created_at: backdatedForm.reported_at || null,
-        date_time_of_error: backdatedForm.reported_at || null,
-        desired_completion_date: backdatedForm.desired_completion_date || null,
-        jira_number: backdatedForm.jira_number.trim() || null,
-        release_number: backdatedForm.release_number.trim() || null,
-        logged_defect: Boolean(String(backdatedForm.jira_number || '').trim()),
-        easyvista_ticket_id: String(backdatedForm.easyvista_ticket_id || '').trim() || null,
-        easyvista_submitted_by: String(backdatedForm.easyvista_submitted_by || '').trim() || 'Unknown',
-        status_events: statusEvents,
-      };
-
-      const created = await api.createAdminSubmission(payload);
-
-      const hasImpactTrackingValues =
-        String(backdatedForm.impact_notes || '').trim().length > 0
-        || String(backdatedForm.policy_premium_impact || '').trim().length > 0
-        || String(backdatedForm.direct_dollar_impact || '').trim().length > 0
-        || String(backdatedForm.policies_affected_count || '').trim().length > 0;
-
-      if (created?.id && hasImpactTrackingValues) {
-        await api.updateAdminSubmission(created.id, {
-          impact_notes: String(backdatedForm.impact_notes || '').trim() || null,
-          policy_premium_impact:
-            String(backdatedForm.policy_premium_impact || '').trim() === ''
-              ? null
-              : Number(backdatedForm.policy_premium_impact),
-          direct_dollar_impact:
-            String(backdatedForm.direct_dollar_impact || '').trim() === ''
-              ? null
-              : Number(backdatedForm.direct_dollar_impact),
-          policies_affected_count:
-            String(backdatedForm.policies_affected_count || '').trim() === ''
-              ? null
-              : Number(backdatedForm.policies_affected_count),
-        });
-      }
-
-      await loadRows();
-      setBackdatedOpen(false);
-      resetBackdatedForm();
-      setNotice(`Backdated ticket #${created?.id || ''} created successfully.`);
-    } catch (createError) {
-      setBackdatedError(createError.message);
-    } finally {
-      setBackdatedWorking(false);
-    }
-  }
-
-  async function createCleanupTask() {
-    const cleanupTagType = String(cleanupForm.cleanup_tag_type || '').trim();
-    const createdBy = String(cleanupForm.created_by || '').trim()
-      || String(user?.username || '').trim()
-      || 'Admin';
-
-    const isDefectTagged = cleanupTagType === 'defect';
-    const isEnhancementTagged = cleanupTagType === 'enhancement';
-    const isTagged = isDefectTagged || isEnhancementTagged;
-    const isCleanupOnly = cleanupTagType === 'cleanup_only' || !cleanupTagType;
-    const submitToEasyVista = Boolean(cleanupForm.submit_to_easyvista);
-    const requiresEasyVistaFields = submitToEasyVista && isTagged;
-
-    const missing = [];
-
-    if (!String(cleanupForm.summary_of_issue || '').trim()) {
-      missing.push(isDefectTagged ? 'Summary of Issue' : 'Summary');
-    }
-
-    if (!isTagged && !String(cleanupForm.description || '').trim()) {
-      missing.push('Description');
-    }
-
-    if (submitToEasyVista && !isTagged) {
-      missing.push('Tag as Defect or Enhancement (required for EasyVista submission)');
-    }
-
-    if (requiresEasyVistaFields && isDefectTagged) {
-      if (!String(cleanupForm.screen_title || '').trim()) {
-        missing.push('Screen Title');
-      }
-      if (!String(cleanupForm.what_happened_exact_details || '').trim()) {
-        missing.push('What Happened (Exact Details)');
-      }
-      if (!String(cleanupForm.date_of_error || '').trim()) {
-        missing.push('Date of Error');
-      }
-      if (cleanupFiles.length < 1) {
-        missing.push('At least one screenshot');
-      }
-    }
-
-    if (requiresEasyVistaFields && isEnhancementTagged) {
-      if (!String(cleanupForm.request || '').trim()) {
-        missing.push('Request Details');
-      }
-      if (!String(cleanupForm.desired_completion_date || '').trim()) {
-        missing.push('Desired Completion Date');
-      }
-      if (!String(cleanupForm.impact_details || '').trim()) {
-        missing.push('Impact Details');
-      }
-      if (!String(cleanupForm.enhancement_request_type || '').trim()) {
-        missing.push('Request Type');
-      }
-    }
-
-    if (missing.length > 0) {
-      setCleanupError(`Missing required field(s): ${missing.join(', ')}`);
-      return;
-    }
-
-    try {
-      setCleanupWorking(true);
-      setCleanupError('');
-
-      const defectDateTime = isDefectTagged && cleanupForm.date_of_error
-        ? `${cleanupForm.date_of_error}T${cleanupForm.time_of_error || '00:00'}`
-        : '';
-
-      const payload = {
-        created_via: String(cleanupForm.created_via || '').trim() || 'admin_cleanup',
-        type: isEnhancementTagged ? 'enhancement' : 'defect',
-        is_cleanup: true,
-        cleanup_status: cleanupForm.cleanup_status,
-        cleanup_tag_type: isCleanupOnly ? 'cleanup_only' : cleanupTagType,
-        status: 'New',
-        created_by: createdBy,
-        created_by_email: String(cleanupForm.created_by_email || '-').trim() || '-',
-        application_name: isEnhancementTagged
-          ? 'Billing Center'
-          : (cleanupForm.application_name || 'Billing Center'),
-        summary_of_issue: cleanupForm.summary_of_issue.trim(),
-        what_happened_exact_details: isDefectTagged
-          ? cleanupForm.what_happened_exact_details.trim()
-          : (isEnhancementTagged ? '-' : cleanupForm.description.trim()),
-        request: isEnhancementTagged
-          ? cleanupForm.request.trim()
-          : (isDefectTagged ? '-' : cleanupForm.description.trim()),
-        steps_to_reproduce:
-          isDefectTagged
-            ? (String(cleanupForm.steps_to_reproduce || '-').trim() || '-')
-            : '-',
-        screen_title:
-          isDefectTagged
-            ? (String(cleanupForm.screen_title || '-').trim() || '-')
-            : '-',
-        date_time_of_error: isDefectTagged ? (defectDateTime || cleanupForm.date_time_of_error || null) : null,
-        desired_completion_date:
-          isEnhancementTagged ? (cleanupForm.desired_completion_date || null) : null,
-        impact_details: isEnhancementTagged ? (cleanupForm.impact_details || null) : null,
-        enhancement_request_type:
-          isEnhancementTagged ? (cleanupForm.enhancement_request_type || null) : null,
-        priority_level:
-          isEnhancementTagged ? (cleanupForm.priority_level || '3 - Medium') : null,
-        policy_num: isDefectTagged ? (cleanupForm.policy_num || null) : null,
-        account_num: isDefectTagged ? (cleanupForm.account_num || null) : null,
-        transaction_num: isDefectTagged ? (cleanupForm.transaction_num || null) : null,
-        jira_number: cleanupForm.jira_number || null,
-        release_number: cleanupForm.release_number || null,
-        logged_defect: Boolean(String(cleanupForm.jira_number || '').trim()),
-        easyvista_ticket_id: cleanupForm.easyvista_ticket_id || null,
-        easyvista_submitted_by: cleanupForm.easyvista_submitted_by || 'Unknown',
-      };
-
-      const created = await api.createAdminSubmission(payload);
-
-      const hasImpactTrackingValues =
-        String(cleanupForm.impact_notes || '').trim().length > 0
-        || String(cleanupForm.policy_premium_impact || '').trim().length > 0
-        || String(cleanupForm.direct_dollar_impact || '').trim().length > 0
-        || String(cleanupForm.policies_affected_count || '').trim().length > 0;
-
-      if (created?.id && hasImpactTrackingValues) {
-        await api.updateAdminSubmission(created.id, {
-          impact_notes: String(cleanupForm.impact_notes || '').trim() || null,
-          policy_premium_impact:
-            String(cleanupForm.policy_premium_impact || '').trim() === ''
-              ? null
-              : Number(cleanupForm.policy_premium_impact),
-          direct_dollar_impact:
-            String(cleanupForm.direct_dollar_impact || '').trim() === ''
-              ? null
-              : Number(cleanupForm.direct_dollar_impact),
-          policies_affected_count:
-            String(cleanupForm.policies_affected_count || '').trim() === ''
-              ? null
-              : Number(cleanupForm.policies_affected_count),
-        });
-      }
-
-      if (created?.id && cleanupFiles.length > 0) {
-        const formData = new FormData();
-        cleanupFiles.slice(0, 3).forEach((file) => formData.append('attachments', file));
-        await api.uploadAdminAttachment(created.id, formData);
-      }
-
-      let easyVistaResult = null;
-      let easyVistaError = '';
-      if (created?.id && cleanupForm.submit_to_easyvista && isTagged) {
-        try {
-          easyVistaResult = await api.submitToEasyVista(created.id);
-        } catch (submitError) {
-          easyVistaError = submitError.message;
-        }
-      }
-
-      await loadRows();
-      setCleanupOpen(false);
-      resetCleanupForm();
-      if (easyVistaResult?.ticketId) {
-        setNotice(`Cleanup task #${created?.id || ''} created and submitted to EasyVista (${easyVistaResult.ticketId}).`);
-      } else if (easyVistaError) {
-        setNotice(`Cleanup task #${created?.id || ''} created, but EasyVista submission failed: ${easyVistaError}`);
-      } else {
-        setNotice(`Cleanup task #${created?.id || ''} created successfully.`);
-      }
-    } catch (createError) {
-      setCleanupError(createError.message);
-    } finally {
-      setCleanupWorking(false);
-    }
-  }
-
-  const statusCounts = useMemo(() => {
-    const counts = {};
-    for (const row of rows) {
-      counts[row.status] = (counts[row.status] || 0) + 1;
-    }
-    return counts;
-  }, [rows]);
-
-  // Count only unreviewed submissions from the public rep form
-  const newFormSubmissionsCount = useMemo(
-    () => rows.filter((row) => row.status === 'New' && row.created_via === 'rep_form').length,
-    [rows],
-  );
-
-  const impactTotals = useMemo(() => {
-    return rows.reduce(
-      (acc, row) => {
-        acc.policyPremiumImpact += toNumeric(row.policy_premium_impact);
-        acc.directDollarImpact += toNumeric(row.direct_dollar_impact);
-        acc.policiesAffectedCount += toNumeric(row.policies_affected_count);
-        return acc;
-      },
-      {
-        policyPremiumImpact: 0,
-        directDollarImpact: 0,
-        policiesAffectedCount: 0,
-      },
-    );
-  }, [rows]);
-
-  // Reset to page 1 whenever the filtered rows change
-  useEffect(() => { setPage(1); }, [rows]);
-
-  const totalPages = pageSize === 0 ? 1 : Math.max(1, Math.ceil(rows.length / pageSize));
-  const pagedRows = useMemo(
-    () => pageSize === 0 ? rows : rows.slice((page - 1) * pageSize, page * pageSize),
-    [rows, page, pageSize],
-  );
-
-  const cleanupRequiresEasyVistaFields = useMemo(
-    () => Boolean(cleanupForm.submit_to_easyvista)
-      && (cleanupForm.cleanup_tag_type === 'defect' || cleanupForm.cleanup_tag_type === 'enhancement'),
-    [cleanupForm.submit_to_easyvista, cleanupForm.cleanup_tag_type],
-  );
-
-  const cleanupFilePreviews = useMemo(
-    () => cleanupFiles.map((file) => ({ file, url: URL.createObjectURL(file) })),
-    [cleanupFiles],
-  );
-
-  useEffect(() => {
-    return () => {
-      cleanupFilePreviews.forEach((preview) => URL.revokeObjectURL(preview.url));
-    };
-  }, [cleanupFilePreviews]);
-
+  // ── Sorting ───────────────────────────────────────────────────────────────
   function handleColSort(colKey) {
     const { asc, desc } = SORT_COLS[colKey];
     const numericFirst = ['policyPremium', 'directImpact', 'policiesImpacted'];
@@ -1802,6 +400,11 @@ export function AdminDashboardPage({ user, onLogout }) {
         })()}
       </th>
     );
+  }
+
+  async function logout() {
+    await api.logout();
+    onLogout();
   }
 
   return (

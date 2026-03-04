@@ -1,0 +1,417 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { api } from '../lib/api';
+import { editableFromDetail, normalizeAdminRow, buildAdminUpdatePayload, hasPendingModalChanges } from '../utils/mappers';
+
+/**
+ * Custom hook for the admin submission detail/edit modal.
+ *
+ * @param {Object} deps
+ * @param {Function} deps.loadRows - reload the main submissions table
+ * @param {Function} deps.setRows - setter for the rows state
+ * @param {Function} deps.setNotice - page-level notice setter
+ * @param {Function} deps.setError - page-level error setter
+ * @returns Detail modal state and handlers
+ */
+export function useDetailModal({ loadRows, setRows, setNotice, setError }) {
+  const [openId, setOpenId] = useState(null);
+  const [detail, setDetail] = useState(null);
+  const [edit, setEdit] = useState(null);
+  const [pendingAttachmentFiles, setPendingAttachmentFiles] = useState([]);
+  const [pendingRemovedAttachmentIds, setPendingRemovedAttachmentIds] = useState([]);
+  const [modalTopNotice, setModalTopNotice] = useState('');
+  const [modalBottomNotice, setModalBottomNotice] = useState('');
+  const [detailError, setDetailError] = useState('');
+  const [working, setWorking] = useState(false);
+  const [previewAttachment, setPreviewAttachment] = useState(null);
+  const [easyVistaConfirmation, setEasyVistaConfirmation] = useState('');
+  const [showHeaderSaveTooltip, setShowHeaderSaveTooltip] = useState(false);
+  const [showFooterSaveTooltip, setShowFooterSaveTooltip] = useState(false);
+  const [showEasyVistaRequirements, setShowEasyVistaRequirements] = useState(false);
+
+  const previousDetailEditRef = useRef(null);
+  const previousDetailPendingFilesCountRef = useRef(0);
+  const previousDetailPendingRemovedCountRef = useRef(0);
+
+  // ── Derived state ──────────────────────────────────────────────────────────
+
+  const isDetailModalOpen = Boolean(openId && detail && edit);
+
+  // ── Callbacks ──────────────────────────────────────────────────────────────
+
+  const clearPendingAttachmentDrafts = useCallback(() => {
+    setPendingAttachmentFiles((prev) => {
+      prev.forEach((item) => {
+        if (item?.preview_url) {
+          URL.revokeObjectURL(item.preview_url);
+        }
+      });
+      return [];
+    });
+    setPendingRemovedAttachmentIds([]);
+  }, []);
+
+  const openDetail = useCallback(async (id, preserveEdit = false) => {
+    try {
+      setError('');
+      if (!preserveEdit) {
+        setEasyVistaConfirmation('');
+        setShowEasyVistaRequirements(false);
+      }
+      const data = await api.getAdminSubmissionDetail(id);
+      setDetail(data);
+      if (!preserveEdit) {
+        setEdit(editableFromDetail(data));
+        clearPendingAttachmentDrafts();
+      }
+      setOpenId(id);
+      return data;
+    } catch (detailErr) {
+      setError(detailErr.message);
+      return null;
+    }
+  }, [clearPendingAttachmentDrafts, setError]);
+
+  // ── Memos ──────────────────────────────────────────────────────────────────
+
+  const modalTitle = useMemo(() => {
+    if (!detail) return 'Submission Details';
+    return `Submission #${detail.id}`;
+  }, [detail]);
+
+  const effectiveType = useMemo(() => {
+    if (!edit) return '';
+    if (edit.is_cleanup) {
+      if (!edit.cleanup_tag_type || edit.cleanup_tag_type === 'cleanup_only') {
+        return 'defect';
+      }
+      return edit.cleanup_tag_type;
+    }
+    return edit.type || '';
+  }, [edit]);
+
+  const easyVistaMissingRequirements = useMemo(() => {
+    if (!detail || !edit) return [];
+    const missing = [];
+    if (effectiveType === 'enhancement') {
+      if (!String(edit.impact_details || '').trim()) missing.push('Impact Details');
+      if (!String(edit.enhancement_request_type || '').trim()) missing.push('Request Type');
+      if (!String(edit.desired_completion_date || '').trim()) missing.push('Desired Completion Date');
+    }
+    if (effectiveType === 'defect') {
+      if (!String(edit.summary_of_issue || '').trim()) missing.push('Summary of Issue');
+      if (!String(edit.screen_title || '').trim()) missing.push('Screen Title');
+      if (!String(edit.what_happened_exact_details || '').trim()) missing.push('Description');
+    }
+    return missing;
+  }, [detail, edit, effectiveType]);
+
+  const hasPendingChanges = useMemo(
+    () => (
+      hasPendingModalChanges(detail, edit)
+      || pendingAttachmentFiles.length > 0
+      || pendingRemovedAttachmentIds.length > 0
+    ),
+    [detail, edit, pendingAttachmentFiles.length, pendingRemovedAttachmentIds.length],
+  );
+
+  const visibleExistingAttachments = useMemo(
+    () => (detail?.attachments || []).map((att) => ({
+      ...att,
+      _isMarkedForRemoval: pendingRemovedAttachmentIds.includes(Number(att.id)),
+    })),
+    [detail, pendingRemovedAttachmentIds],
+  );
+
+  const pendingAttachmentItems = useMemo(
+    () => pendingAttachmentFiles.map((item) => ({
+      id: item.id,
+      filename: item.file?.name || 'attachment',
+      mime_type: item.file?.type || 'application/octet-stream',
+      preview_url: item.preview_url || '',
+      _isPendingUpload: true,
+    })),
+    [pendingAttachmentFiles],
+  );
+
+  const visibleAttachments = useMemo(
+    () => [...visibleExistingAttachments, ...pendingAttachmentItems],
+    [visibleExistingAttachments, pendingAttachmentItems],
+  );
+
+  const saveDisabledReason = working
+    ? 'Saving in progress'
+    : hasPendingChanges
+      ? 'Save changes'
+      : 'No unsaved changes';
+
+  // ── Auto-clear error when edits change ─────────────────────────────────────
+
+  useEffect(() => {
+    const editChanged = previousDetailEditRef.current !== edit;
+    const pendingFilesChanged = previousDetailPendingFilesCountRef.current !== pendingAttachmentFiles.length;
+    const pendingRemovedChanged = previousDetailPendingRemovedCountRef.current !== pendingRemovedAttachmentIds.length;
+
+    previousDetailEditRef.current = edit;
+    previousDetailPendingFilesCountRef.current = pendingAttachmentFiles.length;
+    previousDetailPendingRemovedCountRef.current = pendingRemovedAttachmentIds.length;
+
+    if (!isDetailModalOpen || !detailError) return;
+    if (editChanged || pendingFilesChanged || pendingRemovedChanged) {
+      setDetailError('');
+    }
+  }, [edit, pendingAttachmentFiles.length, pendingRemovedAttachmentIds.length, isDetailModalOpen, detailError]);
+
+  // ── Action functions ───────────────────────────────────────────────────────
+
+  async function saveEdits(source = 'footer') {
+    if (!openId || !edit) return;
+    const hasFieldChanges = hasPendingModalChanges(detail, edit);
+    const hasAttachmentChanges = pendingAttachmentFiles.length > 0 || pendingRemovedAttachmentIds.length > 0;
+    if (!hasFieldChanges && !hasAttachmentChanges) {
+      if (source === 'header') {
+        setModalTopNotice('No changes to save.');
+        setModalBottomNotice('');
+      } else {
+        setModalBottomNotice('No changes to save.');
+        setModalTopNotice('');
+      }
+      return;
+    }
+    try {
+      setWorking(true);
+      let saved = null;
+      if (hasFieldChanges) {
+        saved = await api.updateAdminSubmission(openId, buildAdminUpdatePayload(edit));
+        if (saved?.id) {
+          setRows((prev) =>
+            prev.map((row) => (
+              Number(row.id) === Number(saved.id) ? normalizeAdminRow({ ...row, ...saved }) : row
+            )),
+          );
+        }
+      }
+
+      const targetSubmissionId = Number(saved?.id || openId);
+
+      if (pendingAttachmentFiles.length > 0) {
+        const formData = new FormData();
+        pendingAttachmentFiles.forEach((item) => {
+          if (item?.file) formData.append('attachments', item.file);
+        });
+        await api.uploadAdminAttachment(targetSubmissionId, formData);
+      }
+
+      if (pendingRemovedAttachmentIds.length > 0) {
+        for (const attachmentId of pendingRemovedAttachmentIds) {
+          await api.deleteAdminAttachment(attachmentId);
+        }
+      }
+
+      await openDetail(targetSubmissionId);
+      await loadRows();
+      if (source === 'header') {
+        setModalTopNotice('Saved successfully.');
+        setModalBottomNotice('');
+      } else {
+        setModalBottomNotice('Saved successfully.');
+        setModalTopNotice('');
+      }
+    } catch (saveError) {
+      setModalTopNotice('');
+      setModalBottomNotice('');
+      setDetailError(saveError.message);
+    } finally {
+      setWorking(false);
+    }
+  }
+
+  async function retireCurrentItem() {
+    if (!openId || !edit || edit.is_retired) return;
+    try {
+      setWorking(true);
+      setDetailError('');
+      const saved = await api.updateAdminSubmission(openId, { is_retired: true });
+      if (saved?.id) {
+        setRows((prev) =>
+          prev.map((row) => (
+            Number(row.id) === Number(saved.id) ? normalizeAdminRow({ ...row, ...saved }) : row
+          )),
+        );
+        await openDetail(saved.id);
+      }
+      setModalTopNotice('Item retired.');
+      setModalBottomNotice('');
+    } catch (retireError) {
+      setModalTopNotice('');
+      setModalBottomNotice('');
+      setDetailError(retireError.message);
+    } finally {
+      setWorking(false);
+    }
+  }
+
+  async function unretireCurrentItem() {
+    if (!openId || !edit || !edit.is_retired) return;
+    try {
+      setWorking(true);
+      setDetailError('');
+      const saved = await api.updateAdminSubmission(openId, { is_retired: false, unretire: true });
+      if (saved?.id) {
+        setRows((prev) =>
+          prev.map((row) => (
+            Number(row.id) === Number(saved.id) ? normalizeAdminRow({ ...row, ...saved }) : row
+          )),
+        );
+        await openDetail(saved.id);
+      }
+      setModalTopNotice('Item unretired.');
+      setModalBottomNotice('');
+    } catch (unretireError) {
+      setModalTopNotice('');
+      setModalBottomNotice('');
+      setDetailError(unretireError.message);
+    } finally {
+      setWorking(false);
+    }
+  }
+
+  async function uploadAttachment(event) {
+    const files = Array.from(event.target.files || []);
+    event.target.value = '';
+    if (files.length === 0) return;
+    const queuedFiles = files.map((file) => ({
+      id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      file,
+      preview_url: file.type?.startsWith('image/') ? URL.createObjectURL(file) : '',
+    }));
+    setPendingAttachmentFiles((prev) => [...prev, ...queuedFiles]);
+    setModalTopNotice('Attachment changes are staged. Click Save Changes to apply.');
+    setModalBottomNotice('');
+  }
+
+  function removePendingAttachment(localId) {
+    setPendingAttachmentFiles((prev) => {
+      const target = prev.find((item) => item.id === localId);
+      if (target?.preview_url) URL.revokeObjectURL(target.preview_url);
+      return prev.filter((item) => item.id !== localId);
+    });
+  }
+
+  function toggleAttachmentRemoval(attachmentId) {
+    const normalizedId = Number(attachmentId);
+    if (!Number.isFinite(normalizedId)) return;
+    setPendingRemovedAttachmentIds((prev) => (
+      prev.includes(normalizedId)
+        ? prev.filter((id) => id !== normalizedId)
+        : [...prev, normalizedId]
+    ));
+  }
+
+  async function deleteAttachment(attachment) {
+    if (attachment?._isPendingUpload) {
+      removePendingAttachment(attachment.id);
+      return;
+    }
+    toggleAttachmentRemoval(attachment.id);
+    setModalTopNotice('Attachment changes are staged. Click Save Changes to apply.');
+    setModalBottomNotice('');
+  }
+
+  async function submitEasyVista() {
+    if (!openId || !edit) return;
+    if (pendingAttachmentFiles.length > 0 || pendingRemovedAttachmentIds.length > 0) {
+      setDetailError('You have unsaved attachment changes. Click Save Changes first.');
+      return;
+    }
+    setShowEasyVistaRequirements(true);
+    setEasyVistaConfirmation('');
+    setDetailError('');
+    if (easyVistaMissingRequirements.length > 0) return;
+    try {
+      setWorking(true);
+      const isResubmit = Boolean(detail?.easyvista_ticket_id);
+      const draftPayload = hasPendingModalChanges(detail, edit) ? buildAdminUpdatePayload(edit) : null;
+
+      if (!isResubmit && draftPayload) {
+        await api.updateAdminSubmission(openId, buildAdminUpdatePayload(edit));
+      }
+
+      const result = await api.submitToEasyVista(
+        openId,
+        isResubmit ? { draft: draftPayload } : undefined,
+      );
+
+      let refreshed = null;
+      if (result?.submission) {
+        refreshed = await openDetail(result.submission.id || openId, true);
+      } else {
+        refreshed = await openDetail(openId, true);
+      }
+
+      if (refreshed) setEdit(editableFromDetail(refreshed));
+
+      await loadRows();
+      setShowEasyVistaRequirements(false);
+      if (result?.resubmission) {
+        setEasyVistaConfirmation(
+          `Successfully re-submitted to EasyVista. New card #${result?.submission?.id || ''}, Ticket: ${result?.ticketId || 'created'}`,
+        );
+      } else {
+        setEasyVistaConfirmation(`Successfully submitted to EasyVista. Ticket: ${result?.ticketId || 'created'}`);
+      }
+    } catch (submitError) {
+      setEasyVistaConfirmation('');
+      setModalTopNotice('');
+      setModalBottomNotice('');
+      setDetailError(submitError.message);
+    } finally {
+      setWorking(false);
+    }
+  }
+
+  // ── Public API ─────────────────────────────────────────────────────────────
+
+  return {
+    openId,
+    setOpenId,
+    detail,
+    setDetail,
+    edit,
+    setEdit,
+    pendingAttachmentFiles,
+    pendingRemovedAttachmentIds,
+    modalTopNotice,
+    setModalTopNotice,
+    modalBottomNotice,
+    setModalBottomNotice,
+    detailError,
+    setDetailError,
+    working,
+    previewAttachment,
+    setPreviewAttachment,
+    easyVistaConfirmation,
+    showHeaderSaveTooltip,
+    setShowHeaderSaveTooltip,
+    showFooterSaveTooltip,
+    setShowFooterSaveTooltip,
+    showEasyVistaRequirements,
+    setShowEasyVistaRequirements,
+    isDetailModalOpen,
+    clearPendingAttachmentDrafts,
+    openDetail,
+    modalTitle,
+    effectiveType,
+    easyVistaMissingRequirements,
+    hasPendingChanges,
+    visibleExistingAttachments,
+    pendingAttachmentItems,
+    visibleAttachments,
+    saveDisabledReason,
+    saveEdits,
+    retireCurrentItem,
+    unretireCurrentItem,
+    uploadAttachment,
+    deleteAttachment,
+    submitEasyVista,
+  };
+}
