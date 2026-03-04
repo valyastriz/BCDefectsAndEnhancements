@@ -3611,10 +3611,11 @@ app.post('/api/admin/submissions/:id/submit-easyvista', ensureAdmin, async (req,
     if (!Submission || !Attachment) {
       return res.status(500).json({ error: 'Required models are not available' });
     }
-    const submission = await Submission.findByPk(Number(req.params.id), { raw: true });
-    if (!submission) {
+    const rawSubmission = await getSubmissionByIdWithLookups(db, Number(req.params.id));
+    if (!rawSubmission) {
       return res.status(404).json({ error: 'Submission not found' });
     }
+    const submission = mapSubmission(rawSubmission);
 
     const isResubmissionRequest = !isBlank(submission.easyvista_ticket_id);
     const draftPayload =
@@ -3778,9 +3779,10 @@ app.post('/api/admin/submissions/:id/submit-easyvista', ensureAdmin, async (req,
     const easyVistaSubmittedBy = `Automatic (System API by ${easyVistaReporter})`;
 
     if (!isResubmissionRequest) {
+      const submittedStatusId = await getLookupIdByName(db, 'defect_enhancement_statuses', 'Submitted');
       await Submission.update({
         easyvista_ticket_id: result.ticketId,
-        status: 'Submitted',
+        ...(submittedStatusId ? { status_id: submittedStatusId } : {}),
         updated_at: updatedAt,
         easyvista_submitted_by: easyVistaSubmittedBy,
       }, {
