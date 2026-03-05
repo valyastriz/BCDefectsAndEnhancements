@@ -122,14 +122,29 @@ export function useBackdatedModal({ user, loadRows, setNotice }) {
 
   // ── Public API ─────────────────────────────────────────────────────────────
 
+  function openBackdatedModal() {
+    setBackdatedError('');
+    resetBackdatedForm();
+    setBackdatedOpen(true);
+  }
+
+  function closeBackdatedModal() {
+    setBackdatedError('');
+    setBackdatedOpen(false);
+    resetBackdatedForm();
+  }
+
   return {
     backdatedOpen,
     setBackdatedOpen,
     backdatedError,
+    setBackdatedError,
     backdatedWorking,
     backdatedForm,
     setBackdatedForm,
     resetBackdatedForm,
     createBackdatedTicket,
+    openBackdatedModal,
+    closeBackdatedModal,
   };
 }

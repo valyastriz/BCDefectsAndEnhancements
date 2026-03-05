@@ -140,17 +140,25 @@ export function useExportModal({ filtersRef, setNotice }) {
 
   // ── Public API ─────────────────────────────────────────────────────────────
 
+  function openExportModal() {
+    setExportError('');
+    setExportFieldSearch('');
+    setExportModalOpen(true);
+  }
+
   return {
     exportModalOpen,
     setExportModalOpen,
     exportWorking,
     exportError,
+    setExportError,
     exportFields,
     selectedExportFieldKeys,
     exportFieldSearch,
     setExportFieldSearch,
     visibleExportFields,
     selectedExportFieldSet,
+    openExportModal,
     closeExportModal,
     toggleExportField,
     selectAllVisibleExportFields,

@@ -267,6 +267,37 @@ export function useImportModal({ loadRows, setNotice }) {
     }
   }
 
+  // ── Helpers ─────────────────────────────────────────────────────────────────
+
+  function resetImportModal() {
+    setImportAvailableHeaders([]);
+    setImportMappingTargets([]);
+    setImportColumnMappings({});
+    setPendingImportFile(null);
+    setImportStatusText('');
+    setImportStatusKind('');
+    setImportResultErrors([]);
+    setImportSummary(null);
+    setImportAction('');
+    setImportRequiresApplicationDefault(false);
+    setImportDefaultApplicationName('');
+    setImportUnknownStatuses([]);
+    setImportAllowedStatuses([]);
+    setImportStatusValueMappings({});
+  }
+
+  function openImportModal() {
+    setImportStatusText('');
+    setImportStatusKind('');
+    setImportModalOpen(true);
+  }
+
+  function closeImportModal() {
+    if (importWorking) return;
+    resetImportModal();
+    setImportModalOpen(false);
+  }
+
   // ── Public API ─────────────────────────────────────────────────────────────
 
   return {
@@ -282,7 +313,9 @@ export function useImportModal({ loadRows, setNotice }) {
     setImportColumnMappings,
     pendingImportFile,
     importStatusText,
+    setImportStatusText,
     importStatusKind,
+    setImportStatusKind,
     importResultErrors,
     importSummary,
     importAction,
@@ -300,5 +333,8 @@ export function useImportModal({ loadRows, setNotice }) {
     sortedImportAvailableHeaders,
     analyzeImportFile,
     importBackdatedExcel,
+    resetImportModal,
+    openImportModal,
+    closeImportModal,
   };
 }

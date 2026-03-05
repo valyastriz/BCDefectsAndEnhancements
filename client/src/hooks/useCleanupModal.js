@@ -241,10 +241,23 @@ export function useCleanupModal({ user, loadRows, setNotice }) {
 
   // ── Public API ─────────────────────────────────────────────────────────────
 
+  function openCleanupModal() {
+    setCleanupError('');
+    resetCleanupForm();
+    setCleanupOpen(true);
+  }
+
+  function closeCleanupModal() {
+    setCleanupError('');
+    setCleanupOpen(false);
+    resetCleanupForm();
+  }
+
   return {
     cleanupOpen,
     setCleanupOpen,
     cleanupError,
+    setCleanupError,
     cleanupWorking,
     cleanupForm,
     setCleanupForm,
@@ -257,5 +270,7 @@ export function useCleanupModal({ user, loadRows, setNotice }) {
     cleanupFilePreviews,
     resetCleanupForm,
     createCleanupTask,
+    openCleanupModal,
+    closeCleanupModal,
   };
 }
