@@ -1,103 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '../lib/api';
 import { getSocket } from '../lib/socket';
-import {
-  Badge,
-  Button,
-  Input,
-  MultiSelectDropdown,
-  Notice,
-  Select,
-} from '../components/bite-size/BitsizeUI';
+import { Notice } from '../components/bite-size/BitsizeUI';
 
-const publicStatuses = [
-  'New',
-  'Approved',
-  'Redirected',
-  'Backlog - Monitoring Impact',
-  'Future Consideration',
-  'Deferred – Not in Current Scope',
-  'Rejected',
-  'Duplicate',
-  'Submitted',
-  'Deployed',
-];
-const publicFiltersStorageKey = 'bc.public.filters';
-const publicRetiredFilterStorageKey = 'bc.public.retiredFilter';
-
-function areAllStatusesSelected(values, options) {
-  if (!Array.isArray(values) || !Array.isArray(options) || values.length !== options.length) {
-    return false;
-  }
-  const selected = new Set(values);
-  return options.every((value) => selected.has(value));
-}
-
-function normalizeSavedPublicStatuses(statusesValue, statusSelectionMode = 'legacy') {
-  if (statusSelectionMode === 'all') {
-    return [...publicStatuses];
-  }
-
-  if (!Array.isArray(statusesValue)) {
-    return [...publicStatuses];
-  }
-
-  const normalized = statusesValue.filter((value) => publicStatuses.includes(value));
-  if (normalized.length === 0) {
-    return [...publicStatuses];
-  }
-
-  if (statusSelectionMode === 'legacy') {
-    return [...publicStatuses];
-  }
-
-  return normalized;
-}
-
-function readSavedPublicFilters() {
-  const defaults = {
-    search: '',
-    typeFilter: '',
-    selectedStatuses: [...publicStatuses],
-    retiredFilter: 'non_retired',
-    sortBy: 'updated_desc',
-  };
-
-  if (typeof window === 'undefined') return defaults;
-
-  const savedRetiredFilter = window.localStorage.getItem(publicRetiredFilterStorageKey);
-  const normalizedRetiredFilter = ['non_retired', 'retired_only', 'all'].includes(savedRetiredFilter)
-    ? savedRetiredFilter
-    : defaults.retiredFilter;
-
-  const raw = window.localStorage.getItem(publicFiltersStorageKey);
-  if (!raw) {
-    return { ...defaults, retiredFilter: normalizedRetiredFilter };
-  }
-
-  try {
-    const parsed = JSON.parse(raw);
-    const statusSelectionMode = parsed?.statusSelectionMode === 'all'
-      ? 'all'
-      : (parsed?.statusSelectionMode === 'custom' ? 'custom' : 'legacy');
-    const selectedStatuses = normalizeSavedPublicStatuses(parsed?.selectedStatuses, statusSelectionMode);
-    const retiredFilter = ['non_retired', 'retired_only', 'all'].includes(parsed?.retiredFilter)
-      ? parsed.retiredFilter
-      : normalizedRetiredFilter;
-
-    return {
-      search: typeof parsed?.search === 'string' ? parsed.search : defaults.search,
-      typeFilter: typeof parsed?.typeFilter === 'string' ? parsed.typeFilter : defaults.typeFilter,
-      selectedStatuses,
-      retiredFilter,
-      sortBy: typeof parsed?.sortBy === 'string' && parsed.sortBy.trim()
-        ? parsed.sortBy
-        : defaults.sortBy,
-    };
-  } catch {
-    return { ...defaults, retiredFilter: normalizedRetiredFilter };
-  }
-}
+import { PUBLIC_STATUSES, PUBLIC_FILTERS_STORAGE_KEY, PUBLIC_RETIRED_FILTER_STORAGE_KEY } from '../constants/publicConstants';
+import { areAllPublicStatusesSelected, readSavedPublicFilters } from '../utils/publicFilterUtils';
+import { PublicFiltersBar } from '../components/public/PublicFiltersBar';
+import { PublicItemCard } from '../components/public/PublicItemCard';
 
 export function PublicUpdatesPage() {
   const savedFilters = useMemo(() => readSavedPublicFilters(), []);
@@ -105,7 +14,7 @@ export function PublicUpdatesPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   const [live, setLive] = useState(false);
-  const [dynamicPublicStatuses, setDynamicPublicStatuses] = useState(publicStatuses);
+  const [dynamicPublicStatuses, setDynamicPublicStatuses] = useState(PUBLIC_STATUSES);
   const [dynamicPublicTypes, setDynamicPublicTypes] = useState(['defect', 'enhancement']);
   const [search, setSearch] = useState(savedFilters.search);
   const [typeFilter, setTypeFilter] = useState(savedFilters.typeFilter);
@@ -115,6 +24,7 @@ export function PublicUpdatesPage() {
   const [pageSize, setPageSize] = useState(50);
   const [page, setPage] = useState(1);
 
+  // ── Data loading ──────────────────────────────────────────────────────────
   const load = useCallback(async () => {
     try {
       setError('');
@@ -135,6 +45,7 @@ export function PublicUpdatesPage() {
     return () => { socket.off('public:update', onUpdate); };
   }, [load]);
 
+  // ── Load dynamic meta options ─────────────────────────────────────────────
   useEffect(() => {
     let isMounted = true;
     Promise.resolve()
@@ -151,7 +62,7 @@ export function PublicUpdatesPage() {
         if (nextStatuses.length > 0) {
           setDynamicPublicStatuses(nextStatuses);
           setSelectedStatuses((prev) => (
-            areAllStatusesSelected(prev, publicStatuses)
+            areAllPublicStatusesSelected(prev, PUBLIC_STATUSES)
               ? [...nextStatuses]
               : prev.filter((value) => nextStatuses.includes(value))
           ));
@@ -163,18 +74,17 @@ export function PublicUpdatesPage() {
       })
       .catch(() => {});
 
-    return () => {
-      isMounted = false;
-    };
+    return () => { isMounted = false; };
   }, []);
 
+  // ── Persist filters to localStorage ───────────────────────────────────────
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    const statusSelectionMode = areAllStatusesSelected(selectedStatuses, dynamicPublicStatuses)
+    const statusSelectionMode = areAllPublicStatusesSelected(selectedStatuses, dynamicPublicStatuses)
       ? 'all'
       : 'custom';
     window.localStorage.setItem(
-      publicFiltersStorageKey,
+      PUBLIC_FILTERS_STORAGE_KEY,
       JSON.stringify({
         search,
         typeFilter,
@@ -184,67 +94,28 @@ export function PublicUpdatesPage() {
         statusSelectionMode,
       }),
     );
-    window.localStorage.setItem(publicRetiredFilterStorageKey, retiredFilter || 'non_retired');
+    window.localStorage.setItem(PUBLIC_RETIRED_FILTER_STORAGE_KEY, retiredFilter || 'non_retired');
   }, [search, typeFilter, selectedStatuses, retiredFilter, sortBy, dynamicPublicStatuses]);
 
+  // ── Derived values ────────────────────────────────────────────────────────
   const hasItems = useMemo(() => items.length > 0, [items]);
-
-  function submittedDate(value) {
-    if (!value) return '-';
-    const parsed = new Date(value);
-    if (Number.isNaN(parsed.getTime())) return '-';
-    return parsed.toLocaleDateString();
-  }
-
-  function statusDate(value) {
-    if (!value) return '-';
-    const parsed = new Date(value);
-    if (Number.isNaN(parsed.getTime())) return '-';
-    return parsed.toLocaleString();
-  }
-
-  function descriptionForItem(item) {
-    const name = String(item.created_by || 'Requester').trim();
-    const defectDescription = String(item.what_happened_exact_details || '').trim();
-    const enhancementDescription = String(item.request || '').trim();
-    const body = defectDescription || enhancementDescription;
-    if (!body) return '-';
-    return `${name} submitted the following: ${body}`;
-  }
 
   const visibleItems = useMemo(() => {
     const query = search.trim().toLowerCase();
 
     const filtered = items.filter((item) => {
       const isRetired = Boolean(item.is_retired) || String(item.status || '') === 'Retired';
-      if (retiredFilter === 'retired_only' && !isRetired) {
-        return false;
-      }
-      if (retiredFilter === 'non_retired' && isRetired) {
-        return false;
-      }
-      if (typeFilter && item.type !== typeFilter) {
-        return false;
-      }
-      if (selectedStatuses.length > 0 && !selectedStatuses.includes(item.status)) {
-        return false;
-      }
-      if (!query) {
-        return true;
-      }
+      if (retiredFilter === 'retired_only' && !isRetired) return false;
+      if (retiredFilter === 'non_retired' && isRetired) return false;
+      if (typeFilter && item.type !== typeFilter) return false;
+      if (selectedStatuses.length > 0 && !selectedStatuses.includes(item.status)) return false;
+      if (!query) return true;
 
       const haystack = [
-        item.id,
-        item.created_by,
-        item.policy_num,
-        item.account_num,
-        item.summary_of_issue,
-        item.what_happened_exact_details,
-        item.request,
+        item.id, item.created_by, item.policy_num, item.account_num,
+        item.summary_of_issue, item.what_happened_exact_details, item.request,
         item.easyvista_ticket_id,
-      ]
-        .map((value) => String(value || '').toLowerCase())
-        .join(' ');
+      ].map((value) => String(value || '').toLowerCase()).join(' ');
 
       return haystack.includes(query);
     });
@@ -255,22 +126,15 @@ export function PublicUpdatesPage() {
     };
 
     filtered.sort((left, right) => {
-      if (sortBy === 'updated_asc') {
-        return toMillis(left.updated_at) - toMillis(right.updated_at);
-      }
-      if (sortBy === 'created_desc') {
-        return toMillis(right.created_at) - toMillis(left.created_at);
-      }
-      if (sortBy === 'created_asc') {
-        return toMillis(left.created_at) - toMillis(right.created_at);
-      }
+      if (sortBy === 'updated_asc') return toMillis(left.updated_at) - toMillis(right.updated_at);
+      if (sortBy === 'created_desc') return toMillis(right.created_at) - toMillis(left.created_at);
+      if (sortBy === 'created_asc') return toMillis(left.created_at) - toMillis(right.created_at);
       return toMillis(right.updated_at) - toMillis(left.updated_at);
     });
 
     return filtered;
   }, [items, search, typeFilter, selectedStatuses, retiredFilter, sortBy]);
 
-  // Reset to page 1 whenever visible items change
   useEffect(() => { setPage(1); }, [visibleItems]);
 
   const totalPages = pageSize === 0 ? 1 : Math.max(1, Math.ceil(visibleItems.length / pageSize));
@@ -279,6 +143,7 @@ export function PublicUpdatesPage() {
     [visibleItems, page, pageSize],
   );
 
+  // ═════════════════════════════════════════════════════════════════════════
   return (
     <>
       <div className="page-header">
@@ -291,50 +156,27 @@ export function PublicUpdatesPage() {
 
       <Notice text={error} />
 
-      <div className="filters-bar" style={{ marginBottom: 14 }}>
-        <Input
-          label="Search"
-          placeholder="Search by summary, description, policy/account, Requester, EV ticket"
-          value={search}
-          onChange={(event) => setSearch(event.target.value)}
-        />
-        <Select label="Type" value={typeFilter} onChange={(event) => setTypeFilter(event.target.value)}>
-          <option value="">All types</option>
-          {dynamicPublicTypes.includes('defect') && <option value="defect">Defect</option>}
-          {dynamicPublicTypes.includes('enhancement') && <option value="enhancement">Enhancement</option>}
-        </Select>
-        <MultiSelectDropdown
-          label="Status"
-          options={dynamicPublicStatuses}
-          selectedValues={selectedStatuses}
-          onChange={setSelectedStatuses}
-          placeholder="Select statuses"
-        />
-        <Select label="Retired" value={retiredFilter} onChange={(event) => setRetiredFilter(event.target.value)}>
-          <option value="non_retired">Non-Retired Only</option>
-          <option value="retired_only">Retired Only</option>
-          <option value="all">Show All</option>
-        </Select>
-        <Select label="Sort" value={sortBy} onChange={(event) => setSortBy(event.target.value)}>
-          <option value="updated_desc">Recently Updated (Newest)</option>
-          <option value="updated_asc">Recently Updated (Oldest)</option>
-          <option value="created_desc">Date Submitted (Newest)</option>
-          <option value="created_asc">Date Submitted (Oldest)</option>
-        </Select>
-        <Button
-          kind="ghost"
-          type="button"
-          onClick={() => {
-            setSearch('');
-            setTypeFilter('');
-            setSelectedStatuses([...dynamicPublicStatuses]);
-            setRetiredFilter('non_retired');
-            setSortBy('updated_desc');
-          }}
-        >
-          Clear
-        </Button>
-      </div>
+      <PublicFiltersBar
+        search={search}
+        setSearch={setSearch}
+        typeFilter={typeFilter}
+        setTypeFilter={setTypeFilter}
+        dynamicPublicTypes={dynamicPublicTypes}
+        selectedStatuses={selectedStatuses}
+        setSelectedStatuses={setSelectedStatuses}
+        dynamicPublicStatuses={dynamicPublicStatuses}
+        retiredFilter={retiredFilter}
+        setRetiredFilter={setRetiredFilter}
+        sortBy={sortBy}
+        setSortBy={setSortBy}
+        onClear={() => {
+          setSearch('');
+          setTypeFilter('');
+          setSelectedStatuses([...dynamicPublicStatuses]);
+          setRetiredFilter('non_retired');
+          setSortBy('updated_desc');
+        }}
+      />
 
       {!isLoading && (
         <p className="muted" style={{ marginTop: 0 }}>
@@ -404,87 +246,7 @@ export function PublicUpdatesPage() {
       {hasItems && visibleItems.length > 0 && (
         <div className="public-list">
           {pagedItems.map((item) => (
-            <article key={item.id} className="public-item">
-              <div className="public-top" style={{ gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                  <h4 style={{ margin: 0 }}>{item.summary_of_issue || '-'}</h4>
-                  <span className="muted" style={{ fontSize: 12 }}>
-                    Reported: {submittedDate(item.created_at)}
-                  </span>
-                  <span className="muted" style={{ fontSize: 12 }}>
-                    Latest update: {submittedDate(item.latest_status_changed_at || item.updated_at)}
-                  </span>
-                </div>
-                <div style={{ display: 'flex', gap: 6 }}>
-                  <Badge value={item.type} />
-                  <Badge value={item.status} />
-                  {(item.is_retired || item.status === 'Retired') && <Badge value="Retired" />}
-                </div>
-              </div>
-              <details>
-                <summary style={{ cursor: 'pointer', fontWeight: 600 }}>Show details</summary>
-                <div style={{ marginTop: 10 }}><strong>#{item.id}</strong></div>
-                <div className="public-meta">
-                  <div className="pub-cols">
-                    <div className="pub-col">
-                      <div className="pub-field">
-                        <span className="pub-label">Reported</span>
-                        <span>{submittedDate(item.created_at)}</span>
-                      </div>
-                      <div className="pub-field">
-                        <span className="pub-label">Policy / Account</span>
-                        <span>{item.policy_num || '-'} / {item.account_num || '-'}</span>
-                      </div>
-                      <div className="pub-field">
-                        <span className="pub-label">Latest Status</span>
-                        <span>
-                          {item.status === 'New'
-                            ? 'Reported'
-                            : item.status === 'Submitted'
-                              ? 'Submitted to EV'
-                              : (item.latest_status_value || item.status)
-                          } on {submittedDate(item.latest_status_changed_at)}
-                        </span>
-                      </div>
-                      {item.status === 'Duplicate' && (
-                        <div className="pub-field">
-                          <span className="pub-label">Marked Duplicate</span>
-                          <span>{statusDate(item.duplicate_status_at || item.latest_status_changed_at)}</span>
-                        </div>
-                      )}
-                      {(item.is_retired || item.status === 'Retired') && !!item.retired_status_at && (
-                        <div className="pub-field">
-                          <span className="pub-label">Retired</span>
-                          <span>{statusDate(item.retired_status_at)}</span>
-                        </div>
-                      )}
-                    </div>
-                    <div className="pub-col">
-                      <div className="pub-field">
-                        <span className="pub-label">Requester</span>
-                        <span>{item.created_by || '-'}</span>
-                      </div>
-                      <div className="pub-field">
-                        <span className="pub-label">Application</span>
-                        <span>{item.application_name || '-'}</span>
-                      </div>
-                      <div className="pub-field">
-                        <span className="pub-label">EV Ticket</span>
-                        <span>{item.easyvista_ticket_id || '-'}</span>
-                      </div>
-                      <div className="pub-field">
-                        <span className="pub-label">JIRA Card #</span>
-                        <span>{item.jira_number || '-'}</span>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="pub-field pub-field-full">
-                    <span className="pub-label">Description</span>
-                    <span>{descriptionForItem(item)}</span>
-                  </div>
-                </div>
-              </details>
-            </article>
+            <PublicItemCard key={item.id} item={item} />
           ))}
         </div>
       )}
