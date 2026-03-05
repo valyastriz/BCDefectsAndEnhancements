@@ -232,12 +232,9 @@ export function useDetailModal({ loadRows, setRows, setNotice, setError }) {
       setDetailError('');
       const saved = await api.updateAdminSubmission(openId, { is_retired: true });
       if (saved?.id) {
-        setRows((prev) =>
-          prev.map((row) => (
-            Number(row.id) === Number(saved.id) ? normalizeAdminRow({ ...row, ...saved }) : row
-          )),
-        );
         await openDetail(saved.id);
+        // Refresh the table so retired filtering is applied consistently
+        loadRows();
       }
       setModalTopNotice('Item retired.');
       setModalBottomNotice('');
@@ -257,12 +254,9 @@ export function useDetailModal({ loadRows, setRows, setNotice, setError }) {
       setDetailError('');
       const saved = await api.updateAdminSubmission(openId, { is_retired: false, unretire: true });
       if (saved?.id) {
-        setRows((prev) =>
-          prev.map((row) => (
-            Number(row.id) === Number(saved.id) ? normalizeAdminRow({ ...row, ...saved }) : row
-          )),
-        );
         await openDetail(saved.id);
+        // Refresh the table so retired filtering is applied consistently
+        loadRows();
       }
       setModalTopNotice('Item unretired.');
       setModalBottomNotice('');

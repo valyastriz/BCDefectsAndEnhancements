@@ -72,12 +72,30 @@ export function AdminDashboardPage({ user, onLogout }) {
   const [filters, setFilters] = useState(defaultFilters);
   const filtersRef = useRef(filters);
   filtersRef.current = filters;
+  const preNewSubmissionFiltersRef = useRef(null);
   const [rows, setRows] = useState([]);
   const [pageSize, setPageSize] = useState(50);
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(false);
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
+  const [newFormSubmissionsCount, setNewFormSubmissionsCount] = useState(0);
+
+  // ── Independent count of new form submissions (never depends on UI filters) ──
+  const loadNewFormCount = useCallback(async () => {
+    try {
+      const data = await api.listAdminSubmissions({
+        statuses: ['New'],
+        createdVia: 'rep_form',
+        retiredFilter: 'non_retired',
+      });
+      const normalized = (data || []).map(normalizeAdminRow);
+      const count = normalized.filter((r) => r.status === 'New' && r.created_via === 'rep_form' && !r.is_retired).length;
+      setNewFormSubmissionsCount(count);
+    } catch (_) {
+      // Silently ignore — banner just won't update
+    }
+  }, []);
 
   // ── Load rows callback (page-level so hooks can share it) ─────────────────
   const loadRows = useCallback(async (filtersParam) => {
@@ -100,7 +118,9 @@ export function AdminDashboardPage({ user, onLogout }) {
     } finally {
       setLoading(false);
     }
-  }, []);
+    // Also refresh the independent new-form count
+    loadNewFormCount();
+  }, [loadNewFormCount]);
 
   // ── Custom hooks ──────────────────────────────────────────────────────────
   const meta = useAdminMeta({ setFilters, setNotice });
@@ -122,7 +142,7 @@ export function AdminDashboardPage({ user, onLogout }) {
     modalTitle, effectiveType, easyVistaMissingRequirements,
     hasPendingChanges, visibleAttachments, saveDisabledReason,
     saveEdits, retireCurrentItem, unretireCurrentItem, uploadAttachment, deleteAttachment, submitEasyVista,
-    pendingAttachmentFiles, pendingRemovedAttachmentIds,
+    pendingAttachmentFiles, pendingRemovedAttachmentIds, clearPendingAttachmentDrafts,
   } = detailModal;
 
   // Destructure meta for convenience
@@ -213,10 +233,10 @@ export function AdminDashboardPage({ user, onLogout }) {
     return counts;
   }, [rows]);
 
-  const newFormSubmissionsCount = useMemo(
-    () => rows.filter((row) => row.status === 'New' && row.created_via === 'rep_form').length,
-    [rows],
-  );
+  // True when filters match the "View New Submissions" preset
+  const isViewingNewFormOnly = filters.statuses?.length === 1
+    && filters.statuses[0] === 'New'
+    && filters.createdVia === 'rep_form';
 
   const impactTotals = useMemo(() => {
     return rows.reduce(
@@ -506,7 +526,13 @@ export function AdminDashboardPage({ user, onLogout }) {
           <button
             type="button"
             onClick={() => {
-              setFilters((prev) => ({ ...prev, statuses: ['New'], createdVia: 'rep_form' }));
+              preNewSubmissionFiltersRef.current = { ...filters };
+              setFilters({
+                ...buildDefaultFilters(),
+                statuses: ['New'],
+                createdVia: 'rep_form',
+                retiredFilter: 'non_retired',
+              });
               setTimeout(() => {
                 document.querySelector('.table-wrap')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
               }, 100);
@@ -567,6 +593,53 @@ export function AdminDashboardPage({ user, onLogout }) {
       {!isAnyAdminModalOpen && notice && <Notice text={notice} kind="success" />}
 
       <Card>
+        {/* ── "Viewing new form submissions only" info bar ── */}
+        {isViewingNewFormOnly && (
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
+            padding: '8px 14px',
+            marginBottom: 10,
+            borderRadius: 6,
+            background: 'var(--slate-100, #f1f5f9)',
+            border: '1px solid var(--slate-300, #cbd5e1)',
+            fontSize: 13,
+            color: 'var(--slate-700, #334155)',
+          }}>
+            <span style={{ flex: 1 }}>
+              Showing only <strong>new form submissions</strong>.
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                if (preNewSubmissionFiltersRef.current) {
+                  setFilters(preNewSubmissionFiltersRef.current);
+                  preNewSubmissionFiltersRef.current = null;
+                } else {
+                  setFilters({
+                    ...buildDefaultFilters(),
+                    statuses: runtimeStatusFilterOptions.length > 0 ? [...runtimeStatusFilterOptions] : [],
+                  });
+                }
+              }}
+              style={{
+                background: 'var(--color-primary, #2563eb)',
+                border: 'none',
+                borderRadius: 5,
+                color: '#fff',
+                fontSize: 12,
+                fontWeight: 600,
+                padding: '4px 12px',
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              View All Submissions
+            </button>
+          </div>
+        )}
+
         {/* ── Filters ── */}
         <div className="filters-bar">
           <MultiSelectDropdown

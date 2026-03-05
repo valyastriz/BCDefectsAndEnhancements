@@ -11,7 +11,7 @@ function mapSubmission(row) {
   const resolvedEnhancementRequestType =
     row.model_enhancement_request_type_name || row.enhancement_request_type || null;
   const resolvedPriorityLevel = row.model_priority_level_name || row.priority_level || null;
-  const resolvedCreatedVia = row.model_created_via_name || row.created_via || 'rep_form';
+  const resolvedCreatedVia = row.model_created_via_name || row.created_via || '';
   const isCleanup = Boolean(row.is_cleanup);
   const baseStatus = resolvedStatus;
   const isRetired = Boolean(row.is_retired) || String(baseStatus) === 'Retired';
