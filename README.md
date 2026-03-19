@@ -1,6 +1,6 @@
 # BC Defects & Enhancements Portal
 
-A full-stack internal operations tool for tracking, triaging, and managing insurance billing system defects and enhancement requests. Built for teams that need a centralized workflow connecting field representatives, admin reviewers, and external ticketing systems (EasyVista).
+A full-stack internal operations tool for the **Product Owners team** to track, triage, and manage insurance billing system defects and enhancement requests in one centralized location. The Product Owners team sits between field representatives (who report issues) and Tier 2 GTS support (who work tickets in EasyVista). This application gives Product Owners the structured workflow they previously lacked — connecting intake from reps, through triage and prioritization, to escalation via EasyVista.
 
 > **Live Site:** https://bc-defects-and-enhancements.vercel.app/
 
@@ -53,17 +53,17 @@ A full-stack internal operations tool for tracking, triaging, and managing insur
 
 ## Problem Statement
 
-Insurance operations teams deal with a constant stream of billing system defects and enhancement requests from field representatives. Without a centralized system:
+The **Product Owners team** manages a constant stream of billing system defects and enhancement requests from field representatives. They are responsible for triaging, prioritizing, and deciding which issues get escalated to **Tier 2 GTS** (who work the actual tickets in EasyVista). Before this application, the Product Owners team had no centralized system:
 
-- **Defect reports get lost** in email threads and spreadsheets with no audit trail
-- **Enhancement requests have no structured intake** — details are incomplete, duplicates proliferate
-- **Admins have no unified queue** to triage, prioritize, and track status across requests
-- **Historical data locked in Excel files** cannot be searched, filtered, or tracked
-- **External ticket systems** (like EasyVista) require manual copy-paste of details
-- **Field reps have no visibility** into the status of their submitted requests
-- **No real-time awareness** when new submissions arrive or existing ones change
+- **Defect reports got lost** in email threads and spreadsheets with no audit trail
+- **Enhancement requests had no structured intake** — details were incomplete, duplicates proliferated
+- **Product Owners had no unified queue** to triage, prioritize, and track status across requests
+- **Historical data locked in Excel files** could not be searched, filtered, or tracked
+- **Escalating to EasyVista** required manual copy-paste of details for Tier 2 GTS
+- **Field reps had no visibility** into the status of their submitted requests
+- **No real-time awareness** when new submissions arrived or existing ones changed
 
-This application solves all of these problems with a purpose-built workflow that connects the submission, triage, tracking, and reporting lifecycle end-to-end.
+This application solves all of these problems with a purpose-built workflow that connects intake from reps, through Product Owner triage and decision-making, to escalation via EasyVista — end-to-end.
 
 ---
 
@@ -74,15 +74,15 @@ This application solves all of these problems with a purpose-built workflow that
 - Submit enhancement requests with impact details and justification
 - View a live public status board showing which requests have been acknowledged and their current status
 
-### For Administrators
-- Review incoming submissions from a filterable, sortable admin queue
+### For Product Owners (Admins)
+- Review incoming submissions from a filterable, sortable queue
 - Triage requests: assign status, mark type, flag duplicates, add decision notes
 - Track cleanup tasks alongside defects and enhancements
-- Submit tickets to EasyVista (external ticketing system) directly from the app
+- Escalate to Tier 2 GTS by submitting tickets to EasyVista directly from the app
 - Re-submit updated tickets when requirements change, maintaining a linkage chain
 - Import historical records from Excel spreadsheets with intelligent column mapping
 - Export filtered data to Excel for reporting and audits
-- Manage all dropdown options (statuses, types, priority levels, etc.) from a metadata admin page
+- Manage all dropdown options (statuses, types, priority levels, etc.) from a metadata page
 - Receive real-time browser notifications when new submissions arrive
 - Control which submissions are publicly visible on the status board
 - Track financial impact (policy premium, direct dollar, policies affected)
@@ -349,13 +349,13 @@ The Vite dev server automatically proxies `/api`, `/uploads`, and `/socket.io` r
 
 ## User Roles & Access
 
-| Role | Login Required | Capabilities |
-|------|---------------|-------------|
-| **Representative** | No | Submit defects/enhancements (`/`), view public status board (`/public`) |
-| **Admin** | Yes | Full dashboard (`/admin`), metadata management (`/admin/metadata`), all CRUD operations, EasyVista integration, import/export |
+| Role | Login Required | Who | Capabilities |
+|------|---------------|-----|-------------|
+| **Representative** | No | Field reps who encounter issues | Submit defects/enhancements (`/`), view public status board (`/public`) |
+| **Product Owner (Admin)** | Yes | Product Owners team members | Full dashboard (`/admin`), metadata management (`/admin/metadata`), all CRUD operations, EasyVista escalation to Tier 2 GTS, import/export |
 
 - Representatives never need an account — the submission form and status board are fully public
-- Admin routes are protected by a `RequireAdmin` guard that checks session authentication via `api.me()`
+- Product Owner routes are protected by a `RequireAdmin` guard that checks session authentication via `api.me()`
 - Authentication uses session-based cookies (`bc_sid`, HTTP-only, 8-hour TTL)
 
 ---
@@ -411,7 +411,7 @@ Username + password form. On success, redirects to the admin dashboard. Already-
 
 ### 4. Admin Dashboard (`/admin`)
 
-The primary admin workspace — see [Admin Dashboard Deep Dive](#admin-dashboard-deep-dive) for details.
+The primary Product Owners workspace — see [Admin Dashboard Deep Dive](#admin-dashboard-deep-dive) for details.
 
 **At a glance:**
 - Submissions table with 16+ filter controls and 13 sortable columns
@@ -480,7 +480,7 @@ Cleanup tasks have their own independent status track (**Not Started → In Prog
 
 ### EasyVista Integration
 
-Submit tickets to the EasyVista external ticketing system directly from the admin dashboard:
+Product Owners escalate issues to **Tier 2 GTS** by submitting tickets to the EasyVista external ticketing system directly from the dashboard:
 
 | Flow | Behavior |
 |------|----------|
