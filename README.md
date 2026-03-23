@@ -57,12 +57,12 @@ A full-stack internal operations tool for the **Product Owners team** to track, 
 
 The **Product Owners team** manages a constant stream of billing system defects and enhancement requests from field representatives. They are responsible for triaging, prioritizing, and deciding which issues get escalated to **Tier 2 GTS** (who work the actual tickets in EasyVista). Before this application, the Product Owners team had no centralized system:
 
-- **Defect reports got lost** in email threads and spreadsheets with no audit trail
-- **Enhancement requests had no structured intake** — details were incomplete, duplicates proliferated
+- **Defect reports got lost** in email threads, chat messages and spreadsheets with no audit trail and duplicates were difficult to track
+- **Enhancement requests had no structured intake** — details were incomplete, duplicates proliferated and there was no easy way or user friendly way to keep track of them
 - **Product Owners had no unified queue** to triage, prioritize, and track status across requests
 - **Historical data locked in Excel files** could not be searched, filtered, or tracked
 - **Escalating to EasyVista** required manual copy-paste of details for Tier 2 GTS
-- **Field reps had no visibility** into the status of their submitted requests
+- **Field reps had no visibility** into the status of their submitted requests or any way to see what was previously submitted and the status of any already triaged or worked items, resulting in duplicat submissions work
 - **No real-time awareness** when new submissions arrived or existing ones changed
 
 This application solves all of these problems with a purpose-built workflow that connects intake from reps, through Product Owner triage and decision-making, to escalation via EasyVista — end-to-end.
