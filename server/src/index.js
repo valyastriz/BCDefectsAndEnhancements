@@ -5,6 +5,8 @@ const { corsMiddleware } = require('./middleware/cors');
 const { createSessionMiddleware } = require('./middleware/session');
 const { errorHandler } = require('./middleware/errorHandler');
 const { initSocket } = require('./socket');
+const { startKeepAlive } = require('./keepAlive');
+const db = require('../db');
 
 // ── Route modules ────────────────────────────────────────────────────────────
 const authRoutes = require('./routes/authRoutes');
@@ -51,4 +53,5 @@ app.use(errorHandler);
 // ── Start ────────────────────────────────────────────────────────────────────
 server.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
+  startKeepAlive(db);
 });
