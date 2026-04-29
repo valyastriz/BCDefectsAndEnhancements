@@ -1,13 +1,13 @@
 /**
  * keepAlive.js
  *
- * Runs a lightweight no-op query against the database once every 24 hours so
+ * Runs a lightweight no-op query against the database once every 30 minutes so
  * that Supabase never sees the project as inactive and pauses it.
  * The query (SELECT 1) reads nothing and writes nothing – it is purely a
  * connection heartbeat.
  */
 
-const INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
+const INTERVAL_MS = 30 * 60 * 1000; // 30 minutes
 
 let _db = null;
 
@@ -33,13 +33,13 @@ function startKeepAlive(db) {
   // Fire once immediately so we know it works on startup.
   ping();
 
-  // Then repeat every 24 hours.
+  // Then repeat every 30 minutes.
   const timer = setInterval(ping, INTERVAL_MS);
 
   // Don't let this timer block Node from exiting cleanly.
   if (timer.unref) timer.unref();
 
-  console.log('[keepAlive] Supabase heartbeat scheduled every 24 hours.');
+  console.log('[keepAlive] Supabase heartbeat scheduled every 30 minutes.');
 }
 
 module.exports = { startKeepAlive };
