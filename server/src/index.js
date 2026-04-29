@@ -47,6 +47,9 @@ app.use(attachmentRoutes);
 app.use(importRoutes);
 app.use(easyvistaRoutes);
 
+// ── Health check (used by external ping services to keep the server alive) ───
+app.get('/health', (_req, res) => res.json({ status: 'ok', ts: new Date().toISOString() }));
+
 // ── Error handler ────────────────────────────────────────────────────────────
 app.use(errorHandler);
 
