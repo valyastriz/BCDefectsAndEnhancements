@@ -116,7 +116,7 @@ export function SubmissionsTable({
       </div>
 
       <div className="table-wrap">
-        <table>
+        <table className="admin-submissions-table">
           <thead>
             <tr>
               {sortTh('reportedDate',     'Reported Date',      { width: 110, minWidth: 110 })}
@@ -149,9 +149,9 @@ export function SubmissionsTable({
                 }}
                 className="clickable"
               >
-                <td style={{ width: 110, minWidth: 110 }}>{formatDateOnly(row.created_at)}</td>
-                <td style={{ width: 110, minWidth: 110 }}>{formatDateOnly(row.status_update_at || row.updated_at)}</td>
-                <td>
+                <td data-label="Reported Date" style={{ width: 110, minWidth: 110 }}>{formatDateOnly(row.created_at)}</td>
+                <td data-label="Status Update" style={{ width: 110, minWidth: 110 }}>{formatDateOnly(row.status_update_at || row.updated_at)}</td>
+                <td data-label="Type">
                   <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 4 }}>
                     <Badge value={inlineDisplayType(row)} />
                     {row.is_cleanup && row.cleanup_tag_type !== 'cleanup_only' && <Badge value="Clean Up" />}
@@ -163,8 +163,8 @@ export function SubmissionsTable({
                     )}
                   </div>
                 </td>
-                <td style={{ minWidth: 200, whiteSpace: 'normal', wordBreak: 'break-word' }}>{row.summary_of_issue}</td>
-                <td style={{ minWidth: 170 }}>
+                <td data-label="Summary" style={{ minWidth: 200, whiteSpace: 'normal', wordBreak: 'break-word' }}>{row.summary_of_issue}</td>
+                <td data-label="Status" style={{ minWidth: 170 }}>
                   <select
                     className="bs-inline-select"
                     aria-label={`Update defect or enhancement status for #${row.id}`}
@@ -181,7 +181,7 @@ export function SubmissionsTable({
                     {runtimeStatusOptions.map((s) => <option key={s} value={s}>{s}</option>)}
                   </select>
                 </td>
-                <td style={{ minWidth: 170 }}>
+                <td data-label="Cleanup Status" style={{ minWidth: 170 }}>
                   <select
                     className="bs-inline-select"
                     aria-label={`Update cleanup status for #${row.id}`}
@@ -199,7 +199,7 @@ export function SubmissionsTable({
                     {runtimeCleanupInlineStatuses.map((s) => <option key={s} value={s}>{s}</option>)}
                   </select>
                 </td>
-                <td style={{ minWidth: 110 }}>
+                <td data-label="Public" style={{ minWidth: 110 }}>
                   <select
                     className="bs-inline-select"
                     aria-label={`Update public visibility for #${row.id}`}
@@ -216,8 +216,8 @@ export function SubmissionsTable({
                     <option value="no">No</option>
                   </select>
                 </td>
-                <td className="muted">{row.easyvista_ticket_id || '—'}</td>
-                <td style={{ minWidth: 140 }}>
+                <td data-label="EasyVista" className="muted">{row.easyvista_ticket_id || '—'}</td>
+                <td data-label="JIRA Card #" style={{ minWidth: 140 }}>
                   <input
                     className="bs-inline-input"
                     aria-label={`Update JIRA number for #${row.id}`}
@@ -237,10 +237,10 @@ export function SubmissionsTable({
                     }}
                   />
                 </td>
-                <td>{formatCurrency(row.policy_premium_impact)}</td>
-                <td>{formatCurrency(row.direct_dollar_impact)}</td>
-                <td>{formatNumber(row.policies_affected_count)}</td>
-                <td>
+                <td data-label="Policy Premium ($)">{formatCurrency(row.policy_premium_impact)}</td>
+                <td data-label="Direct Impact ($)">{formatCurrency(row.direct_dollar_impact)}</td>
+                <td data-label="Policies Impacted">{formatNumber(row.policies_affected_count)}</td>
+                <td data-label="Frequency">
                   {row.occurrence_count && row.occurrence_timeframe
                     ? `${row.occurrence_count} per ${row.occurrence_timeframe_count > 1 ? `${row.occurrence_timeframe_count} ` : ''}${row.occurrence_timeframe}${row.occurrence_timeframe_count > 1 ? 's' : ''}`
                     : '—'}
