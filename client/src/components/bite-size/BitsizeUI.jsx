@@ -151,9 +151,22 @@ const BADGE_CLASS_MAP = {
   enhancement: 'badge-enhancement',
 };
 
-export function Badge({ value }) {
-  const modifier = value ? BADGE_CLASS_MAP[value.toLowerCase()] ?? '' : '';
-  return <span className={`bs-badge ${modifier}`.trim()}>{value}</span>;
+/* Maps a semantic tone to an existing styled badge class */
+const BADGE_TONE_MAP = {
+  warning: 'badge-duplicate',
+  danger:  'badge-rejected',
+  success: 'badge-approved',
+  info:    'badge-submitted',
+};
+
+export function Badge({ value, tone, children }) {
+  const content = children ?? value;
+  const toneClass = tone ? BADGE_TONE_MAP[tone] ?? '' : '';
+  const valueClass = !toneClass && typeof content === 'string'
+    ? BADGE_CLASS_MAP[content.toLowerCase()] ?? ''
+    : '';
+  const modifier = toneClass || valueClass;
+  return <span className={`bs-badge ${modifier}`.trim()}>{content}</span>;
 }
 
 export function Modal({ open, onClose, title, headerActions, children }) {

@@ -5,7 +5,7 @@ const dbApi = require('../../db');
 const { ensureAdmin } = require('../auth');
 const { withDb } = require('../helpers/db');
 const { persistUploadedFiles, deleteSupabaseStoredFileByUrl } = require('../helpers/storage');
-const { tempUpload } = require('../middleware/upload');
+const { imageUpload } = require('../middleware/upload');
 const { emitAdminNotification } = require('../socket');
 
 const router = express.Router();
@@ -13,7 +13,7 @@ const router = express.Router();
 router.post(
   '/api/admin/submissions/:id/attachments',
   ensureAdmin,
-  tempUpload.array('attachments', 10),
+  imageUpload.array('attachments', 10),
   async (req, res) => {
     return withDb(async (db) => {
       const dbModels = dbApi.getModels() || {};

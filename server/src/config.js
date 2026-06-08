@@ -12,7 +12,13 @@ const CLIENT_ORIGINS = String(process.env.CLIENT_ORIGIN || 'http://localhost:517
   .map((value) => String(value || '').trim())
   .filter(Boolean);
 const CLIENT_ORIGIN = CLIENT_ORIGINS[0] || 'http://localhost:5173';
-const SESSION_SECRET = process.env.SESSION_SECRET || 'local-dev-secret-change-me';
+const DEFAULT_SESSION_SECRET = 'local-dev-secret-change-me';
+const SESSION_SECRET = process.env.SESSION_SECRET || DEFAULT_SESSION_SECRET;
+if (IS_PRODUCTION && (SESSION_SECRET === DEFAULT_SESSION_SECRET || SESSION_SECRET.length < 32)) {
+  throw new Error(
+    'SESSION_SECRET must be set to a strong value (>= 32 chars) in production. Refusing to start with the development default.',
+  );
+}
 const SESSION_COOKIE_SAME_SITE = String(
   process.env.SESSION_COOKIE_SAME_SITE || (IS_PRODUCTION ? 'none' : 'lax'),
 ).toLowerCase();

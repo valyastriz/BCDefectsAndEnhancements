@@ -28,6 +28,7 @@ const {
   parsePolicyAndAccountNumbers,
 } = require('../helpers/importUtils');
 const { IMPORT_COLUMN_TARGETS } = require('../constants');
+const { SUBMISSION_INSERT_COLUMNS, buildInsertPayload } = require('../helpers/submissionInsert');
 const { logStatusChange } = require('../services/submissionService');
 const { tempUpload } = require('../middleware/upload');
 const { emitAdminNotification } = require('../socket');
@@ -497,15 +498,7 @@ router.post('/api/admin/submissions/import-xlsx', ensureAdmin, tempUpload.single
             if (missingLookupFields.length > 0) {
               throw new Error(formatMissingLookupError(missingLookupFields));
             }
-            const insertColumns = [
-              'created_at', 'updated_at', 'created_via_id', 'created_by', 'created_by_email', 'type_id', 'application_id',
-              'policy_num', 'account_num', 'transaction_num', 'screen_title', 'summary_of_issue',
-              'steps_to_reproduce', 'what_happened_exact_details', 'request', 'date_time_of_error',
-              'status_id', 'reviewer', 'decision_notes', 'fingerprint', 'duplicate_of', 'easyvista_ticket_id',
-              'desired_completion_date', 'impact_details', 'enhancement_request_type_id', 'priority_level_id',
-              'jira_number', 'release_number', 'release_notes', 'is_cleanup', 'cleanup_status_id', 'cleanup_tag_type_id',
-              'easyvista_submitted_by', 'is_public', 'is_retired', 'logged_defect',
-            ];
+            const insertColumns = SUBMISSION_INSERT_COLUMNS;
             const insertValues = [
               row.created_at,
               row.updated_at,
@@ -548,10 +541,7 @@ router.post('/api/admin/submissions/import-xlsx', ensureAdmin, tempUpload.single
               throw new Error('Submission model is not initialized');
             }
             const submissionId = Number((await Submission.create(
-              insertColumns.reduce((acc, column, columnIndex) => {
-                acc[column] = insertValues[columnIndex];
-                return acc;
-              }, {}),
+              buildInsertPayload(insertColumns, insertValues),
             )).id);
             await logStatusChange(db, submissionId, 'New', changedBy, row.created_at);
             if (row.status !== 'New') {

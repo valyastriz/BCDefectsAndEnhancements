@@ -1,15 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { api } from '../lib/api';
 import { areAllStatusesSelected } from '../utils/filterUtils';
 import { formatMetaTypeLabel } from '../utils/formatUtils';
 import {
   CLEANUP_ONLY_STATUS,
   CLEANUP_MARKED_STATUS,
-  ADMIN_META_CATEGORIES,
 } from '../constants/adminConstants';
+import { useMetaManagement } from './useMetaManagement';
 
 /**
  * Custom hook for admin metadata management (dynamic dropdown options).
+ *
+ * Delegates the metadata CRUD core to useMetaManagement and layers on the
+ * dashboard-specific runtime option lists and filter synchronization.
  *
  * @param {Object} deps
  * @param {Function} deps.setFilters - page-level filters state setter
@@ -29,104 +31,9 @@ export function useAdminMeta({ setFilters, setNotice }) {
   const [dynamicPriorityLevels, setDynamicPriorityLevels] = useState([]);
   const [dynamicOccurrenceTimeframes, setDynamicOccurrenceTimeframes] = useState(['Day', 'Week', 'Month', 'Quarter', 'Year']);
 
-  // ── Meta management state ─────────────────────────────────────────────────
-
-  const [adminMetaOptions, setAdminMetaOptions] = useState({
-    statuses: [],
-    types: [],
-    cleanupStatuses: [],
-    cleanupTagTypes: [],
-    applications: [],
-    enhancementRequestTypes: [],
-    priorityLevels: [],
-    submissionSources: [],
-  });
-  const [adminMetaLoading, setAdminMetaLoading] = useState(false);
-  const [adminMetaSaving, setAdminMetaSaving] = useState(false);
-  const [adminMetaError, setAdminMetaError] = useState('');
-  const [selectedMetaCategory, setSelectedMetaCategory] = useState('statuses');
-  const [newMetaName, setNewMetaName] = useState('');
-  const [metaDraftNames, setMetaDraftNames] = useState({});
-
   const statusFilterOptionsRef = useRef([]);
 
-  // ── Computed runtime options ───────────────────────────────────────────────
-
-  const runtimeStatusFilterOptions = useMemo(
-    () => [...dynamicFilterStatuses, CLEANUP_ONLY_STATUS, CLEANUP_MARKED_STATUS],
-    [dynamicFilterStatuses],
-  );
-
-  const runtimeStatusOptions = useMemo(
-    () => [...dynamicStatuses, CLEANUP_ONLY_STATUS],
-    [dynamicStatuses],
-  );
-
-  const runtimeCleanupInlineStatuses = useMemo(
-    () => ['No Cleanup', ...dynamicCleanupStatuses],
-    [dynamicCleanupStatuses],
-  );
-
-  const runtimeCreatedViaOptions = useMemo(() => {
-    const dynamicSources = Array.isArray(adminMetaOptions?.submissionSources)
-      ? adminMetaOptions.submissionSources
-        .filter((item) => item?.isActive)
-        .map((item) => String(item.name || '').trim().toLowerCase())
-        .filter(Boolean)
-      : [];
-    if (dynamicSources.length > 0) {
-      return dynamicSources;
-    }
-    return [
-      'rep_form',
-      'admin_excel_import',
-      'admin_backdated',
-      'admin_cleanup',
-      'admin_manual',
-      'admin_easyvista_resubmission',
-    ];
-  }, [adminMetaOptions]);
-
-  const runtimeTypeFilterOptions = useMemo(
-    () => [...dynamicSubmissionTypes.map(formatMetaTypeLabel), 'Cleanup Only'],
-    [dynamicSubmissionTypes],
-  );
-
-  const dynamicCoreStatusSet = useMemo(() => new Set(dynamicStatuses), [dynamicStatuses]);
-  const dynamicCleanupStatusSet = useMemo(
-    () => new Set(['No Cleanup', ...dynamicCleanupStatuses]),
-    [dynamicCleanupStatuses],
-  );
-
-  const activeMetaCategoryConfig = useMemo(
-    () => ADMIN_META_CATEGORIES.find((category) => category.key === selectedMetaCategory) || ADMIN_META_CATEGORIES[0],
-    [selectedMetaCategory],
-  );
-
-  const activeMetaItems = useMemo(
-    () => Array.isArray(adminMetaOptions?.[activeMetaCategoryConfig.optionsKey])
-      ? adminMetaOptions[activeMetaCategoryConfig.optionsKey]
-      : [],
-    [adminMetaOptions, activeMetaCategoryConfig],
-  );
-
-  // ── Sync filter options ref ────────────────────────────────────────────────
-
-  useEffect(() => {
-    statusFilterOptionsRef.current = runtimeStatusFilterOptions;
-  }, [runtimeStatusFilterOptions]);
-
-  // ── Reset draft names when meta items change ───────────────────────────────
-
-  useEffect(() => {
-    const nextDrafts = {};
-    activeMetaItems.forEach((item) => {
-      nextDrafts[item.id] = String(item.name || '');
-    });
-    setMetaDraftNames(nextDrafts);
-  }, [activeMetaItems]);
-
-  // ── Core callbacks ─────────────────────────────────────────────────────────
+  // ── Sync dashboard runtime options from a loaded meta payload ───────────────
 
   const syncRuntimeOptionsFromMeta = useCallback((meta) => {
     const nextStatuses = Array.isArray(meta?.statuses)
@@ -179,103 +86,80 @@ export function useAdminMeta({ setFilters, setNotice }) {
     if (nextOccurrenceTimeframes.length > 0) setDynamicOccurrenceTimeframes(nextOccurrenceTimeframes);
   }, [setFilters]);
 
-  const loadAdminMeta = useCallback(async () => {
-    try {
-      setAdminMetaLoading(true);
-      setAdminMetaError('');
-      const meta = await api.getAdminMetaOptions();
-      const normalizedMeta = {
-        statuses: Array.isArray(meta?.statuses) ? meta.statuses : [],
-        types: Array.isArray(meta?.types) ? meta.types : [],
-        cleanupStatuses: Array.isArray(meta?.cleanupStatuses) ? meta.cleanupStatuses : [],
-        cleanupTagTypes: Array.isArray(meta?.cleanupTagTypes) ? meta.cleanupTagTypes : [],
-        applications: Array.isArray(meta?.applications) ? meta.applications : [],
-        enhancementRequestTypes: Array.isArray(meta?.enhancementRequestTypes) ? meta.enhancementRequestTypes : [],
-        priorityLevels: Array.isArray(meta?.priorityLevels) ? meta.priorityLevels : [],
-        submissionSources: Array.isArray(meta?.submissionSources) ? meta.submissionSources : [],
-        occurrenceTimeframes: Array.isArray(meta?.occurrenceTimeframes) ? meta.occurrenceTimeframes : [],
-      };
-      setAdminMetaOptions(normalizedMeta);
-      syncRuntimeOptionsFromMeta(normalizedMeta);
-    } catch (loadError) {
-      setAdminMetaError(loadError.message || 'Failed to load metadata options.');
-    } finally {
-      setAdminMetaLoading(false);
+  // ── Metadata CRUD core (shared with AdminMetadataPage) ─────────────────────
+
+  const {
+    adminMetaOptions,
+    adminMetaLoading,
+    adminMetaSaving,
+    adminMetaError,
+    selectedMetaCategory,
+    setSelectedMetaCategory,
+    newMetaName,
+    setNewMetaName,
+    metaDraftNames,
+    setMetaDraftNames,
+    activeMetaCategoryConfig,
+    activeMetaItems,
+    loadAdminMeta,
+    saveMetaItem,
+    addMetaItem,
+    moveMetaItem,
+  } = useMetaManagement({ onLoaded: syncRuntimeOptionsFromMeta, onNotice: setNotice });
+
+  // ── Computed runtime options ───────────────────────────────────────────────
+
+  const runtimeStatusFilterOptions = useMemo(
+    () => [...dynamicFilterStatuses, CLEANUP_ONLY_STATUS, CLEANUP_MARKED_STATUS],
+    [dynamicFilterStatuses],
+  );
+
+  const runtimeStatusOptions = useMemo(
+    () => [...dynamicStatuses, CLEANUP_ONLY_STATUS],
+    [dynamicStatuses],
+  );
+
+  const runtimeCleanupInlineStatuses = useMemo(
+    () => ['No Cleanup', ...dynamicCleanupStatuses],
+    [dynamicCleanupStatuses],
+  );
+
+  const runtimeCreatedViaOptions = useMemo(() => {
+    const dynamicSources = Array.isArray(adminMetaOptions?.submissionSources)
+      ? adminMetaOptions.submissionSources
+        .filter((item) => item?.isActive)
+        .map((item) => String(item.name || '').trim().toLowerCase())
+        .filter(Boolean)
+      : [];
+    if (dynamicSources.length > 0) {
+      return dynamicSources;
     }
-  }, [syncRuntimeOptionsFromMeta]);
+    return [
+      'rep_form',
+      'admin_excel_import',
+      'admin_backdated',
+      'admin_cleanup',
+      'admin_manual',
+      'admin_easyvista_resubmission',
+    ];
+  }, [adminMetaOptions]);
 
-  const saveMetaItem = useCallback(async (item) => {
-    if (!item || !activeMetaCategoryConfig) return;
-    const draftName = String(metaDraftNames[item.id] ?? item.name ?? '').trim();
-    try {
-      setAdminMetaSaving(true);
-      setAdminMetaError('');
-      await api.updateAdminMetaOption(activeMetaCategoryConfig.endpointCategory, item.id, {
-        name: draftName,
-        isActive: Boolean(item.isActive),
-        isRetired: Boolean(item.isRetired),
-        sortOrder: Number(item.sortOrder || 0),
-      });
-      await loadAdminMeta();
-      setNotice('Metadata value saved.');
-    } catch (saveError) {
-      setAdminMetaError(saveError.message || 'Failed to save metadata value.');
-    } finally {
-      setAdminMetaSaving(false);
-    }
-  }, [activeMetaCategoryConfig, metaDraftNames, loadAdminMeta, setNotice]);
+  const runtimeTypeFilterOptions = useMemo(
+    () => [...dynamicSubmissionTypes.map(formatMetaTypeLabel), 'Cleanup Only'],
+    [dynamicSubmissionTypes],
+  );
 
-  const addMetaItem = useCallback(async () => {
-    const name = String(newMetaName || '').trim();
-    if (!name || !activeMetaCategoryConfig) return;
-    try {
-      setAdminMetaSaving(true);
-      setAdminMetaError('');
-      await api.createAdminMetaOption(activeMetaCategoryConfig.endpointCategory, { name });
-      setNewMetaName('');
-      await loadAdminMeta();
-      setNotice('Metadata value added.');
-    } catch (createError) {
-      setAdminMetaError(createError.message || 'Failed to add metadata value.');
-    } finally {
-      setAdminMetaSaving(false);
-    }
-  }, [newMetaName, activeMetaCategoryConfig, loadAdminMeta, setNotice]);
+  const dynamicCoreStatusSet = useMemo(() => new Set(dynamicStatuses), [dynamicStatuses]);
+  const dynamicCleanupStatusSet = useMemo(
+    () => new Set(['No Cleanup', ...dynamicCleanupStatuses]),
+    [dynamicCleanupStatuses],
+  );
 
-  const moveMetaItem = useCallback(async (itemId, direction) => {
-    if (!activeMetaCategoryConfig || !Array.isArray(activeMetaItems) || activeMetaItems.length <= 1) {
-      return;
-    }
-    const currentIndex = activeMetaItems.findIndex((item) => Number(item.id) === Number(itemId));
-    if (currentIndex === -1) return;
-    const targetIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
-    if (targetIndex < 0 || targetIndex >= activeMetaItems.length) return;
-
-    const reordered = [...activeMetaItems];
-    const [moved] = reordered.splice(currentIndex, 1);
-    reordered.splice(targetIndex, 0, moved);
-
-    try {
-      setAdminMetaSaving(true);
-      setAdminMetaError('');
-      await api.reorderAdminMetaOptions(
-        activeMetaCategoryConfig.endpointCategory,
-        reordered.map((item) => item.id),
-      );
-      await loadAdminMeta();
-      setNotice('Metadata order updated.');
-    } catch (reorderError) {
-      setAdminMetaError(reorderError.message || 'Failed to update metadata order.');
-    } finally {
-      setAdminMetaSaving(false);
-    }
-  }, [activeMetaCategoryConfig, activeMetaItems, loadAdminMeta, setNotice]);
-
-  // ── Load meta on mount ─────────────────────────────────────────────────────
+  // ── Sync filter options ref ────────────────────────────────────────────────
 
   useEffect(() => {
-    loadAdminMeta();
-  }, [loadAdminMeta]);
+    statusFilterOptionsRef.current = runtimeStatusFilterOptions;
+  }, [runtimeStatusFilterOptions]);
 
   // ── Public API ─────────────────────────────────────────────────────────────
 

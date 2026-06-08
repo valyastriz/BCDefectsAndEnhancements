@@ -2,7 +2,7 @@ const express = require('express');
 const dbApi = require('../../db');
 const { withDb } = require('../helpers/db');
 const { buildAllLookupMaps, hydrateRowFromMaps } = require('../helpers/lookups');
-const { mapSubmission } = require('../helpers/mappers');
+const { mapPublicSubmission } = require('../helpers/mappers');
 const { getSubmissionByIdWithLookups } = require('../services/submissionService');
 
 const router = express.Router();
@@ -67,7 +67,7 @@ router.get('/api/public/submissions', async (_req, res) => {
     });
 
     enrichedRows.sort((a, b) => String(b.updated_at || '').localeCompare(String(a.updated_at || '')));
-    return res.json(enrichedRows.map(mapSubmission));
+    return res.json(enrichedRows.map(mapPublicSubmission));
   });
 });
 
@@ -91,7 +91,7 @@ router.get('/api/public/submissions/:id', async (req, res) => {
     });
 
     return res.json({
-      ...mapSubmission(submission),
+      ...mapPublicSubmission(submission),
       attachments,
     });
   });

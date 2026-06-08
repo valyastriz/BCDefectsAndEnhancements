@@ -32,7 +32,12 @@ app.use(corsMiddleware());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(sessionMiddleware);
-app.use('/uploads', express.static(uploadsRoot));
+app.use('/uploads', express.static(uploadsRoot, {
+  setHeaders: (res) => {
+    // Prevent browsers from MIME-sniffing stored files into executable content.
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+  },
+}));
 
 // ── Socket.io ────────────────────────────────────────────────────────────────
 initSocket(server, sessionMiddleware);

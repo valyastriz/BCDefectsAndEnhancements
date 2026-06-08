@@ -113,20 +113,11 @@ export function AdminDashboardPage({ user, onLogout }) {
   const importModal = useImportModal({ loadRows, setNotice });
   const exportModal = useExportModal({ filtersRef, setNotice });
 
-  // Destructure detail modal for convenience (used extensively in JSX)
+  // Only the values used directly in the page body are destructured; the
+  // DetailModal receives its full hook object via spread (see the modal JSX below).
   const {
-    openId, setOpenId, detail, edit, setEdit, isDetailModalOpen,
-    openDetail, detailError, setDetailError, working: detailWorking,
-    modalTopNotice, setModalTopNotice, modalBottomNotice, setModalBottomNotice,
+    openId, setEdit, isDetailModalOpen, openDetail,
     previewAttachment, setPreviewAttachment,
-    easyVistaConfirmation, showEasyVistaRequirements, setShowEasyVistaRequirements,
-    showHeaderSaveTooltip, setShowHeaderSaveTooltip,
-    showFooterSaveTooltip, setShowFooterSaveTooltip,
-    modalTitle, effectiveType, easyVistaMissingRequirements,
-    hasPendingChanges, visibleAttachments, saveDisabledReason,
-    saveEdits, retireCurrentItem, unretireCurrentItem,
-    uploadAttachment, deleteAttachment, submitEasyVista,
-    clearPendingAttachmentDrafts,
   } = detailModal;
 
   // Destructure meta for convenience
@@ -139,48 +130,21 @@ export function AdminDashboardPage({ user, onLogout }) {
     dynamicCoreStatusSet, dynamicCleanupStatusSet,
   } = meta;
 
-  // Destructure backdated modal
-  const {
-    backdatedOpen, backdatedError, backdatedWorking,
-    backdatedForm, setBackdatedForm, createBackdatedTicket,
-    openBackdatedModal, closeBackdatedModal,
-  } = backdated;
+  // Only the values used directly in the page body are destructured; each modal
+  // receives its full hook object via spread (see the modal JSX below).
+  const { backdatedOpen, openBackdatedModal } = backdated;
 
-  // Destructure cleanup modal
   const {
-    cleanupOpen, cleanupError, cleanupWorking,
-    cleanupForm, setCleanupForm, cleanupFiles, setCleanupFiles,
-    cleanupPreviewIndex, setCleanupPreviewIndex, cleanupFileInputRef,
-    cleanupRequiresEasyVistaFields, cleanupFilePreviews,
-    createCleanupTask,
-    openCleanupModal, closeCleanupModal,
+    cleanupOpen, openCleanupModal,
+    cleanupPreviewIndex, setCleanupPreviewIndex, cleanupFilePreviews,
   } = cleanup;
 
-  // Destructure import modal
   const {
     importFileInputRef, importModalOpen, importWorking,
-    importMode, setImportMode, importAvailableHeaders,
-    importMappingTargets, importColumnMappings, setImportColumnMappings,
-    pendingImportFile, importStatusText, importStatusKind,
-    importResultErrors, importSummary, importAction, importHistory,
-    importRequiresApplicationDefault, importDefaultApplicationName, setImportDefaultApplicationName,
-    importUnknownStatuses, importAllowedStatuses,
-    importStatusValueMappings, setImportStatusValueMappings,
-    importTargetByHeader, sortedImportMappingTargets,
-    visibleImportMappingTargets, sortedImportAvailableHeaders,
-    analyzeImportFile, importBackdatedExcel,
-    openImportModal, closeImportModal, resetImportModal,
+    analyzeImportFile, openImportModal,
   } = importModal;
 
-  // Destructure export modal
-  const {
-    exportModalOpen, exportWorking, exportError,
-    exportFields, selectedExportFieldKeys, exportFieldSearch, setExportFieldSearch,
-    visibleExportFields, selectedExportFieldSet,
-    openExportModal, closeExportModal,
-    toggleExportField, selectAllVisibleExportFields,
-    clearVisibleExportFields, exportFilteredSubmissions,
-  } = exportModal;
+  const { exportModalOpen, exportWorking, openExportModal } = exportModal;
 
   // ── Composite flags ───────────────────────────────────────────────────────
   const isAnyAdminModalOpen = isDetailModalOpen || backdatedOpen || cleanupOpen || importModalOpen || exportModalOpen;
@@ -446,20 +410,7 @@ export function AdminDashboardPage({ user, onLogout }) {
       </Card>
 
       <CleanupTaskModal
-        cleanupOpen={cleanupOpen}
-        closeCleanupModal={closeCleanupModal}
-        cleanupError={cleanupError}
-        cleanupWorking={cleanupWorking}
-        cleanupForm={cleanupForm}
-        setCleanupForm={setCleanupForm}
-        cleanupFiles={cleanupFiles}
-        setCleanupFiles={setCleanupFiles}
-        cleanupPreviewIndex={cleanupPreviewIndex}
-        setCleanupPreviewIndex={setCleanupPreviewIndex}
-        cleanupFileInputRef={cleanupFileInputRef}
-        cleanupRequiresEasyVistaFields={cleanupRequiresEasyVistaFields}
-        cleanupFilePreviews={cleanupFilePreviews}
-        createCleanupTask={createCleanupTask}
+        {...cleanup}
         dynamicCleanupStatuses={dynamicCleanupStatuses}
         dynamicCleanupTagTypes={dynamicCleanupTagTypes}
         dynamicApplications={dynamicApplications}
@@ -468,106 +419,22 @@ export function AdminDashboardPage({ user, onLogout }) {
         runtimeCreatedViaOptions={runtimeCreatedViaOptions}
       />
 
-      <ExportModal
-        exportModalOpen={exportModalOpen}
-        exportWorking={exportWorking}
-        exportError={exportError}
-        exportFields={exportFields}
-        selectedExportFieldKeys={selectedExportFieldKeys}
-        exportFieldSearch={exportFieldSearch}
-        setExportFieldSearch={setExportFieldSearch}
-        visibleExportFields={visibleExportFields}
-        selectedExportFieldSet={selectedExportFieldSet}
-        closeExportModal={closeExportModal}
-        toggleExportField={toggleExportField}
-        selectAllVisibleExportFields={selectAllVisibleExportFields}
-        clearVisibleExportFields={clearVisibleExportFields}
-        exportFilteredSubmissions={exportFilteredSubmissions}
-      />
+      <ExportModal {...exportModal} />
 
       <ImportModal
-        importModalOpen={importModalOpen}
-        importWorking={importWorking}
-        importMode={importMode}
-        setImportMode={setImportMode}
-        importAvailableHeaders={importAvailableHeaders}
-        importMappingTargets={importMappingTargets}
-        importColumnMappings={importColumnMappings}
-        setImportColumnMappings={setImportColumnMappings}
-        pendingImportFile={pendingImportFile}
-        importStatusText={importStatusText}
-        importStatusKind={importStatusKind}
-        importResultErrors={importResultErrors}
-        importSummary={importSummary}
-        importAction={importAction}
-        importHistory={importHistory}
-        importRequiresApplicationDefault={importRequiresApplicationDefault}
-        importDefaultApplicationName={importDefaultApplicationName}
-        setImportDefaultApplicationName={setImportDefaultApplicationName}
-        importUnknownStatuses={importUnknownStatuses}
-        importAllowedStatuses={importAllowedStatuses}
-        importStatusValueMappings={importStatusValueMappings}
-        setImportStatusValueMappings={setImportStatusValueMappings}
-        importTargetByHeader={importTargetByHeader}
-        sortedImportMappingTargets={sortedImportMappingTargets}
-        visibleImportMappingTargets={visibleImportMappingTargets}
-        sortedImportAvailableHeaders={sortedImportAvailableHeaders}
-        analyzeImportFile={analyzeImportFile}
-        importBackdatedExcel={importBackdatedExcel}
-        closeImportModal={closeImportModal}
-        resetImportModal={resetImportModal}
-        importFileInputRef={importFileInputRef}
+        {...importModal}
         dynamicStatuses={dynamicStatuses}
       />
 
       <BackdatedTicketModal
-        backdatedOpen={backdatedOpen}
-        closeBackdatedModal={closeBackdatedModal}
-        backdatedError={backdatedError}
-        backdatedWorking={backdatedWorking}
-        backdatedForm={backdatedForm}
-        setBackdatedForm={setBackdatedForm}
-        createBackdatedTicket={createBackdatedTicket}
+        {...backdated}
         dynamicStatuses={dynamicStatuses}
         dynamicApplications={dynamicApplications}
         runtimeCreatedViaOptions={runtimeCreatedViaOptions}
       />
 
       <DetailModal
-        openId={openId}
-        setOpenId={setOpenId}
-        detail={detail}
-        edit={edit}
-        setEdit={setEdit}
-        detailError={detailError}
-        setDetailError={setDetailError}
-        working={detailWorking}
-        modalTitle={modalTitle}
-        modalTopNotice={modalTopNotice}
-        setModalTopNotice={setModalTopNotice}
-        modalBottomNotice={modalBottomNotice}
-        setModalBottomNotice={setModalBottomNotice}
-        previewAttachment={previewAttachment}
-        setPreviewAttachment={setPreviewAttachment}
-        easyVistaConfirmation={easyVistaConfirmation}
-        showEasyVistaRequirements={showEasyVistaRequirements}
-        setShowEasyVistaRequirements={setShowEasyVistaRequirements}
-        showHeaderSaveTooltip={showHeaderSaveTooltip}
-        setShowHeaderSaveTooltip={setShowHeaderSaveTooltip}
-        showFooterSaveTooltip={showFooterSaveTooltip}
-        setShowFooterSaveTooltip={setShowFooterSaveTooltip}
-        effectiveType={effectiveType}
-        easyVistaMissingRequirements={easyVistaMissingRequirements}
-        hasPendingChanges={hasPendingChanges}
-        visibleAttachments={visibleAttachments}
-        saveDisabledReason={saveDisabledReason}
-        saveEdits={saveEdits}
-        retireCurrentItem={retireCurrentItem}
-        unretireCurrentItem={unretireCurrentItem}
-        uploadAttachment={uploadAttachment}
-        deleteAttachment={deleteAttachment}
-        submitEasyVista={submitEasyVista}
-        clearPendingAttachmentDrafts={clearPendingAttachmentDrafts}
+        {...detailModal}
         dynamicCleanupStatuses={dynamicCleanupStatuses}
         dynamicCleanupTagTypes={dynamicCleanupTagTypes}
         dynamicApplications={dynamicApplications}

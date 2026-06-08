@@ -17,7 +17,7 @@ function mapSubmission(row) {
   const isRetired = Boolean(row.is_retired) || String(baseStatus) === 'Retired';
   // Gated display value (null when is_cleanup=false); used for cleanup_status_display
   const cleanupStatusDisplay = isCleanup
-    ? (resolvedCleanupStatus || SUBMISSION_TO_CLEANUP_STATUS[baseStatus] || 'New')
+    ? (resolvedCleanupStatus || SUBMISSION_TO_CLEANUP_STATUS[baseStatus] || 'Not Started')
     : null;
 
   return {
@@ -49,6 +49,43 @@ function mapSubmission(row) {
   };
 }
 
+// Explicit allow-list of fields safe to expose on the public status board.
+// Everything else (created_by_email, reviewer, decision_notes, impact_notes,
+// dollar-impact figures, fingerprint, etc.) is intentionally withheld.
+const PUBLIC_SUBMISSION_FIELDS = [
+  'id',
+  'type',
+  'status',
+  'summary_of_issue',
+  'what_happened_exact_details',
+  'request',
+  'created_by',
+  'application_name',
+  'policy_num',
+  'account_num',
+  'easyvista_ticket_id',
+  'jira_number',
+  'created_at',
+  'updated_at',
+  'is_retired',
+  'latest_status_changed_at',
+  'latest_status_value',
+  'submitted_status_at',
+  'deployed_status_at',
+  'duplicate_status_at',
+  'retired_status_at',
+];
+
+function mapPublicSubmission(row) {
+  const mapped = mapSubmission(row);
+  if (!mapped) return null;
+  const result = {};
+  for (const field of PUBLIC_SUBMISSION_FIELDS) {
+    if (mapped[field] !== undefined) result[field] = mapped[field];
+  }
+  return result;
+}
+
 function mapExcelImportRun(row) {
   if (!row) return null;
   return {
@@ -77,6 +114,7 @@ function toExportCellValue(value) {
 
 module.exports = {
   mapSubmission,
+  mapPublicSubmission,
   mapExcelImportRun,
   toExportCellValue,
 };

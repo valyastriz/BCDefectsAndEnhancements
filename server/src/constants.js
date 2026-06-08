@@ -101,11 +101,13 @@ const CLEANUP_TO_SUBMISSION_STATUS = {
   'In Progress': 'Approved',
   Completed: 'Deployed',
 };
+// Keep in sync with the client's STATUS_TO_CLEANUP (client/src/constants/adminConstants.js).
 const SUBMISSION_TO_CLEANUP_STATUS = {
   New: 'Not Started',
   Approved: 'In Progress',
   Submitted: 'In Progress',
   Deployed: 'Completed',
+  Retired: 'Completed',
 };
 
 const LOOKUP_TABLES = {

@@ -1,65 +1,51 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { api } from '../lib/api';
 import {
   Button,
   Card,
   Input,
   Notice,
 } from '../components/bite-size/BitsizeUI';
-
-const adminMetaCategories = [
-  { key: 'statuses', label: 'Defect/Enhancement Statuses', endpointCategory: 'statuses', optionsKey: 'statuses' },
-  { key: 'types', label: 'Submission Types', endpointCategory: 'types', optionsKey: 'types' },
-  { key: 'cleanupStatuses', label: 'Cleanup Statuses', endpointCategory: 'cleanup-statuses', optionsKey: 'cleanupStatuses' },
-  { key: 'cleanupTagTypes', label: 'Cleanup Tag Types', endpointCategory: 'cleanup-tag-types', optionsKey: 'cleanupTagTypes' },
-  { key: 'applications', label: 'Applications', endpointCategory: 'applications', optionsKey: 'applications' },
-  { key: 'enhancementRequestTypes', label: 'Enhancement Request Types', endpointCategory: 'enhancement-request-types', optionsKey: 'enhancementRequestTypes' },
-  { key: 'priorityLevels', label: 'Priority Levels', endpointCategory: 'priority-levels', optionsKey: 'priorityLevels' },
-  { key: 'submissionSources', label: 'Submission Sources', endpointCategory: 'submission-sources', optionsKey: 'submissionSources' },
-];
-
-function isProtectedRetiredStatusMetaItem(categoryKey, item) {
-  if (String(categoryKey || '') !== 'statuses') return false;
-  const itemName = String(item?.name || '').trim().toLowerCase();
-  return itemName === 'retired' || Boolean(item?.isRetired);
-}
+import { ADMIN_META_CATEGORIES } from '../constants/adminConstants';
+import { isProtectedRetiredStatusMetaItem } from '../utils/metaUtils';
+import { useMetaManagement } from '../hooks/useMetaManagement';
 
 function isReadOnlyCategory(categoryKey) {
   return String(categoryKey || '') === 'submissionSources';
 }
 
+// Reorder excludes the protected "Retired" status row. Stable module-level predicate.
+function includeInReorder(item, categoryKey) {
+  return !isProtectedRetiredStatusMetaItem(categoryKey, item);
+}
+
 export function AdminMetadataPage({ user }) {
   const navigate = useNavigate();
-  const [adminMetaOptions, setAdminMetaOptions] = useState({
-    statuses: [],
-    types: [],
-    cleanupStatuses: [],
-    cleanupTagTypes: [],
-    applications: [],
-    enhancementRequestTypes: [],
-    priorityLevels: [],
-    submissionSources: [],
-  });
-  const [adminMetaLoading, setAdminMetaLoading] = useState(false);
-  const [adminMetaSaving, setAdminMetaSaving] = useState(false);
-  const [adminMetaError, setAdminMetaError] = useState('');
   const [notice, setNotice] = useState('');
-  const [selectedMetaCategory, setSelectedMetaCategory] = useState('statuses');
-  const [newMetaName, setNewMetaName] = useState('');
-  const [metaDraftNames, setMetaDraftNames] = useState({});
 
-  const activeMetaCategoryConfig = useMemo(
-    () => adminMetaCategories.find((category) => category.key === selectedMetaCategory) || adminMetaCategories[0],
-    [selectedMetaCategory],
-  );
-
-  const activeMetaItems = useMemo(
-    () => Array.isArray(adminMetaOptions?.[activeMetaCategoryConfig.optionsKey])
-      ? adminMetaOptions[activeMetaCategoryConfig.optionsKey]
-      : [],
-    [adminMetaOptions, activeMetaCategoryConfig],
-  );
+  const {
+    setAdminMetaOptions,
+    adminMetaLoading,
+    adminMetaSaving,
+    adminMetaError,
+    selectedMetaCategory,
+    setSelectedMetaCategory,
+    newMetaName,
+    setNewMetaName,
+    metaDraftNames,
+    setMetaDraftNames,
+    activeMetaCategoryConfig,
+    activeMetaItems,
+    loadAdminMeta,
+    saveMetaItem,
+    addMetaItem,
+    moveMetaItem,
+  } = useMetaManagement({
+    onNotice: setNotice,
+    resetNoticeBeforeAction: true,
+    // Reorder against the visible rows (excludes the protected "Retired" status entry).
+    filterReorderItem: includeInReorder,
+  });
 
   const visibleMetaItems = useMemo(
     () => activeMetaItems.filter((item) => !isProtectedRetiredStatusMetaItem(activeMetaCategoryConfig.key, item)),
@@ -70,110 +56,6 @@ export function AdminMetadataPage({ user }) {
     () => isReadOnlyCategory(activeMetaCategoryConfig.key),
     [activeMetaCategoryConfig],
   );
-
-  const loadAdminMeta = useCallback(async () => {
-    try {
-      setAdminMetaLoading(true);
-      setAdminMetaError('');
-      const meta = await api.getAdminMetaOptions();
-      setAdminMetaOptions({
-        statuses: Array.isArray(meta?.statuses) ? meta.statuses : [],
-        types: Array.isArray(meta?.types) ? meta.types : [],
-        cleanupStatuses: Array.isArray(meta?.cleanupStatuses) ? meta.cleanupStatuses : [],
-        cleanupTagTypes: Array.isArray(meta?.cleanupTagTypes) ? meta.cleanupTagTypes : [],
-        applications: Array.isArray(meta?.applications) ? meta.applications : [],
-        enhancementRequestTypes: Array.isArray(meta?.enhancementRequestTypes) ? meta.enhancementRequestTypes : [],
-        priorityLevels: Array.isArray(meta?.priorityLevels) ? meta.priorityLevels : [],
-        submissionSources: Array.isArray(meta?.submissionSources) ? meta.submissionSources : [],
-      });
-    } catch (loadError) {
-      setAdminMetaError(loadError.message || 'Failed to load metadata options.');
-    } finally {
-      setAdminMetaLoading(false);
-    }
-  }, []);
-
-  const saveMetaItem = useCallback(async (item) => {
-    if (!item || !activeMetaCategoryConfig) return;
-    const draftName = String(metaDraftNames[item.id] ?? item.name ?? '').trim();
-    try {
-      setAdminMetaSaving(true);
-      setAdminMetaError('');
-      setNotice('');
-      await api.updateAdminMetaOption(activeMetaCategoryConfig.endpointCategory, item.id, {
-        name: draftName,
-        isActive: Boolean(item.isActive),
-        isRetired: Boolean(item.isRetired),
-        sortOrder: Number(item.sortOrder || 0),
-      });
-      await loadAdminMeta();
-      setNotice('Metadata value saved.');
-    } catch (saveError) {
-      setAdminMetaError(saveError.message || 'Failed to save metadata value.');
-    } finally {
-      setAdminMetaSaving(false);
-    }
-  }, [activeMetaCategoryConfig, metaDraftNames, loadAdminMeta]);
-
-  const addMetaItem = useCallback(async () => {
-    const name = String(newMetaName || '').trim();
-    if (!name || !activeMetaCategoryConfig) return;
-    try {
-      setAdminMetaSaving(true);
-      setAdminMetaError('');
-      setNotice('');
-      await api.createAdminMetaOption(activeMetaCategoryConfig.endpointCategory, { name });
-      setNewMetaName('');
-      await loadAdminMeta();
-      setNotice('Metadata value added.');
-    } catch (createError) {
-      setAdminMetaError(createError.message || 'Failed to add metadata value.');
-    } finally {
-      setAdminMetaSaving(false);
-    }
-  }, [newMetaName, activeMetaCategoryConfig, loadAdminMeta]);
-
-  const moveMetaItem = useCallback(async (itemId, direction) => {
-    if (!activeMetaCategoryConfig || !Array.isArray(visibleMetaItems) || visibleMetaItems.length <= 1) {
-      return;
-    }
-    const currentIndex = visibleMetaItems.findIndex((item) => Number(item.id) === Number(itemId));
-    if (currentIndex === -1) return;
-    const targetIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
-    if (targetIndex < 0 || targetIndex >= visibleMetaItems.length) return;
-
-    const reordered = [...visibleMetaItems];
-    const [moved] = reordered.splice(currentIndex, 1);
-    reordered.splice(targetIndex, 0, moved);
-
-    try {
-      setAdminMetaSaving(true);
-      setAdminMetaError('');
-      setNotice('');
-      await api.reorderAdminMetaOptions(
-        activeMetaCategoryConfig.endpointCategory,
-        reordered.map((item) => item.id),
-      );
-      await loadAdminMeta();
-      setNotice('Metadata order updated.');
-    } catch (reorderError) {
-      setAdminMetaError(reorderError.message || 'Failed to update metadata order.');
-    } finally {
-      setAdminMetaSaving(false);
-    }
-  }, [activeMetaCategoryConfig, visibleMetaItems, loadAdminMeta]);
-
-  useEffect(() => {
-    loadAdminMeta();
-  }, [loadAdminMeta]);
-
-  useEffect(() => {
-    const nextDrafts = {};
-    activeMetaItems.forEach((item) => {
-      nextDrafts[item.id] = String(item.name || '');
-    });
-    setMetaDraftNames(nextDrafts);
-  }, [activeMetaItems]);
 
   return (
     <div className="bs-page" style={{ maxWidth: 1320, margin: '0 auto' }}>
@@ -207,7 +89,7 @@ export function AdminMetadataPage({ user }) {
           >
             <p className="section-label" style={{ marginTop: 0 }}>Metadata Panels</p>
             <div className="bs-form" style={{ gap: 8 }}>
-              {adminMetaCategories.map((category) => {
+              {ADMIN_META_CATEGORIES.map((category) => {
                 const isActive = selectedMetaCategory === category.key;
                 return (
                   <Button

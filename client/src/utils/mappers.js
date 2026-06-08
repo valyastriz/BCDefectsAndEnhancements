@@ -10,7 +10,7 @@ export function editableFromDetail(detail) {
   return {
     type: detail.type || 'defect',
     is_cleanup: Boolean(detail.is_cleanup),
-    cleanup_status: detail.cleanup_status || STATUS_TO_CLEANUP[detail.status] || 'New',
+    cleanup_status: detail.cleanup_status || STATUS_TO_CLEANUP[detail.status] || 'Not Started',
     cleanup_tag_type: cleanupTagType,
     application_name: detail.application_name || 'Billing Center',
     policy_num: detail.policy_num || '',

@@ -1,10 +1,17 @@
 const express = require('express');
 const bcrypt = require('bcrypt');
 const dbApi = require('../../db');
+const { createRateLimiter } = require('../middleware/rateLimit');
 
 const router = express.Router();
 
-router.post('/api/auth/login', async (req, res) => {
+const loginRateLimiter = createRateLimiter({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  message: 'Too many login attempts. Please wait a few minutes and try again.',
+});
+
+router.post('/api/auth/login', loginRateLimiter, async (req, res) => {
   const { username, password } = req.body;
   if (!username || !password) {
     return res.status(400).json({ error: 'Username and password are required' });

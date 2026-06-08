@@ -234,130 +234,59 @@ async function getDefectEnhancementStatuses(db, { includeRetired = false } = {})
   }
 }
 
-async function getSubmissionTypes(db) {
+// Generic active-lookup-name getter shared by the simple lookup getters below.
+// Each wrapper supplies its model name, default list, and whether names are
+// lowercased. Behavior (active filter, sort order, default fallback on empty
+// result or any error) is identical to the original per-getter implementations.
+async function getActiveLookupNames(modelName, defaults, { lowercase = false } = {}) {
   try {
     const dbModels = dbApi.getModels() || {};
-    const SubmissionType = dbModels.SubmissionType;
-    if (!SubmissionType) throw new Error('SubmissionType model is not initialized');
-    const rows = await SubmissionType.findAll({
+    const Model = dbModels[modelName];
+    if (!Model) throw new Error(`${modelName} model is not initialized`);
+    const rows = await Model.findAll({
       where: { is_active: 1 },
       attributes: ['name'],
       order: [['sort_order', 'ASC'], ['id', 'ASC']],
       raw: true,
     });
-    const names = (rows || []).map((row) => String(row.name || '').trim().toLowerCase()).filter(Boolean);
-    return names.length > 0 ? names : [...DEFAULT_SUBMISSION_TYPES];
+    const names = (rows || [])
+      .map((row) => {
+        const trimmed = String(row.name || '').trim();
+        return lowercase ? trimmed.toLowerCase() : trimmed;
+      })
+      .filter(Boolean);
+    return names.length > 0 ? names : [...defaults];
   } catch {
-    return [...DEFAULT_SUBMISSION_TYPES];
+    return [...defaults];
   }
+}
+
+async function getSubmissionTypes(db) {
+  return getActiveLookupNames('SubmissionType', DEFAULT_SUBMISSION_TYPES, { lowercase: true });
 }
 
 async function getCleanupStatuses(db) {
-  try {
-    const dbModels = dbApi.getModels() || {};
-    const CleanupStatus = dbModels.CleanupStatus;
-    if (!CleanupStatus) throw new Error('CleanupStatus model is not initialized');
-    const rows = await CleanupStatus.findAll({
-      where: { is_active: 1 },
-      attributes: ['name'],
-      order: [['sort_order', 'ASC'], ['id', 'ASC']],
-      raw: true,
-    });
-    const names = (rows || []).map((row) => String(row.name || '').trim()).filter(Boolean);
-    return names.length > 0 ? names : [...DEFAULT_CLEANUP_STATUSES];
-  } catch {
-    return [...DEFAULT_CLEANUP_STATUSES];
-  }
+  return getActiveLookupNames('CleanupStatus', DEFAULT_CLEANUP_STATUSES);
 }
 
 async function getCleanupTagTypes(db) {
-  try {
-    const dbModels = dbApi.getModels() || {};
-    const CleanupTagType = dbModels.CleanupTagType;
-    if (!CleanupTagType) throw new Error('CleanupTagType model is not initialized');
-    const rows = await CleanupTagType.findAll({
-      where: { is_active: 1 },
-      attributes: ['name'],
-      order: [['sort_order', 'ASC'], ['id', 'ASC']],
-      raw: true,
-    });
-    const names = (rows || []).map((row) => String(row.name || '').trim().toLowerCase()).filter(Boolean);
-    return names.length > 0 ? names : [...DEFAULT_CLEANUP_TAG_TYPES];
-  } catch {
-    return [...DEFAULT_CLEANUP_TAG_TYPES];
-  }
+  return getActiveLookupNames('CleanupTagType', DEFAULT_CLEANUP_TAG_TYPES, { lowercase: true });
 }
 
 async function getApplications(db) {
-  try {
-    const dbModels = dbApi.getModels() || {};
-    const Application = dbModels.Application;
-    if (!Application) throw new Error('Application model is not initialized');
-    const rows = await Application.findAll({
-      where: { is_active: 1 },
-      attributes: ['name'],
-      order: [['sort_order', 'ASC'], ['id', 'ASC']],
-      raw: true,
-    });
-    const names = (rows || []).map((row) => String(row.name || '').trim()).filter(Boolean);
-    return names.length > 0 ? names : [...DEFAULT_APPLICATIONS];
-  } catch {
-    return [...DEFAULT_APPLICATIONS];
-  }
+  return getActiveLookupNames('Application', DEFAULT_APPLICATIONS);
 }
 
 async function getEnhancementRequestTypes(db) {
-  try {
-    const dbModels = dbApi.getModels() || {};
-    const EnhancementRequestType = dbModels.EnhancementRequestType;
-    if (!EnhancementRequestType) throw new Error('EnhancementRequestType model is not initialized');
-    const rows = await EnhancementRequestType.findAll({
-      where: { is_active: 1 },
-      attributes: ['name'],
-      order: [['sort_order', 'ASC'], ['id', 'ASC']],
-      raw: true,
-    });
-    const names = (rows || []).map((row) => String(row.name || '').trim()).filter(Boolean);
-    return names.length > 0 ? names : [...DEFAULT_ENHANCEMENT_REQUEST_TYPES];
-  } catch {
-    return [...DEFAULT_ENHANCEMENT_REQUEST_TYPES];
-  }
+  return getActiveLookupNames('EnhancementRequestType', DEFAULT_ENHANCEMENT_REQUEST_TYPES);
 }
 
 async function getPriorityLevels(db) {
-  try {
-    const dbModels = dbApi.getModels() || {};
-    const PriorityLevel = dbModels.PriorityLevel;
-    if (!PriorityLevel) throw new Error('PriorityLevel model is not initialized');
-    const rows = await PriorityLevel.findAll({
-      where: { is_active: 1 },
-      attributes: ['name'],
-      order: [['sort_order', 'ASC'], ['id', 'ASC']],
-      raw: true,
-    });
-    const names = (rows || []).map((row) => String(row.name || '').trim()).filter(Boolean);
-    return names.length > 0 ? names : [...DEFAULT_PRIORITY_LEVELS];
-  } catch {
-    return [...DEFAULT_PRIORITY_LEVELS];
-  }
+  return getActiveLookupNames('PriorityLevel', DEFAULT_PRIORITY_LEVELS);
 }
 
 async function getSubmissionSources(db) {
-  try {
-    const dbModels = dbApi.getModels() || {};
-    const SubmissionSource = dbModels.SubmissionSource;
-    if (!SubmissionSource) throw new Error('SubmissionSource model is not initialized');
-    const rows = await SubmissionSource.findAll({
-      where: { is_active: 1 },
-      attributes: ['name'],
-      order: [['sort_order', 'ASC'], ['id', 'ASC']],
-      raw: true,
-    });
-    const names = (rows || []).map((row) => String(row.name || '').trim().toLowerCase()).filter(Boolean);
-    return names.length > 0 ? names : [...DEFAULT_SUBMISSION_SOURCES];
-  } catch {
-    return [...DEFAULT_SUBMISSION_SOURCES];
-  }
+  return getActiveLookupNames('SubmissionSource', DEFAULT_SUBMISSION_SOURCES, { lowercase: true });
 }
 
 module.exports = {

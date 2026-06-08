@@ -12,11 +12,11 @@ const { mapSubmission } = require('../helpers/mappers');
 const { persistUploadedFiles } = require('../helpers/storage');
 const { getSubmissionByIdWithLookups, logStatusChange } = require('../services/submissionService');
 const { emitAdminNotification } = require('../socket');
-const { tempUpload } = require('../middleware/upload');
+const { imageUpload } = require('../middleware/upload');
 
 const router = express.Router();
 
-router.post('/api/submissions', tempUpload.array('attachments', 3), async (req, res) => {
+router.post('/api/submissions', imageUpload.array('attachments', 3), async (req, res) => {
   const {
     created_by,
     created_by_email,
