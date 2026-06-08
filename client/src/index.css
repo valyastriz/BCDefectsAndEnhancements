@@ -336,6 +336,10 @@ h1, h2, h3, h4, h5, h6 {
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
 }
 
+.bs-grid.three {
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+}
+
 .bs-grid.filters {
   grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
 }

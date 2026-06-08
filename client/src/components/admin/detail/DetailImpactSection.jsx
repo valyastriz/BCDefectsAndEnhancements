@@ -15,13 +15,7 @@ export function DetailImpactSection({
   return (
     <>
       <p className="section-label">Impact Analysis</p>
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
-          gap: 12,
-        }}
-      >
+      <div className="bs-grid three" style={{ gap: 12 }}>
         <Input
           label="Policy Premium Impact ($)"
           type="number"
@@ -47,13 +41,7 @@ export function DetailImpactSection({
       </div>
 
       <p style={{ fontWeight: 600, margin: '14px 0 6px' }}>Frequency</p>
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
-          gap: 12,
-        }}
-      >
+      <div className="bs-grid three" style={{ gap: 12 }}>
         <Input
           label="# of Occurrences"
           type="number"

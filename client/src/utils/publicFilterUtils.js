@@ -6,16 +6,13 @@ import {
   PUBLIC_FILTERS_STORAGE_KEY,
   PUBLIC_RETIRED_FILTER_STORAGE_KEY,
 } from '../constants/publicConstants';
+import { areAllSelected, normalizeRetiredFilter } from './filterShared';
 
 /**
  * Check whether every option in `options` is present in `values`.
  */
 export function areAllPublicStatusesSelected(values, options) {
-  if (!Array.isArray(values) || !Array.isArray(options) || values.length !== options.length) {
-    return false;
-  }
-  const selected = new Set(values);
-  return options.every((value) => selected.has(value));
+  return areAllSelected(values, options);
 }
 
 /**
@@ -57,9 +54,7 @@ export function readSavedPublicFilters() {
   if (typeof window === 'undefined') return defaults;
 
   const savedRetiredFilter = window.localStorage.getItem(PUBLIC_RETIRED_FILTER_STORAGE_KEY);
-  const normalizedRetiredFilter = ['non_retired', 'retired_only', 'all'].includes(savedRetiredFilter)
-    ? savedRetiredFilter
-    : defaults.retiredFilter;
+  const normalizedRetiredFilter = normalizeRetiredFilter(savedRetiredFilter, defaults.retiredFilter);
 
   const raw = window.localStorage.getItem(PUBLIC_FILTERS_STORAGE_KEY);
   if (!raw) {
@@ -72,9 +67,7 @@ export function readSavedPublicFilters() {
       ? 'all'
       : (parsed?.statusSelectionMode === 'custom' ? 'custom' : 'legacy');
     const selectedStatuses = normalizeSavedPublicStatuses(parsed?.selectedStatuses, statusSelectionMode);
-    const retiredFilter = ['non_retired', 'retired_only', 'all'].includes(parsed?.retiredFilter)
-      ? parsed.retiredFilter
-      : normalizedRetiredFilter;
+    const retiredFilter = normalizeRetiredFilter(parsed?.retiredFilter, normalizedRetiredFilter);
 
     return {
       search: typeof parsed?.search === 'string' ? parsed.search : defaults.search,

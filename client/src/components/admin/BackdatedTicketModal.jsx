@@ -139,13 +139,7 @@ export function BackdatedTicketModal({
           value={backdatedForm.impact_notes}
           onChange={(e) => setBackdatedForm((prev) => ({ ...prev, impact_notes: e.target.value }))}
         />
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
-            gap: 12,
-          }}
-        >
+        <div className="bs-grid three" style={{ gap: 12 }}>
           <Input
             label="Policy Premium Impact ($)"
             type="number"

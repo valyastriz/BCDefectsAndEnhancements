@@ -4,16 +4,13 @@ import {
   ADMIN_RETIRED_FILTER_STORAGE_KEY,
 } from '../constants/adminConstants';
 import { formatMetaTypeLabel } from './formatUtils';
+import { areAllSelected, normalizeRetiredFilter } from './filterShared';
 
 /**
  * Check whether every status option is currently selected.
  */
 export function areAllStatusesSelected(values, options) {
-  if (!Array.isArray(values) || !Array.isArray(options) || values.length !== options.length) {
-    return false;
-  }
-  const selected = new Set(values);
-  return options.every((value) => selected.has(value));
+  return areAllSelected(values, options);
 }
 
 /**
@@ -60,9 +57,7 @@ export function readSavedAdminFilters() {
   if (typeof window === 'undefined') return defaults;
 
   const savedRetiredFilter = window.localStorage.getItem(ADMIN_RETIRED_FILTER_STORAGE_KEY);
-  const normalizedRetiredFilter = ['non_retired', 'retired_only', 'all'].includes(savedRetiredFilter)
-    ? savedRetiredFilter
-    : defaults.retiredFilter;
+  const normalizedRetiredFilter = normalizeRetiredFilter(savedRetiredFilter, defaults.retiredFilter);
 
   const raw = window.localStorage.getItem(ADMIN_FILTERS_STORAGE_KEY);
   if (!raw) {
@@ -71,9 +66,7 @@ export function readSavedAdminFilters() {
 
   try {
     const parsed = JSON.parse(raw);
-    const retiredFilter = ['non_retired', 'retired_only', 'all'].includes(parsed?.retiredFilter)
-      ? parsed.retiredFilter
-      : normalizedRetiredFilter;
+    const retiredFilter = normalizeRetiredFilter(parsed?.retiredFilter, normalizedRetiredFilter);
     const statusSelectionMode = parsed?.statusSelectionMode === 'all'
       ? 'all'
       : (parsed?.statusSelectionMode === 'custom' ? 'custom' : 'legacy');
