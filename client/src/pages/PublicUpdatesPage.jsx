@@ -7,6 +7,7 @@ import { PUBLIC_STATUSES, PUBLIC_FILTERS_STORAGE_KEY, PUBLIC_RETIRED_FILTER_STOR
 import { areAllPublicStatusesSelected, readSavedPublicFilters } from '../utils/publicFilterUtils';
 import { PublicFiltersBar } from '../components/public/PublicFiltersBar';
 import { PublicItemCard } from '../components/public/PublicItemCard';
+import { PaginationControls } from '../components/common/PaginationControls';
 
 export function PublicUpdatesPage() {
   const savedFilters = useMemo(() => readSavedPublicFilters(), []);
@@ -186,45 +187,16 @@ export function PublicUpdatesPage() {
 
       {/* ── Pagination controls ── */}
       {!isLoading && visibleItems.length > 0 && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 8 }}>
-          <span className="muted" style={{ fontSize: 13 }}>
-            {pageSize === 0
-              ? `Showing all ${visibleItems.length}`
-              : `Showing ${Math.min((page - 1) * pageSize + 1, visibleItems.length)}–${Math.min(page * pageSize, visibleItems.length)} of ${visibleItems.length}`}
-          </span>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 'auto', flexWrap: 'nowrap', whiteSpace: 'nowrap' }}>
-            <label style={{ fontSize: 13, color: 'var(--color-muted)' }}>Per page:</label>
-            <select
-              className="bs-inline-select"
-              value={pageSize}
-              onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1); }}
-            >
-              <option value={50}>50</option>
-              <option value={75}>75</option>
-              <option value={100}>100</option>
-              <option value={0}>All</option>
-            </select>
-            {pageSize !== 0 && (
-              <>
-                <button
-                  type="button"
-                  className="bs-page-btn"
-                  disabled={page <= 1}
-                  onClick={() => setPage((p) => Math.max(1, p - 1))}
-                  aria-label="Previous page"
-                >&#8592;</button>
-                <span style={{ fontSize: 13 }}>Page {page} of {totalPages}</span>
-                <button
-                  type="button"
-                  className="bs-page-btn"
-                  disabled={page >= totalPages}
-                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                  aria-label="Next page"
-                >&#8594;</button>
-              </>
-            )}
-          </div>
-        </div>
+        <PaginationControls
+          page={page}
+          totalPages={totalPages}
+          pageSize={pageSize}
+          setPage={setPage}
+          setPageSize={setPageSize}
+          summary={pageSize === 0
+            ? `Showing all ${visibleItems.length}`
+            : `Showing ${Math.min((page - 1) * pageSize + 1, visibleItems.length)}–${Math.min(page * pageSize, visibleItems.length)} of ${visibleItems.length}`}
+        />
       )}
 
       {isLoading && (
