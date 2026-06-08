@@ -1,8 +1,10 @@
 const http = require('http');
 const express = require('express');
+const helmet = require('helmet');
 const { PORT, IS_PRODUCTION, uploadsRoot } = require('./config');
 const { corsMiddleware } = require('./middleware/cors');
 const { createSessionMiddleware } = require('./middleware/session');
+const { csrfProtection } = require('./middleware/csrf');
 const { errorHandler } = require('./middleware/errorHandler');
 const { initSocket } = require('./socket');
 const { startKeepAlive } = require('./keepAlive');
@@ -28,10 +30,18 @@ if (IS_PRODUCTION) {
 
 // ── Global middleware ────────────────────────────────────────────────────────
 const sessionMiddleware = createSessionMiddleware();
+app.use(helmet({
+  // This is an API server; the SPA HTML (and its CSP) is served by the frontend host.
+  contentSecurityPolicy: false,
+  // Allow the separate frontend origin to load attachment images from /uploads.
+  crossOriginResourcePolicy: { policy: 'cross-origin' },
+  crossOriginEmbedderPolicy: false,
+}));
 app.use(corsMiddleware());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(sessionMiddleware);
+app.use(csrfProtection());
 app.use('/uploads', express.static(uploadsRoot, {
   setHeaders: (res) => {
     // Prevent browsers from MIME-sniffing stored files into executable content.

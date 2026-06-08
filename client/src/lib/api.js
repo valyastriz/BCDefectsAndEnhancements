@@ -1,5 +1,13 @@
 const API_BASE = import.meta.env.VITE_API_BASE || '';
 
+const CSRF_SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
+
+function readCsrfToken() {
+  if (typeof document === 'undefined') return '';
+  const match = document.cookie.match(/(?:^|;\s*)bc_csrf=([^;]+)/);
+  return match ? decodeURIComponent(match[1]) : '';
+}
+
 function buildAdminSubmissionsQuery({
   status = '',
   statuses = [],
@@ -50,9 +58,16 @@ function buildAdminSubmissionsQuery({
 
 async function request(path, options = {}) {
   const { allowStatuses = [], ...fetchOptions } = options;
+  const method = String(fetchOptions.method || 'GET').toUpperCase();
+  const headers = { ...(fetchOptions.headers || {}) };
+  if (!CSRF_SAFE_METHODS.has(method)) {
+    const csrfToken = readCsrfToken();
+    if (csrfToken) headers['X-CSRF-Token'] = csrfToken;
+  }
   const response = await fetch(`${API_BASE}${path}`, {
     credentials: 'include',
     ...fetchOptions,
+    headers,
   });
 
   const isAllowedStatus = Array.isArray(allowStatuses) && allowStatuses.includes(response.status);
