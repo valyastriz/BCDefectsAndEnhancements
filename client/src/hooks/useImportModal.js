@@ -9,7 +9,7 @@ import { api } from '../lib/api';
  * @param {Function} deps.setNotice - page-level notice setter
  * @returns Import modal state and handlers
  */
-export function useImportModal({ loadRows, setNotice }) {
+export function useImportModal({ loadRows }) {
   const importFileInputRef = useRef(null);
 
   const [importModalOpen, setImportModalOpen] = useState(false);

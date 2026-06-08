@@ -12,7 +12,7 @@ import { editableFromDetail, normalizeAdminRow, buildAdminUpdatePayload, hasPend
  * @param {Function} deps.setError - page-level error setter
  * @returns Detail modal state and handlers
  */
-export function useDetailModal({ loadRows, setRows, setNotice, setError }) {
+export function useDetailModal({ loadRows, setRows, setError }) {
   const [openId, setOpenId] = useState(null);
   const [detail, setDetail] = useState(null);
   const [edit, setEdit] = useState(null);

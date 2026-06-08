@@ -76,7 +76,7 @@ export function AdminDashboardPage({ user, onLogout }) {
         (r) => r.status === 'New' && r.created_via === 'rep_form' && !r.is_retired,
       ).length;
       setNewFormSubmissionsCount(count);
-    } catch (_) {
+    } catch {
       // Silently ignore — banner just won't update
     }
   }, []);

@@ -21,7 +21,6 @@ export function CleanupTaskModal({
   setCleanupForm,
   cleanupFiles,
   setCleanupFiles,
-  cleanupPreviewIndex,
   setCleanupPreviewIndex,
   cleanupFileInputRef,
   cleanupRequiresEasyVistaFields,

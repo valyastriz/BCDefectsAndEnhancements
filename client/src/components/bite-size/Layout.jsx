@@ -9,10 +9,18 @@ function TicketIcon() {
   );
 }
 
+function getInitialTheme() {
+  if (typeof window === 'undefined') return 'light';
+  const saved = window.localStorage.getItem('bc-theme');
+  if (saved === 'light' || saved === 'dark') return saved;
+  const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+  return prefersDark ? 'dark' : 'light';
+}
+
 export function AppShell({ children }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [useHamburger, setUseHamburger] = useState(false);
-  const [theme, setTheme] = useState('light');
+  const [theme, setTheme] = useState(getInitialTheme);
   const location = useLocation();
   const headerTopRef = useRef(null);
   const brandRef = useRef(null);
@@ -42,19 +50,10 @@ export function AppShell({ children }) {
   }, []);
 
   useEffect(() => {
+    // Close the mobile menu when navigating to a new route.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setMenuOpen(false);
   }, [location.pathname]);
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    const saved = window.localStorage.getItem('bc-theme');
-    if (saved === 'light' || saved === 'dark') {
-      setTheme(saved);
-      return;
-    }
-    const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-    setTheme(prefersDark ? 'dark' : 'light');
-  }, []);
 
   useEffect(() => {
     if (typeof document === 'undefined') return;
@@ -96,6 +95,8 @@ export function AppShell({ children }) {
   }, []);
 
   useEffect(() => {
+    // Reset transient menu state when the layout leaves hamburger mode.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (!useHamburger) setMenuOpen(false);
   }, [useHamburger]);
 

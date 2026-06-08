@@ -1,6 +1,13 @@
 import { Button, Card, Modal, Notice, Select } from '../bite-size/BitsizeUI';
 import { RETIRED_STATUS } from '../../constants/adminConstants';
 
+function formatImportHistoryDate(entry) {
+  const value = entry.created_at || entry.createdAt;
+  if (!value) return '—';
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? '—' : parsed.toLocaleString();
+}
+
 /**
  * Modal for importing Excel files with column mapping.
  */
@@ -11,7 +18,6 @@ export function ImportModal({
   importMode,
   setImportMode,
   importAvailableHeaders,
-  importColumnMappings,
   setImportColumnMappings,
   pendingImportFile,
   importStatusText,
@@ -33,7 +39,6 @@ export function ImportModal({
   visibleImportMappingTargets,
   sortedImportAvailableHeaders,
   importFileInputRef,
-  analyzeImportFile,
   importBackdatedExcel,
   resetImportModal,
   // Meta options
@@ -58,7 +63,7 @@ export function ImportModal({
               {importHistory.map((entry) => (
                 <details key={entry.id} className="import-history-item">
                   <summary>
-                    {new Date(entry.created_at || entry.createdAt || Date.now()).toLocaleString()} · {String(entry.import_mode || entry.mode || '').toUpperCase()} · {entry.file_name || entry.fileName}
+                    {formatImportHistoryDate(entry)} · {String(entry.import_mode || entry.mode || '').toUpperCase()} · {entry.file_name || entry.fileName}
                   </summary>
                   <div className="stack" style={{ gap: 6 }}>
                     <p style={{ margin: 0 }}>{entry.summary_message || entry.message}</p>

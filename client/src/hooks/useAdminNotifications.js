@@ -86,7 +86,7 @@ export function useAdminNotifications({ loadRows, openId, openDetail, isAnyAdmin
               icon: '/favicon.ico',
             });
             n.onclick = () => { window.focus(); n.close(); };
-          } catch (_) { /* silently ignore */ }
+          } catch { /* silently ignore */ }
         }
       }
     };
