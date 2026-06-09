@@ -54,6 +54,9 @@ export function AdminDashboardPage({ user, onLogout }) {
   const [filters, setFilters] = useState(defaultFilters);
   const filtersRef = useRef(filters);
   filtersRef.current = filters;
+  // Selectable status options (assigned after `meta` resolves below) — lets the
+  // baseline totals fetch use the same status scope as the default/reset view.
+  const statusFilterOptionsRef = useRef([]);
   const preNewSubmissionFiltersRef = useRef(null);
   const [rows, setRows] = useState([]);
   const [pageSize, setPageSize] = useState(50);
@@ -62,6 +65,31 @@ export function AdminDashboardPage({ user, onLogout }) {
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
   const [newFormSubmissionsCount, setNewFormSubmissionsCount] = useState(0);
+  // Totals for the top stat row — always all non-retired items, independent of UI filters.
+  const [baselineCounts, setBaselineCounts] = useState({ total: 0, statuses: {} });
+
+  // ── Independent totals of all non-retired submissions (never depend on UI filters) ──
+  // All non-retired items regardless of status (no status whitelist), matching what
+  // the default/reset table view shows.
+  const loadBaselineCounts = useCallback(async () => {
+    try {
+      const data = await api.listAdminSubmissions(buildDefaultFilters());
+      const nonRetired = (data || [])
+        .map(normalizeAdminRow)
+        .filter((row) => !row.is_retired);
+      const statuses = {};
+      for (const row of nonRetired) {
+        // Cleanup-only items are displayed under "Cleanup Only", not their underlying
+        // defect/enhancement status, so they don't count toward New/Approved/etc.
+        // (normalizeAdminRow already defaults a blank status to 'New' for the rest.)
+        if (row.is_cleanup && row.cleanup_tag_type === 'cleanup_only') continue;
+        statuses[row.status] = (statuses[row.status] || 0) + 1;
+      }
+      setBaselineCounts({ total: nonRetired.length, statuses });
+    } catch {
+      // Silently ignore — tiles keep their last known totals
+    }
+  }, []);
 
   // ── Independent count of new form submissions (never depends on UI filters) ──
   const loadNewFormCount = useCallback(async () => {
@@ -87,7 +115,13 @@ export function AdminDashboardPage({ user, onLogout }) {
     try {
       setLoading(true);
       setError('');
-      const data = await api.listAdminSubmissions({ ...f });
+      // When every selectable status is chosen (the default/reset state), drop the
+      // status whitelist entirely so non-retired items are shown even if their own
+      // status has since been retired (a retired status must not hide a live item).
+      const apiFilters = areAllStatusesSelected(f.statuses, statusFilterOptionsRef.current)
+        ? { ...f, statuses: [] }
+        : { ...f };
+      const data = await api.listAdminSubmissions(apiFilters);
       const normalizedRows = (data || []).map(normalizeAdminRow);
       const retiredMode = f?.retiredFilter || 'non_retired';
       const retiredFilteredRows = retiredMode === 'retired_only'
@@ -101,9 +135,10 @@ export function AdminDashboardPage({ user, onLogout }) {
     } finally {
       setLoading(false);
     }
-    // Also refresh the independent new-form count
+    // Also refresh the filter-independent counts (new-form banner + top totals)
     loadNewFormCount();
-  }, [loadNewFormCount]);
+    loadBaselineCounts();
+  }, [loadNewFormCount, loadBaselineCounts]);
 
   // ── Custom hooks ──────────────────────────────────────────────────────────
   const meta = useAdminMeta({ setFilters, setNotice });
@@ -129,6 +164,8 @@ export function AdminDashboardPage({ user, onLogout }) {
     runtimeCreatedViaOptions, runtimeTypeFilterOptions,
     dynamicCoreStatusSet, dynamicCleanupStatusSet,
   } = meta;
+  // Keep the baseline-totals fetch in sync with the current selectable statuses.
+  statusFilterOptionsRef.current = runtimeStatusFilterOptions;
 
   // Only the values used directly in the page body are destructured; each modal
   // receives its full hook object via spread (see the modal JSX below).
@@ -173,18 +210,19 @@ export function AdminDashboardPage({ user, onLogout }) {
   }, [filters, runtimeStatusFilterOptions]);
 
   // ── Row-derived memos ─────────────────────────────────────────────────────
-  const statusCounts = useMemo(() => {
-    const counts = {};
-    for (const row of rows) {
-      counts[row.status] = (counts[row.status] || 0) + 1;
-    }
-    return counts;
-  }, [rows]);
-
   // True when filters match the "View New Submissions" preset
   const isViewingNewFormOnly = filters.statuses?.length === 1
     && filters.statuses[0] === 'New'
     && filters.createdVia === 'rep_form';
+
+  // ── Top stat-row quick filters ────────────────────────────────────────────
+  // Clicking a Row 1 tile resets to a clean non-retired view of that scope, so the
+  // table matches the number on the tile.
+  const selectTotalTile = () => setFilters({
+    ...buildDefaultFilters(),
+    statuses: runtimeStatusFilterOptions.length > 0 ? [...runtimeStatusFilterOptions] : [],
+  });
+  const selectStatusTile = (status) => setFilters({ ...buildDefaultFilters(), statuses: [status] });
 
   const impactTotals = useMemo(() => {
     return rows.reduce(
@@ -261,6 +299,8 @@ export function AdminDashboardPage({ user, onLogout }) {
         if (Number(openId) === Number(saved.id)) await openDetail(saved.id, true);
       }
       setNotice(status === cleanupOnlyStatus ? 'Marked as Cleanup Only.' : 'Status updated.');
+      // Status changed without a full reload — refresh the top totals breakdown.
+      loadBaselineCounts();
     } catch (updateError) {
       await loadRows();
       setError(updateError.message);
@@ -368,7 +408,14 @@ export function AdminDashboardPage({ user, onLogout }) {
         }}
       />
 
-      <StatTiles rows={rows} statusCounts={statusCounts} impactTotals={impactTotals} />
+      <StatTiles
+        rows={rows}
+        baselineCounts={baselineCounts}
+        impactTotals={impactTotals}
+        showActiveHint={(filters.retiredFilter || 'non_retired') !== 'non_retired'}
+        onSelectTotal={selectTotalTile}
+        onSelectStatus={selectStatusTile}
+      />
 
       {!isAnyAdminModalOpen && error && <Notice text={error} />}
       {!isAnyAdminModalOpen && notice && <Notice text={notice} kind="success" />}

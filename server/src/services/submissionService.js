@@ -210,18 +210,23 @@ async function listFilteredAdminSubmissions(db, query = {}) {
     const rowStatus = String(row.status || '').trim();
     const rowIsCleanup = Boolean(row.is_cleanup);
     const rowCleanupTagType = String(row.cleanup_tag_type || '').trim();
+    // Match on the status the row is displayed as. A cleanup-only item is shown
+    // under the "Cleanup Only" status (not its underlying defect/enhancement
+    // status), so it only matches that pseudo-status. A blank status shows as 'New'.
+    const isCleanupOnly = rowIsCleanup && rowCleanupTagType === 'cleanup_only';
+    const rowDisplayStatus = rowStatus || 'New';
 
     if (retiredFilter !== 'retired_only' && statusList.length > 0) {
-      const statusMatch = normalizedStatuses.includes(rowStatus) && !(rowIsCleanup && rowCleanupTagType === 'cleanup_only');
-      const cleanupOnlyMatch = cleanupOnlySelected && rowIsCleanup && rowCleanupTagType === 'cleanup_only';
+      const statusMatch = !isCleanupOnly && normalizedStatuses.includes(rowDisplayStatus);
+      const cleanupOnlyMatch = cleanupOnlySelected && isCleanupOnly;
       const cleanupMarkedMatch = cleanupMarkedSelected && rowIsCleanup;
       if (!(statusMatch || cleanupOnlyMatch || cleanupMarkedMatch)) return false;
     } else if (retiredFilter !== 'retired_only' && normalizedStatus) {
       if (normalizedStatus === 'Cleanup Only') {
-        if (!(rowIsCleanup && rowCleanupTagType === 'cleanup_only')) return false;
+        if (!isCleanupOnly) return false;
       } else if (normalizedStatus === 'Cleanup Marked') {
         if (!rowIsCleanup) return false;
-      } else if (rowStatus !== normalizedStatus || (rowIsCleanup && rowCleanupTagType === 'cleanup_only')) {
+      } else if (isCleanupOnly || rowDisplayStatus !== normalizedStatus) {
         return false;
       }
     }
@@ -1225,73 +1230,9 @@ async function submitSubmissionToEasyVista(db, { id, body, username }) {
     };
   }
 
-  // ── Resubmission (creates a new submission) ──────────────────────────
-  const resubmissionInsertColumns = [
-    'created_at', 'updated_at', 'created_via_id', 'created_by', 'created_by_email', 'type_id', 'application_id',
-    'policy_num', 'account_num', 'transaction_num', 'screen_title', 'summary_of_issue',
-    'steps_to_reproduce', 'what_happened_exact_details', 'request', 'date_time_of_error',
-    'status_id', 'reviewer', 'decision_notes', 'fingerprint', 'duplicate_reference', 'duplicate_of',
-    'easyvista_ticket_id', 'desired_completion_date', 'impact_details', 'impact_notes',
-    'policy_premium_impact', 'direct_dollar_impact', 'policies_affected_count', 'logged_defect',
-    'enhancement_request_type_id', 'priority_level_id', 'jira_number', 'release_number', 'release_notes',
-    'is_cleanup', 'cleanup_status_id', 'cleanup_tag_type_id', 'easyvista_submitted_by',
-    'is_resubmission', 'resubmission_of_submission_id', 'resubmission_of_easyvista_ticket_id',
-    'has_resubmission', 'latest_resubmission_submission_id', 'latest_resubmission_easyvista_ticket_id',
-    'is_public', 'is_retired',
-  ];
-  const resubmissionInsertValues = [
-    updatedAt,
-    updatedAt,
-    null,
-    source.created_by,
-    source.created_by_email,
-    null,
-    null,
-    source.policy_num,
-    source.account_num,
-    source.transaction_num,
-    source.screen_title,
-    source.summary_of_issue,
-    source.steps_to_reproduce,
-    source.what_happened_exact_details,
-    source.request,
-    source.date_time_of_error,
-    null,
-    source.reviewer,
-    source.decision_notes,
-    source.fingerprint,
-    source.duplicate_reference,
-    source.duplicate_of,
-    result.ticketId,
-    source.desired_completion_date,
-    source.impact_details,
-    source.impact_notes,
-    source.policy_premium_impact,
-    source.direct_dollar_impact,
-    source.policies_affected_count,
-    toBooleanSql(source.logged_defect),
-    null,
-    null,
-    source.jira_number,
-    source.release_number,
-    source.release_notes,
-    toBooleanSql(source.is_cleanup),
-    null,
-    null,
-    easyVistaSubmittedBy,
-    1,
-    submission.id,
-    submission.easyvista_ticket_id,
-    0,
-    null,
-    null,
-    toBooleanSql(source.is_public),
-    toBooleanSql(source.is_retired),
-  ];
-  const payload = buildInsertPayload(resubmissionInsertColumns, resubmissionInsertValues);
-  const createdSubmission = await Submission.create(payload);
-  const resubmissionId = Number(createdSubmission.id);
-
+  // ── Resubmission (creates a new submission, already set to 'Submitted') ──
+  // Resolve and validate every lookup BEFORE inserting, so a missing lookup can
+  // never leave behind an orphaned resubmission row with a null status.
   const createdLookupIds = await resolveSubmissionLookupIds(db, {
     created_via: 'admin_easyvista_resubmission',
     type: effectiveType,
@@ -1332,18 +1273,71 @@ async function submitSubmissionToEasyVista(db, { id, body, username }) {
     return { error: formatMissingLookupError(missingLookupFields), status: 400 };
   }
 
-  await Submission.update({
-    created_via_id: createdLookupIds.created_via_id,
-    type_id: createdLookupIds.type_id,
-    application_id: createdLookupIds.application_id,
-    status_id: createdLookupIds.status_id,
-    cleanup_status_id: createdLookupIds.cleanup_status_id,
-    cleanup_tag_type_id: createdLookupIds.cleanup_tag_type_id,
-    enhancement_request_type_id: createdLookupIds.enhancement_request_type_id,
-    priority_level_id: createdLookupIds.priority_level_id,
-  }, {
-    where: { id: Number(resubmissionId) },
-  });
+  const resubmissionInsertColumns = [
+    'created_at', 'updated_at', 'created_via_id', 'created_by', 'created_by_email', 'type_id', 'application_id',
+    'policy_num', 'account_num', 'transaction_num', 'screen_title', 'summary_of_issue',
+    'steps_to_reproduce', 'what_happened_exact_details', 'request', 'date_time_of_error',
+    'status_id', 'reviewer', 'decision_notes', 'fingerprint', 'duplicate_reference', 'duplicate_of',
+    'easyvista_ticket_id', 'desired_completion_date', 'impact_details', 'impact_notes',
+    'policy_premium_impact', 'direct_dollar_impact', 'policies_affected_count', 'logged_defect',
+    'enhancement_request_type_id', 'priority_level_id', 'jira_number', 'release_number', 'release_notes',
+    'is_cleanup', 'cleanup_status_id', 'cleanup_tag_type_id', 'easyvista_submitted_by',
+    'is_resubmission', 'resubmission_of_submission_id', 'resubmission_of_easyvista_ticket_id',
+    'has_resubmission', 'latest_resubmission_submission_id', 'latest_resubmission_easyvista_ticket_id',
+    'is_public', 'is_retired',
+  ];
+  const resubmissionInsertValues = [
+    updatedAt,
+    updatedAt,
+    createdLookupIds.created_via_id,
+    source.created_by,
+    source.created_by_email,
+    createdLookupIds.type_id,
+    createdLookupIds.application_id,
+    source.policy_num,
+    source.account_num,
+    source.transaction_num,
+    source.screen_title,
+    source.summary_of_issue,
+    source.steps_to_reproduce,
+    source.what_happened_exact_details,
+    source.request,
+    source.date_time_of_error,
+    createdLookupIds.status_id,
+    source.reviewer,
+    source.decision_notes,
+    source.fingerprint,
+    source.duplicate_reference,
+    source.duplicate_of,
+    result.ticketId,
+    source.desired_completion_date,
+    source.impact_details,
+    source.impact_notes,
+    source.policy_premium_impact,
+    source.direct_dollar_impact,
+    source.policies_affected_count,
+    toBooleanSql(source.logged_defect),
+    createdLookupIds.enhancement_request_type_id,
+    createdLookupIds.priority_level_id,
+    source.jira_number,
+    source.release_number,
+    source.release_notes,
+    toBooleanSql(source.is_cleanup),
+    createdLookupIds.cleanup_status_id,
+    createdLookupIds.cleanup_tag_type_id,
+    easyVistaSubmittedBy,
+    1,
+    submission.id,
+    submission.easyvista_ticket_id,
+    0,
+    null,
+    null,
+    toBooleanSql(source.is_public),
+    toBooleanSql(source.is_retired),
+  ];
+  const payload = buildInsertPayload(resubmissionInsertColumns, resubmissionInsertValues);
+  const createdSubmission = await Submission.create(payload);
+  const resubmissionId = Number(createdSubmission.id);
 
   const existingAttachments = await Attachment.findAll({
     where: { submission_id: Number(submission.id) },
