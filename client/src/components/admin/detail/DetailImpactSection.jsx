@@ -102,6 +102,7 @@ export function DetailImpactSection({
                   <option value="yes">Yes</option>
                   <option value="no">No</option>
                 </Select>
+                <Input label="Desired Completion Date" type="date" value={edit.desired_completion_date} onChange={(e) => setEdit((p) => ({ ...p, desired_completion_date: e.target.value }))} />
               </div>
             </div>
           </Card>

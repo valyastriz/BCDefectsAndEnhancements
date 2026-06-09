@@ -31,9 +31,6 @@ export function DetailSubmissionSection({
           {(effectiveType === 'defect' || !effectiveType) && (
             <Input label="Date / Time of Error" type="datetime-local" value={edit.date_time_of_error} onChange={(e) => setEdit((p) => ({ ...p, date_time_of_error: e.target.value }))} />
           )}
-          {effectiveType === 'enhancement' && (
-            <Input label="Desired Completion Date" type="date" value={edit.desired_completion_date} onChange={(e) => setEdit((p) => ({ ...p, desired_completion_date: e.target.value }))} />
-          )}
           {(effectiveType === 'defect' || !effectiveType) && (
             <Textarea label="Exact Details / What Happened" rows={3} value={edit.what_happened_exact_details} onChange={(e) => setEdit((p) => ({ ...p, what_happened_exact_details: e.target.value }))} />
           )}
