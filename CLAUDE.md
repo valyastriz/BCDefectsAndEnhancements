@@ -37,9 +37,9 @@ Monorepo with two apps:
 
 ## Coding conventions — apply these skills by default
 
-This project follows the skills in `.agents/skills/` (also linked at
-`.claude/skills/`). Apply the relevant ones automatically; read the full
-`SKILL.md` when a task matches before writing code. Map:
+This project follows the skills in `.claude/skills/`. Apply the relevant ones
+automatically; read the full `SKILL.md` when a task matches before writing
+code. Map:
 
 - **Every change:** `reuse-first-pattern-finder` (search for existing
   components/hooks/utils before creating new ones) and
@@ -72,6 +72,6 @@ This project follows the skills in `.agents/skills/` (also linked at
 - Commit/push only when asked. Branch work happens on `dev`; `main` is the
   release branch (they currently track together).
 - Keep `npm run lint` (client) and `npm test` (server) passing.
-- Skills live in `.agents/skills/` (committed); `.claude/skills` is a symlink to
-  them so Claude Code discovers them. `.claude/settings.local.json` is local-only
-  (gitignored).
+- Skills live in `.claude/skills/`, committed as plain files so Claude Code
+  discovers them on every OS (Windows included). `.claude/settings.local.json`
+  is local-only (gitignored).
