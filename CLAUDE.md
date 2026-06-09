@@ -72,4 +72,6 @@ This project follows the skills in `.agents/skills/` (also linked at
 - Commit/push only when asked. Branch work happens on `dev`; `main` is the
   release branch (they currently track together).
 - Keep `npm run lint` (client) and `npm test` (server) passing.
-- Don't commit `.agents/skills/` or `.claude/` (kept local for now).
+- Skills live in `.agents/skills/` (committed); `.claude/skills` is a symlink to
+  them so Claude Code discovers them. `.claude/settings.local.json` is local-only
+  (gitignored).
