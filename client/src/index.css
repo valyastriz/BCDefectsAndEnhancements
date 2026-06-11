@@ -1406,6 +1406,55 @@ tr.clickable:hover td { background: var(--blue-50); }
   user-select: none;
 }
 
+/* Conflict review (3-way merge) panel. */
+.conflict-panel {
+  border: 1px solid var(--amber-500, #f59e0b);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--amber-500, #f59e0b) 8%, var(--color-surface));
+  padding: 12px 14px;
+}
+.conflict-panel-head {
+  font-weight: 700;
+  color: var(--color-text);
+  margin-bottom: 8px;
+}
+.conflict-row {
+  padding: 8px 0;
+  border-top: 1px solid var(--color-border);
+}
+.conflict-field {
+  font-weight: 600;
+  color: var(--color-text);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.conflict-tag {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  color: var(--color-muted);
+}
+.conflict-value {
+  font-size: 13px;
+  color: var(--color-text);
+  margin-top: 2px;
+  word-break: break-word;
+}
+.conflict-value-lbl {
+  color: var(--color-muted);
+  font-weight: 600;
+  margin-right: 4px;
+}
+.conflict-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+}
+
 /* Clickable status tiles (top stat row) act as quick status filters. */
 button.stat-tile--clickable {
   display: block;

@@ -1,7 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Modal, Notice, Button } from '../bite-size/BitsizeUI';
 import { formatTimeAgo } from '../../utils/formatUtils';
+import { editableFromDetail } from '../../utils/mappers';
 import { SaveWithTooltip } from './detail/SaveWithTooltip';
+import { ConflictReviewPanel } from './detail/ConflictReviewPanel';
 import { DetailTriageSection } from './detail/DetailTriageSection';
 import { DetailSubmissionSection } from './detail/DetailSubmissionSection';
 import { DetailTimelineSection } from './detail/DetailTimelineSection';
@@ -23,6 +25,10 @@ export function DetailModal({
   setDetailError,
   conflictInfo,
   setConflictInfo,
+  baseEdit,
+  recoverableDraft,
+  restoreDraft,
+  discardDraft,
   working,
   modalTitle,
   modalTopNotice,
@@ -75,6 +81,9 @@ export function DetailModal({
   const [unlockedFor, setUnlockedFor] = useState(null);
   const locked = isHeldByOther && unlockedFor !== openId;
 
+  // The current server version as editable fields, for the conflict diff.
+  const currentServerEdit = useMemo(() => (detail ? editableFromDetail(detail) : null), [detail]);
+
   // Ping presence activity as the holder edits (throttled inside the hook).
   useEffect(() => {
     if (edit && markActivity) markActivity();
@@ -107,9 +116,30 @@ export function DetailModal({
       {detail && edit && (
         <div className="stack">
           {modalTopNotice && <Notice text={modalTopNotice} kind="success" />}
+          {recoverableDraft && (
+            <div className="lock-banner">
+              <div className="lock-banner-text">
+                <strong>Unsaved changes recovered</strong>
+                <div className="lock-banner-meta">
+                  {`You left edits on this item${recoverableDraft.savedAt ? ` ${formatTimeAgo(recoverableDraft.savedAt)}` : ''}. Restore them or discard.`}
+                </div>
+              </div>
+              <Button kind="ghost" type="button" onClick={restoreDraft}>Restore</Button>
+              <Button kind="ghost" type="button" onClick={discardDraft}>Discard</Button>
+            </div>
+          )}
           {conflictInfo && (
             <Notice
-              text={`⚠️ ${conflictInfo.updatedBy} just changed this item${conflictInfo.at ? ` at ${new Date(conflictInfo.at).toLocaleString()}` : ''} while you had it open. The latest version is now shown and your unsaved edits are still in the fields — saving will overwrite their version with yours.`}
+              text={`⚠️ ${conflictInfo.updatedBy} just changed this item${conflictInfo.at ? ` at ${new Date(conflictInfo.at).toLocaleString()}` : ''} while you had it open. The latest version is now shown; resolve the overlapping fields below, then save.`}
+            />
+          )}
+          {conflictInfo && (
+            <ConflictReviewPanel
+              key={`${openId}-${conflictInfo.at || ''}`}
+              base={baseEdit}
+              mine={edit}
+              current={currentServerEdit}
+              onUseCurrent={(field, value) => setEdit((prev) => ({ ...prev, [field]: value }))}
             />
           )}
           {detailError && <Notice text={detailError} />}

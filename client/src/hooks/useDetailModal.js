@@ -19,8 +19,13 @@ export function useDetailModal({ loadRows, setRows, setError, currentUsername })
   // Optimistic-concurrency guard: the row version this modal is editing against,
   // plus a banner describing a change another admin made while it was open.
   const baseUpdatedAtRef = useRef(null);
+  // Snapshot of the editable fields as first loaded — the "base" for a 3-way
+  // diff (base vs your draft vs the now-current server version) on a conflict.
+  const baseEditRef = useRef(null);
   const openIdRef = useRef(null);
+  const hasPendingRef = useRef(false);
   const [conflictInfo, setConflictInfo] = useState(null);
+  const [recoverableDraft, setRecoverableDraft] = useState(null);
   const [pendingAttachmentFiles, setPendingAttachmentFiles] = useState([]);
   const [pendingRemovedAttachmentIds, setPendingRemovedAttachmentIds] = useState([]);
   const [modalTopNotice, setModalTopNotice] = useState('');
@@ -57,6 +62,16 @@ export function useDetailModal({ loadRows, setRows, setError, currentUsername })
     setPendingRemovedAttachmentIds([]);
   }, []);
 
+  // ── Local draft persistence (survives reload / accidental close) ───────────
+  const draftKey = useCallback(
+    (id) => `bcModalDraft:${currentUsername || 'admin'}:${id}`,
+    [currentUsername],
+  );
+  const removeDraft = useCallback((id) => {
+    if (typeof window === 'undefined' || id == null) return;
+    try { window.localStorage.removeItem(draftKey(id)); } catch { /* ignore */ }
+  }, [draftKey]);
+
   const openDetail = useCallback(async (id, preserveEdit = false) => {
     try {
       setError('');
@@ -67,12 +82,31 @@ export function useDetailModal({ loadRows, setRows, setError, currentUsername })
       const data = await api.getAdminSubmissionDetail(id);
       setDetail(data);
       if (!preserveEdit) {
-        setEdit(editableFromDetail(data));
+        const editable = editableFromDetail(data);
+        setEdit(editable);
+        baseEditRef.current = editable;
         clearPendingAttachmentDrafts();
         // Fresh open (not a live refresh): adopt this version as the edit base and
         // clear any stale "someone else changed it" banner.
         baseUpdatedAtRef.current = data?.updated_at ?? null;
         setConflictInfo(null);
+
+        // Offer a previously-saved local draft for this item if it differs.
+        let recoverable = null;
+        if (typeof window !== 'undefined') {
+          try {
+            const raw = window.localStorage.getItem(draftKey(id));
+            if (raw) {
+              const stored = JSON.parse(raw);
+              const isDifferent = stored?.edit
+                && JSON.stringify(buildAdminUpdatePayload(stored.edit))
+                  !== JSON.stringify(buildAdminUpdatePayload(editable));
+              if (isDifferent) recoverable = stored;
+              else window.localStorage.removeItem(draftKey(id));
+            }
+          } catch { /* ignore malformed draft */ }
+        }
+        setRecoverableDraft(recoverable);
       }
       setOpenId(id);
       return data;
@@ -80,7 +114,7 @@ export function useDetailModal({ loadRows, setRows, setError, currentUsername })
       setError(detailErr.message);
       return null;
     }
-  }, [clearPendingAttachmentDrafts, setError]);
+  }, [clearPendingAttachmentDrafts, setError, draftKey]);
 
   // Called when a live `submission:updated` event arrives. If it targets the open
   // ticket and was made by another admin, surface a banner. We advance the edit
@@ -90,8 +124,22 @@ export function useDetailModal({ loadRows, setRows, setError, currentUsername })
     if (id == null || Number(id) !== Number(openIdRef.current)) return;
     if (updatedBy && currentUsername && updatedBy === currentUsername) return;
     if (updatedAt) baseUpdatedAtRef.current = updatedAt;
+    // Only warn if the viewer has unsaved edits to lose; a pure viewer just gets
+    // the silent live refresh that already happened.
+    if (!hasPendingRef.current) return;
     setConflictInfo({ updatedBy: updatedBy || 'Another admin', at: updatedAt || null });
   }, [currentUsername]);
+
+  const restoreDraft = useCallback(() => {
+    setRecoverableDraft((d) => {
+      if (d?.edit) setEdit(d.edit);
+      return null;
+    });
+  }, []);
+  const discardDraft = useCallback(() => {
+    removeDraft(openIdRef.current);
+    setRecoverableDraft(null);
+  }, [removeDraft]);
 
   // ── Memos ──────────────────────────────────────────────────────────────────
 
@@ -135,6 +183,9 @@ export function useDetailModal({ loadRows, setRows, setError, currentUsername })
     ),
     [detail, edit, pendingAttachmentFiles.length, pendingRemovedAttachmentIds.length],
   );
+  // Mirror pending-changes into a ref so the socket-driven conflict handler can
+  // read it without being re-created on every keystroke.
+  hasPendingRef.current = hasPendingChanges;
 
   const visibleExistingAttachments = useMemo(
     () => (detail?.attachments || []).map((att) => ({
@@ -182,6 +233,24 @@ export function useDetailModal({ loadRows, setRows, setError, currentUsername })
       setDetailError('');
     }
   }, [edit, pendingAttachmentFiles.length, pendingRemovedAttachmentIds.length, isDetailModalOpen, detailError]);
+
+  // ── Persist the in-progress draft locally (debounced) ──────────────────────
+  // Paused while a recovered draft is being offered, so we don't wipe it before
+  // the user decides to restore or discard.
+  useEffect(() => {
+    if (typeof window === 'undefined' || !openId || !edit || recoverableDraft) return undefined;
+    const key = draftKey(openId);
+    const handle = setTimeout(() => {
+      try {
+        if (hasPendingModalChanges(detail, edit)) {
+          window.localStorage.setItem(key, JSON.stringify({ edit, savedAt: new Date().toISOString() }));
+        } else {
+          window.localStorage.removeItem(key);
+        }
+      } catch { /* ignore quota / serialization errors */ }
+    }, 800);
+    return () => clearTimeout(handle);
+  }, [edit, detail, openId, recoverableDraft, draftKey]);
 
   // ── Action functions ───────────────────────────────────────────────────────
 
@@ -232,6 +301,7 @@ export function useDetailModal({ loadRows, setRows, setError, currentUsername })
         }
       }
 
+      removeDraft(targetSubmissionId);
       await openDetail(targetSubmissionId);
       await loadRows();
       if (source === 'header') {
@@ -250,7 +320,7 @@ export function useDetailModal({ loadRows, setRows, setError, currentUsername })
         const fresh = await openDetail(openId, true);
         if (fresh) baseUpdatedAtRef.current = fresh.updated_at ?? null;
         setConflictInfo({ updatedBy: 'Another admin', at: saveError.body?.currentUpdatedAt || null });
-        setDetailError('This item was changed by someone else while you had it open. The latest version is now loaded and your unsaved edits are kept — saving again will overwrite their version with yours.');
+        setDetailError('This item was changed by someone else while you had it open. The latest version is now loaded — resolve the overlapping fields below, then save again.');
       } else {
         setDetailError(saveError.message);
       }
@@ -430,6 +500,10 @@ export function useDetailModal({ loadRows, setRows, setError, currentUsername })
     conflictInfo,
     setConflictInfo,
     noteRemoteUpdate,
+    baseEdit: baseEditRef.current,
+    recoverableDraft,
+    restoreDraft,
+    discardDraft,
     modalTitle,
     effectiveType,
     easyVistaMissingRequirements,
