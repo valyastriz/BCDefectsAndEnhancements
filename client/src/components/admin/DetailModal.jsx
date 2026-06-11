@@ -1,4 +1,6 @@
-import { Modal, Notice } from '../bite-size/BitsizeUI';
+import { useEffect, useState } from 'react';
+import { Modal, Notice, Button } from '../bite-size/BitsizeUI';
+import { formatTimeAgo } from '../../utils/formatUtils';
 import { SaveWithTooltip } from './detail/SaveWithTooltip';
 import { DetailTriageSection } from './detail/DetailTriageSection';
 import { DetailSubmissionSection } from './detail/DetailSubmissionSection';
@@ -19,6 +21,8 @@ export function DetailModal({
   setEdit,
   detailError,
   setDetailError,
+  conflictInfo,
+  setConflictInfo,
   working,
   modalTitle,
   modalTopNotice,
@@ -45,6 +49,7 @@ export function DetailModal({
   deleteAttachment,
   submitEasyVista,
   clearPendingAttachmentDrafts,
+  presence,
   // Meta options
   dynamicCleanupStatuses,
   dynamicCleanupTagTypes,
@@ -56,6 +61,25 @@ export function DetailModal({
   dynamicCoreStatusSet,
   dynamicCleanupStatusSet,
 }) {
+  const {
+    isHeldByOther = false,
+    isStale = false,
+    holderIsSelf = false,
+    holderName = null,
+    holderOpenedAt = null,
+    holderLastActivityAt = null,
+    markActivity,
+  } = presence || {};
+  // "Edit anyway" override is keyed to the open ticket, so it auto-resets when a
+  // different ticket opens — no reset effect needed.
+  const [unlockedFor, setUnlockedFor] = useState(null);
+  const locked = isHeldByOther && unlockedFor !== openId;
+
+  // Ping presence activity as the holder edits (throttled inside the hook).
+  useEffect(() => {
+    if (edit && markActivity) markActivity();
+  }, [edit, markActivity]);
+
   return (
     <Modal
       open={Boolean(openId && detail && edit)}
@@ -65,6 +89,7 @@ export function DetailModal({
         setModalTopNotice('');
         setModalBottomNotice('');
         setDetailError('');
+        setConflictInfo(null);
         setShowEasyVistaRequirements(false);
       }}
       title={modalTitle}
@@ -82,6 +107,11 @@ export function DetailModal({
       {detail && edit && (
         <div className="stack">
           {modalTopNotice && <Notice text={modalTopNotice} kind="success" />}
+          {conflictInfo && (
+            <Notice
+              text={`⚠️ ${conflictInfo.updatedBy} just changed this item${conflictInfo.at ? ` at ${new Date(conflictInfo.at).toLocaleString()}` : ''} while you had it open. The latest version is now shown and your unsaved edits are still in the fields — saving will overwrite their version with yours.`}
+            />
+          )}
           {detailError && <Notice text={detailError} />}
           {edit.is_retired && <Notice text="This item is retired." kind="info" />}
           {detail.has_resubmission && detail.latest_resubmission_easyvista_ticket_id && (
@@ -97,6 +127,34 @@ export function DetailModal({
             />
           )}
 
+          {isHeldByOther && (
+            <div className={`lock-banner${isStale ? ' lock-banner--stale' : ''}`}>
+              <div className="lock-banner-text">
+                <strong>
+                  {holderIsSelf
+                    ? 'You have this item open in another window'
+                    : `${holderName || 'Another admin'} is working on this item`}
+                </strong>
+                <div className="lock-banner-meta">
+                  {holderOpenedAt ? `Opened ${formatTimeAgo(holderOpenedAt)}` : ''}
+                  {holderLastActivityAt ? ` · last active ${formatTimeAgo(holderLastActivityAt)}` : ''}
+                  {isStale ? ' · may have stepped away' : ''}
+                </div>
+                <div className="lock-banner-meta">
+                  {locked
+                    ? 'You can view everything below. Editing may overwrite their work.'
+                    : 'Editing is unlocked — your changes may overwrite theirs.'}
+                </div>
+              </div>
+              {locked && (
+                <Button kind="ghost" type="button" onClick={() => setUnlockedFor(openId)}>
+                  Edit anyway
+                </Button>
+              )}
+            </div>
+          )}
+
+          <div className={`stack${locked ? ' modal-locked' : ''}`}>
           <DetailTriageSection
             detail={detail}
             edit={edit}
@@ -158,6 +216,7 @@ export function DetailModal({
             modalBottomNotice={modalBottomNotice}
             easyVistaConfirmation={easyVistaConfirmation}
           />
+          </div>
         </div>
       )}
     </Modal>

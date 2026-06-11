@@ -12,7 +12,7 @@ import { getSocket } from '../lib/socket';
  * @param {Function} deps.setNotice - page-level notice setter
  * @returns Notification state (toasts, unreadCount) and setters
  */
-export function useAdminNotifications({ loadRows, openId, openDetail, isAnyAdminModalOpen, setNotice }) {
+export function useAdminNotifications({ loadRows, openId, openDetail, isAnyAdminModalOpen, setNotice, onRemoteUpdate }) {
   const [submissionToasts, setSubmissionToasts] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
 
@@ -48,6 +48,15 @@ export function useAdminNotifications({ loadRows, openId, openDetail, isAnyAdmin
       if (!isAnyAdminModalOpen) setNotice(message);
       loadRows();
       if (openId) openDetail(openId, true);
+
+      // Warn an admin whose modal is open if another admin just changed that item.
+      if (payload?.event === 'submission:updated' && payload?.payload) {
+        onRemoteUpdate?.({
+          id: payload.payload.id,
+          updatedBy: payload.payload.updatedBy,
+          updatedAt: payload.payload.updated_at,
+        });
+      }
 
       if (payload?.event === 'submission:new') {
         const sub = payload?.payload;
@@ -95,7 +104,7 @@ export function useAdminNotifications({ loadRows, openId, openDetail, isAnyAdmin
     return () => {
       socket.off('admin:notification', onNotification);
     };
-  }, [loadRows, openId, openDetail, isAnyAdminModalOpen, setNotice]);
+  }, [loadRows, openId, openDetail, isAnyAdminModalOpen, setNotice, onRemoteUpdate]);
 
   // ── Public API ─────────────────────────────────────────────────────────────
 

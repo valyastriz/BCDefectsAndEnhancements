@@ -22,6 +22,7 @@ import { normalizeAdminRow } from '../utils/mappers';
 import { useAdminMeta } from '../hooks/useAdminMeta';
 import { useAdminNotifications } from '../hooks/useAdminNotifications';
 import { useDetailModal } from '../hooks/useDetailModal';
+import { useTicketPresence } from '../hooks/useTicketPresence';
 import { useBackdatedModal } from '../hooks/useBackdatedModal';
 import { useCleanupModal } from '../hooks/useCleanupModal';
 import { useImportModal } from '../hooks/useImportModal';
@@ -142,7 +143,8 @@ export function AdminDashboardPage({ user, onLogout }) {
 
   // ── Custom hooks ──────────────────────────────────────────────────────────
   const meta = useAdminMeta({ setFilters, setNotice });
-  const detailModal = useDetailModal({ loadRows, setRows, setNotice, setError });
+  const detailModal = useDetailModal({ loadRows, setRows, setNotice, setError, currentUsername: user?.username });
+  const ticketPresence = useTicketPresence({ openId: detailModal.openId, currentUsername: user?.username });
   const backdated = useBackdatedModal({ user, loadRows, setNotice });
   const cleanup = useCleanupModal({ user, loadRows, setNotice });
   const importModal = useImportModal({ loadRows, setNotice });
@@ -189,6 +191,7 @@ export function AdminDashboardPage({ user, onLogout }) {
   // ── Notifications (depends on isAnyAdminModalOpen) ────────────────────────
   const { submissionToasts, setSubmissionToasts } = useAdminNotifications({
     loadRows, openId, openDetail, isAnyAdminModalOpen, setNotice,
+    onRemoteUpdate: detailModal.noteRemoteUpdate,
   });
 
   // ── Filter effects ────────────────────────────────────────────────────────
@@ -482,6 +485,7 @@ export function AdminDashboardPage({ user, onLogout }) {
 
       <DetailModal
         {...detailModal}
+        presence={ticketPresence}
         dynamicCleanupStatuses={dynamicCleanupStatuses}
         dynamicCleanupTagTypes={dynamicCleanupTagTypes}
         dynamicApplications={dynamicApplications}

@@ -12,10 +12,15 @@ import { editableFromDetail, normalizeAdminRow, buildAdminUpdatePayload, hasPend
  * @param {Function} deps.setError - page-level error setter
  * @returns Detail modal state and handlers
  */
-export function useDetailModal({ loadRows, setRows, setError }) {
+export function useDetailModal({ loadRows, setRows, setError, currentUsername }) {
   const [openId, setOpenId] = useState(null);
   const [detail, setDetail] = useState(null);
   const [edit, setEdit] = useState(null);
+  // Optimistic-concurrency guard: the row version this modal is editing against,
+  // plus a banner describing a change another admin made while it was open.
+  const baseUpdatedAtRef = useRef(null);
+  const openIdRef = useRef(null);
+  const [conflictInfo, setConflictInfo] = useState(null);
   const [pendingAttachmentFiles, setPendingAttachmentFiles] = useState([]);
   const [pendingRemovedAttachmentIds, setPendingRemovedAttachmentIds] = useState([]);
   const [modalTopNotice, setModalTopNotice] = useState('');
@@ -35,6 +40,8 @@ export function useDetailModal({ loadRows, setRows, setError }) {
   // ── Derived state ──────────────────────────────────────────────────────────
 
   const isDetailModalOpen = Boolean(openId && detail && edit);
+  // Keep a ref in sync so the socket-driven remote-update handler reads the live id.
+  openIdRef.current = openId;
 
   // ── Callbacks ──────────────────────────────────────────────────────────────
 
@@ -62,6 +69,10 @@ export function useDetailModal({ loadRows, setRows, setError }) {
       if (!preserveEdit) {
         setEdit(editableFromDetail(data));
         clearPendingAttachmentDrafts();
+        // Fresh open (not a live refresh): adopt this version as the edit base and
+        // clear any stale "someone else changed it" banner.
+        baseUpdatedAtRef.current = data?.updated_at ?? null;
+        setConflictInfo(null);
       }
       setOpenId(id);
       return data;
@@ -70,6 +81,17 @@ export function useDetailModal({ loadRows, setRows, setError }) {
       return null;
     }
   }, [clearPendingAttachmentDrafts, setError]);
+
+  // Called when a live `submission:updated` event arrives. If it targets the open
+  // ticket and was made by another admin, surface a banner. We advance the edit
+  // base too — the user has been warned, so a follow-up save is intentional (the
+  // server still 409s if the event was missed entirely).
+  const noteRemoteUpdate = useCallback(({ id, updatedBy, updatedAt }) => {
+    if (id == null || Number(id) !== Number(openIdRef.current)) return;
+    if (updatedBy && currentUsername && updatedBy === currentUsername) return;
+    if (updatedAt) baseUpdatedAtRef.current = updatedAt;
+    setConflictInfo({ updatedBy: updatedBy || 'Another admin', at: updatedAt || null });
+  }, [currentUsername]);
 
   // ── Memos ──────────────────────────────────────────────────────────────────
 
@@ -181,7 +203,10 @@ export function useDetailModal({ loadRows, setRows, setError }) {
       setWorking(true);
       let saved = null;
       if (hasFieldChanges) {
-        saved = await api.updateAdminSubmission(openId, buildAdminUpdatePayload(edit));
+        saved = await api.updateAdminSubmission(openId, {
+          ...buildAdminUpdatePayload(edit),
+          base_updated_at: baseUpdatedAtRef.current,
+        });
         if (saved?.id) {
           setRows((prev) =>
             prev.map((row) => (
@@ -219,7 +244,16 @@ export function useDetailModal({ loadRows, setRows, setError }) {
     } catch (saveError) {
       setModalTopNotice('');
       setModalBottomNotice('');
-      setDetailError(saveError.message);
+      if (saveError.status === 409) {
+        // Another admin saved first. Reload the latest (keeping the user's draft),
+        // re-base against it so a deliberate re-save can go through, and warn them.
+        const fresh = await openDetail(openId, true);
+        if (fresh) baseUpdatedAtRef.current = fresh.updated_at ?? null;
+        setConflictInfo({ updatedBy: 'Another admin', at: saveError.body?.currentUpdatedAt || null });
+        setDetailError('This item was changed by someone else while you had it open. The latest version is now loaded and your unsaved edits are kept — saving again will overwrite their version with yours.');
+      } else {
+        setDetailError(saveError.message);
+      }
     } finally {
       setWorking(false);
     }
@@ -393,6 +427,9 @@ export function useDetailModal({ loadRows, setRows, setError }) {
     isDetailModalOpen,
     clearPendingAttachmentDrafts,
     openDetail,
+    conflictInfo,
+    setConflictInfo,
+    noteRemoteUpdate,
     modalTitle,
     effectiveType,
     easyVistaMissingRequirements,

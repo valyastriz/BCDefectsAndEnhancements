@@ -133,7 +133,7 @@ router.put('/api/admin/submissions/:id', ensureAdmin, async (req, res) => {
       username: req.session?.user?.username,
     });
     if (result.error) {
-      return res.status(result.status).json({ error: result.error });
+      return res.status(result.status).json({ error: result.error, ...(result.body || {}) });
     }
     return res.status(result.status).json(result.body);
   });

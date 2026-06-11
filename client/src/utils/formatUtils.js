@@ -98,6 +98,33 @@ export function formatDateOnly(value) {
 }
 
 /**
+ * Milliseconds elapsed since an ISO timestamp, or null if unparseable.
+ */
+export function msSince(value) {
+  if (!value) return null;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return Date.now() - parsed.getTime();
+}
+
+/**
+ * Short relative-time label, e.g. "just now", "4 min ago", "2 hr ago".
+ */
+export function formatTimeAgo(value) {
+  if (!value) return '';
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return '';
+  const seconds = Math.max(0, Math.round((Date.now() - parsed.getTime()) / 1000));
+  if (seconds < 45) return 'just now';
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours} hr ago`;
+  const days = Math.round(hours / 24);
+  return `${days} day${days === 1 ? '' : 's'} ago`;
+}
+
+/**
  * Format a timeline status value into a display-friendly label.
  * Requires the dynamic status sets from meta to classify unknown values.
  * @param {string} statusValue - The raw status string

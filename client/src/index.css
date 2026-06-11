@@ -1379,6 +1379,33 @@ tr.clickable:hover td { background: var(--blue-50); }
   margin-top: 2px;
 }
 
+/* Presence soft-lock banner + read-only modal body (collaborative editing). */
+.lock-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-radius: var(--radius);
+  border: 1px solid var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 10%, var(--color-surface));
+}
+.lock-banner--stale {
+  border-color: var(--amber-500, #f59e0b);
+  background: color-mix(in srgb, var(--amber-500, #f59e0b) 12%, var(--color-surface));
+}
+.lock-banner-text { flex: 1; min-width: 0; }
+.lock-banner-text strong { color: var(--color-text); }
+.lock-banner-meta {
+  font-size: 12px;
+  color: var(--color-muted);
+  margin-top: 2px;
+}
+.modal-locked {
+  pointer-events: none;
+  opacity: 0.55;
+  user-select: none;
+}
+
 /* Clickable status tiles (top stat row) act as quick status filters. */
 button.stat-tile--clickable {
   display: block;

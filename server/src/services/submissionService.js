@@ -640,6 +640,15 @@ async function updateAdminSubmission(db, { id, body, username }) {
   if (!rawExisting) {
     return { error: 'Submission not found', status: 404 };
   }
+  // Optimistic concurrency: if the caller sent the version it loaded and the row
+  // has changed since, reject so one admin never silently overwrites another's work.
+  if (body.base_updated_at && String(rawExisting.updated_at || '') !== String(body.base_updated_at)) {
+    return {
+      status: 409,
+      error: 'This item was changed by someone else while you had it open.',
+      body: { conflict: true, currentUpdatedAt: rawExisting.updated_at },
+    };
+  }
   // Hydrate text fields from FK IDs (DB stores only _id columns, no redundant text columns)
   const existing = await resolveExistingLookupFields(rawExisting);
 
@@ -1011,7 +1020,7 @@ async function updateAdminSubmission(db, { id, body, username }) {
   }
 
   const saved = await getSubmissionByIdWithLookups(db, id);
-  emitAdminNotification('submission:updated', mapSubmission(saved));
+  emitAdminNotification('submission:updated', { ...mapSubmission(saved), updatedBy: username || null });
   if (saved.is_public) {
     emitPublicUpdate(mapSubmission(saved));
   }
