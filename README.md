@@ -482,7 +482,7 @@ When a Product Owner signs in, they see the **Admin Queue** — a list of all ca
 - Inline editing of status, cleanup status, public visibility, and JIRA card number directly in the table
 - Full detail modal with every submission field, status timeline, impact analysis, frequency tracking, and attachment management
 - "As Submitted to EasyVista" preview showing the exact payload sent to EasyVista
-- Stat tiles showing status distribution and financial impact totals
+- Clickable stat tiles showing non-retired status totals and filtered financial impact totals
 - New submission alert banner with count and browser notifications
 - Import from Excel, export to Excel
 - Create backdated tickets and cleanup tasks
@@ -556,7 +556,7 @@ Product Owners escalate issues to **Tier 2 GTS** by submitting tickets to the Ea
 | Flow | Behavior |
 |------|----------|
 | **First-time submit** | Constructs a detailed payload from submission fields, prefixes the description with the original requester's name, POSTs to EasyVista API, stores the returned ticket ID, updates status to "Submitted" |
-| **Resubmission** | Creates a new linked submission (maintaining the chain), copies attachments, preserves the original↔resubmit relationship with IDs |
+| **Resubmission** | Creates a new linked submission in **Submitted** status (maintaining the chain), copies attachments, preserves the original↔resubmit relationship with IDs |
 | **Stub mode** | When `EASYVISTA_BASE_URL` is not configured, generates fake `EV-XXXXX` ticket IDs for development |
 
 **Type-specific validation before submit:**
@@ -670,6 +670,8 @@ At the top of the admin dashboard, a **blue alert banner** appears when there ar
 | Reset Saved Filters | Button | Restore all filters to defaults |
 
 All filter selections persist in `localStorage` and restore on page reload.
+
+**How status matching works:** The status filter selects rows by the status they are *displayed* as — an item with no status shows under "New", and cleanup-only items appear under the **Cleanup Only** option rather than their underlying status. Selecting every status (the default/reset state) applies no status whitelist, so a non-retired item is never hidden just because its status was later retired.
 
 ### Sorting
 
@@ -817,6 +819,7 @@ Only shown for enhancement-type submissions:
 - **Impact Details** — Required before submitting to EasyVista
 - **Enhancement Request Type** — Required before submitting to EasyVista (dropdown from metadata)
 - **Priority Level** — 1-Urgent through 4-Low
+- **Desired Completion Date** — Target date for the enhancement
 
 #### 11. Public Visibility
 Toggle to control whether this item appears on the public Status Board, with explanation text.
@@ -834,15 +837,19 @@ Toggle to control whether this item appears on the public Status Board, with exp
 | **Retire Item** | Soft-archives the submission — hides it from the default queue view. The item is NOT deleted. A "Retired" status event is logged to the timeline. When retired, the D/E Status dropdown becomes disabled. |
 | **Unretire Item** | Reverses a retire — brings the item back into the active queue. An "Unretired" status event is logged to the timeline. |
 | **Submit to EasyVista** | Validates required fields (type-specific), constructs the payload with requester name prefix, submits to EasyVista API, stores the returned ticket ID, updates status to "Submitted" |
-| **Re-submit to EasyVista** | Creates a new linked submission, copies attachments, preserves the resubmission chain, and submits the updated version |
+| **Re-submit to EasyVista** | Creates a new linked submission (in **Submitted** status), copies attachments, preserves the resubmission chain, and submits the updated version |
 
 ### Stat Tiles
 
-Aggregated metrics displayed above the submissions table:
-- **Status distribution** — Count of submissions in each status (respects current filters)
-- **Total Policy Premium Impact ($)** — Sum of all policy premium impact values
-- **Total Direct Dollar Impact ($)** — Sum of all direct dollar impact values
-- **Total Policies Affected** — Sum of all policies affected counts
+Two rows of metric tiles displayed above the submissions table:
+
+**Row 1 — status totals (clickable).** Shows a **Total** count plus a per-status breakdown (New, Approved, Submitted, Deployed) across **all non-retired items, independent of the active filters**. Each tile is a quick filter: clicking **Total** shows every non-retired item, and clicking a status tile filters the table to that status — so the table matches the number on the tile. Counts are keyed off each item's **displayed** status (an item with no status shows as "New", and cleanup-only items are counted under "Cleanup Only", not their underlying status). When the Retired filter includes retired items, a small *"Active totals — excludes retired items"* caption clarifies that Row 1 is always non-retired.
+
+**Row 2 — filtered totals.** Reflects the **current filtered result set**:
+- **Filtered Items** — Count of rows matching the active filters
+- **Policy Premium Impact ($)** — Sum of policy premium impact across filtered rows
+- **Direct Dollar Impact ($)** — Sum of direct dollar impact across filtered rows
+- **Policies Impacted** — Sum of policies affected across filtered rows
 
 ### Toast Notifications
 
