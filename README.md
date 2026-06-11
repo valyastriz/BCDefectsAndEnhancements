@@ -33,6 +33,7 @@ A full-stack internal operations tool for the **Product Owners team** to track, 
   - [Excel Import](#excel-import)
   - [Excel Export](#excel-export)
   - [Real-Time Updates](#real-time-updates-socketio)
+  - [Collaborative Editing & Conflict Safety](#collaborative-editing--conflict-safety)
   - [File Attachments](#file-attachments)
   - [Data Provenance & Auditing](#data-provenance--auditing)
 - [Admin Dashboard Deep Dive](#admin-dashboard-deep-dive)
@@ -597,7 +598,8 @@ Export filtered submissions as `.xlsx`:
 | Event | Audience | Trigger |
 |-------|----------|---------|
 | `submission:new` | Admins | New rep form submission |
-| `submission:updated` | Admins | Any submission field change |
+| `submission:updated` | Admins | Any submission field change (payload includes `updatedBy`) |
+| `ticket:presence` | Admins | A ticket was opened/closed/edited (presence soft-lock; see below) |
 | `submission:submitted-easyvista` | Admins | EasyVista ticket created |
 | `submission:resubmitted-easyvista` | Admins | EasyVista ticket resubmitted |
 | `submissions:bulk-imported` | Admins | Excel import completed |
@@ -611,6 +613,18 @@ Export filtered submissions as `.xlsx`:
 | Tab visible | In-app toast notification (auto-dismiss 8s) |
 | Tab hidden | Unread count in tab title `(3) Admin Queue…` + OS desktop notification |
 | Always | Requests browser notification permission on first admin page load |
+
+### Collaborative Editing & Conflict Safety
+
+Multiple Product Owners can work the queue at the same time, so the detail modal guards against two people overwriting each other. Everything here is **advisory** — viewing is never blocked, and any warning can be overridden on purpose.
+
+**Presence soft-lock.** Opening a ticket's detail modal claims it (broadcast over Socket.IO via `ticket:enter` / `ticket:activity` / `ticket:leave`). If another admin opens a ticket someone already has open, their modal shows a banner — *"{name} is working on this item · opened 2 min ago · last active just now"* — and the form is **read-only** until they click **Edit anyway**. Presence is in-memory and **auto-releases** when the holder closes the modal or their connection drops (covers "forgot to close the tab"). After **30 minutes** with no activity the banner adds *"· may have stepped away"* and turns amber.
+
+**Optimistic concurrency.** The modal remembers the version (`updated_at`) it loaded and sends it on save. If the record changed in the meantime, the server returns **409 Conflict** instead of overwriting — a hard backstop so nothing is silently clobbered even if a real-time event was missed. The `submission:updated` event also carries `updatedBy`, so an admin with the ticket open is warned the moment someone else saves it. (Inline table quick-edits don't send a base version, so they're unaffected.)
+
+**Conflict review (3-way merge).** When a conflict is detected, a review panel lists **only the fields that overlap**, comparing three versions — the one you opened, your draft, and the now-current saved version. Each field is tagged **Your change / Their change / Both changed**, with **Use current** / **Keep mine** per field. Fields nobody touched don't appear, and pure viewers with no unsaved edits are not interrupted.
+
+**Local draft recovery.** In-progress edits autosave to `localStorage` (per admin + ticket, debounced). If the page reloads, crashes, or is accidentally closed, reopening the ticket offers **Restore** / **Discard** of the recovered draft. Drafts clear automatically on a successful save.
 
 ### File Attachments
 
