@@ -25,6 +25,53 @@ export const ADMIN_META_CATEGORIES = [
 
 export const ADMIN_FILTERS_STORAGE_KEY = 'bc.admin.filters';
 export const ADMIN_RETIRED_FILTER_STORAGE_KEY = 'bc.admin.retiredFilter';
+// Local cache for the per-admin view (which columns/filters show + column order).
+// The server is the source of truth; this just avoids a flash before it loads.
+export const ADMIN_VIEW_PREFS_STORAGE_KEY = 'bc.admin.viewPrefs';
+
+// ── Per-admin view registries ───────────────────────────────────────────────
+// Canonical column registry for the admin submissions table. `key` is the stable
+// identifier persisted in view preferences; `sortKey` maps into SORT_COLS (null =
+// not sortable). Keep keys in sync with the server allow-list ADMIN_VIEW_COLUMN_KEYS
+// (server/src/constants.js). Default view = every column visible, in this order.
+export const ADMIN_TABLE_COLUMNS = [
+  { key: 'reportedDate', label: 'Reported Date', sortKey: 'reportedDate' },
+  { key: 'statusUpdate', label: 'Status Update', sortKey: 'statusUpdate' },
+  { key: 'type', label: 'Type', sortKey: 'type' },
+  { key: 'summary', label: 'Summary', sortKey: 'summary' },
+  { key: 'status', label: 'Defect/Enhancement Status', sortKey: 'status' },
+  { key: 'cleanupStatus', label: 'Cleanup Status', sortKey: null },
+  { key: 'isPublic', label: 'Public', sortKey: 'isPublic' },
+  { key: 'easyvista', label: 'EasyVista', sortKey: 'easyvista' },
+  { key: 'jiraCard', label: 'JIRA Card #', sortKey: 'jiraCard' },
+  { key: 'policyPremium', label: 'Policy Premium ($)', sortKey: 'policyPremium' },
+  { key: 'directImpact', label: 'Direct Impact ($)', sortKey: 'directImpact' },
+  { key: 'policiesImpacted', label: 'Policies Impacted', sortKey: 'policiesImpacted' },
+  { key: 'frequency', label: 'Frequency', sortKey: 'frequency' },
+];
+
+// Canonical filter registry — keys match the filter fields in buildDefaultFilters()
+// and the FiltersBar controls. Keep in sync with the server allow-list
+// ADMIN_VIEW_FILTER_KEYS. Default view = every filter visible, in this order.
+export const ADMIN_FILTER_FIELDS = [
+  { key: 'statuses', label: 'Defect/Enhancement Status' },
+  { key: 'retiredFilter', label: 'Retired' },
+  { key: 'types', label: 'Type' },
+  { key: 'cleanupRequired', label: 'Cleanup Required' },
+  { key: 'cleanupStatuses', label: 'Cleanup Status' },
+  { key: 'search', label: 'Search' },
+  { key: 'requester', label: 'Requester' },
+  { key: 'submittedBy', label: 'Submitted by (EasyVista)' },
+  { key: 'createdVia', label: 'Created Via' },
+  { key: 'year', label: 'Year' },
+  { key: 'inJira', label: 'In JIRA' },
+  { key: 'easyvistaNumber', label: 'EASYVISTA #' },
+  { key: 'jiraNumber', label: 'JIRA #' },
+  { key: 'releaseNumber', label: 'Release #' },
+];
+
+export const DEFAULT_VISIBLE_COLUMN_KEYS = ADMIN_TABLE_COLUMNS.map((c) => c.key);
+export const DEFAULT_VISIBLE_FILTER_KEYS = ADMIN_FILTER_FIELDS.map((f) => f.key);
 
 export const SORT_COLS = {
   reportedDate:     { asc: 'created_asc',                 desc: 'created_desc' },

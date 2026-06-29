@@ -1,11 +1,15 @@
-import { Badge } from '../bite-size/BitsizeUI';
+import { cloneElement } from 'react';
 import { PaginationControls } from '../common/PaginationControls';
 import { SORT_COLS } from '../../constants/adminConstants';
-import { formatCurrency, formatNumber, formatDateOnly } from '../../utils/formatUtils';
-import { inlineDisplayType } from '../../utils/mappers';
+import { COLUMN_DEFS } from './submissionColumns';
 
 /**
  * Pagination controls + the main admin submissions table.
+ *
+ * Columns are driven by `orderedVisibleColumns` (the admin's saved view): an
+ * ordered array of `{ key, label, sortKey }` from ADMIN_TABLE_COLUMNS, already
+ * filtered to the visible set. Header/cell rendering and sort behavior are
+ * unchanged from the previous hardcoded layout.
  */
 export function SubmissionsTable({
   rows,
@@ -20,6 +24,7 @@ export function SubmissionsTable({
   setFilters,
   loadRows,
   openDetail,
+  orderedVisibleColumns,
   updateStatusQuick,
   updateCleanupStatusQuick,
   updatePublicQuick,
@@ -29,6 +34,18 @@ export function SubmissionsTable({
   cleanupOnlyStatus,
   statusToCleanup,
 }) {
+  // Shared context handed to each column's cell renderer (see submissionColumns).
+  const cellCtx = {
+    updateStatusQuick,
+    updateCleanupStatusQuick,
+    updatePublicQuick,
+    updateJiraQuick,
+    runtimeStatusOptions,
+    runtimeCleanupInlineStatuses,
+    cleanupOnlyStatus,
+    statusToCleanup,
+  };
+
   // ── Sorting helpers ──────────────────────────────────────────────────────
   function handleColSort(colKey) {
     const { asc, desc } = SORT_COLS[colKey];
@@ -91,24 +108,17 @@ export function SubmissionsTable({
         <table className="admin-submissions-table">
           <thead>
             <tr>
-              {sortTh('reportedDate',     'Reported Date',      { width: 110, minWidth: 110 })}
-              {sortTh('statusUpdate',     'Status Update',      { width: 110, minWidth: 110 })}
-              {sortTh('type',             'Type',               { width: 110 })}
-              {sortTh('summary',          'Summary',            { minWidth: 200 })}
-              {sortTh('status',           'Defect/Enhancement Status', { width: 210, minWidth: 210 })}
-              <th style={{ width: 170, minWidth: 170 }}>Cleanup Status</th>
-              {sortTh('isPublic',         'Public',             { width: 110, minWidth: 110 })}
-              {sortTh('easyvista',        'EasyVista',          { width: 110 })}
-              {sortTh('jiraCard',         'JIRA Card #',        { width: 140, minWidth: 140 })}
-              {sortTh('policyPremium',    'Policy Premium ($)', { width: 160 })}
-              {sortTh('directImpact',     'Direct Impact ($)',  { width: 160 })}
-              {sortTh('policiesImpacted', 'Policies Impacted',  { width: 140 })}
-              {sortTh('frequency',        'Frequency',          { width: 160 })}
+              {orderedVisibleColumns.map((col) => {
+                const headerStyle = COLUMN_DEFS[col.key]?.headerStyle;
+                return col.sortKey
+                  ? cloneElement(sortTh(col.sortKey, col.label, headerStyle), { key: col.key })
+                  : <th key={col.key} style={headerStyle}>{col.label}</th>;
+              })}
             </tr>
           </thead>
           <tbody>
             {rows.length === 0 && !loading && (
-              <tr><td colSpan={13} style={{ textAlign: 'center', color: 'var(--color-muted)', padding: '28px 12px' }}>No submissions match the current filters.</td></tr>
+              <tr><td colSpan={orderedVisibleColumns.length} style={{ textAlign: 'center', color: 'var(--color-muted)', padding: '28px 12px' }}>No submissions match the current filters.</td></tr>
             )}
             {pagedRows.map((row) => (
               <tr
@@ -121,102 +131,10 @@ export function SubmissionsTable({
                 }}
                 className="clickable"
               >
-                <td data-label="Reported Date" style={{ width: 110, minWidth: 110 }}>{formatDateOnly(row.created_at)}</td>
-                <td data-label="Status Update" style={{ width: 110, minWidth: 110 }}>{formatDateOnly(row.status_update_at || row.updated_at)}</td>
-                <td data-label="Type">
-                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 4 }}>
-                    <Badge value={inlineDisplayType(row)} />
-                    {row.is_cleanup && row.cleanup_tag_type !== 'cleanup_only' && <Badge value="Clean Up" />}
-                    {row.has_resubmission && row.latest_resubmission_easyvista_ticket_id && (
-                      <Badge value={`Resubmitted: ${row.latest_resubmission_easyvista_ticket_id}`} />
-                    )}
-                    {row.is_resubmission && row.resubmission_of_easyvista_ticket_id && (
-                      <Badge value={`Resubmit of: ${row.resubmission_of_easyvista_ticket_id}`} />
-                    )}
-                  </div>
-                </td>
-                <td data-label="Summary" style={{ minWidth: 200, whiteSpace: 'normal', wordBreak: 'break-word' }}>{row.summary_of_issue}</td>
-                <td data-label="Status" style={{ minWidth: 170 }}>
-                  <select
-                    className="bs-inline-select"
-                    aria-label={`Update defect or enhancement status for #${row.id}`}
-                    value={row.is_cleanup && row.cleanup_tag_type === 'cleanup_only' ? cleanupOnlyStatus : row.status}
-                    disabled={row.is_retired}
-                    onMouseDown={(e) => e.stopPropagation()}
-                    onClick={(e) => e.stopPropagation()}
-                    onKeyDown={(e) => e.stopPropagation()}
-                    onChange={(e) => {
-                      e.stopPropagation();
-                      updateStatusQuick(row.id, e.target.value, row);
-                    }}
-                  >
-                    {runtimeStatusOptions.map((s) => <option key={s} value={s}>{s}</option>)}
-                  </select>
-                </td>
-                <td data-label="Cleanup Status" style={{ minWidth: 170 }}>
-                  <select
-                    className="bs-inline-select"
-                    aria-label={`Update cleanup status for #${row.id}`}
-                    value={row.is_cleanup ? (row.cleanup_status || statusToCleanup[row.status] || 'New') : 'No Cleanup'}
-                    onPointerDown={(e) => e.stopPropagation()}
-                    onMouseDown={(e) => e.stopPropagation()}
-                    onClick={(e) => e.stopPropagation()}
-                    onFocus={(e) => e.stopPropagation()}
-                    onKeyDown={(e) => e.stopPropagation()}
-                    onChange={(e) => {
-                      e.stopPropagation();
-                      updateCleanupStatusQuick(row.id, e.target.value, row);
-                    }}
-                  >
-                    {runtimeCleanupInlineStatuses.map((s) => <option key={s} value={s}>{s}</option>)}
-                  </select>
-                </td>
-                <td data-label="Public" style={{ minWidth: 110 }}>
-                  <select
-                    className="bs-inline-select"
-                    aria-label={`Update public visibility for #${row.id}`}
-                    value={row.is_public ? 'yes' : 'no'}
-                    onMouseDown={(e) => e.stopPropagation()}
-                    onClick={(e) => e.stopPropagation()}
-                    onKeyDown={(e) => e.stopPropagation()}
-                    onChange={(e) => {
-                      e.stopPropagation();
-                      updatePublicQuick(row.id, e.target.value === 'yes');
-                    }}
-                  >
-                    <option value="yes">Yes</option>
-                    <option value="no">No</option>
-                  </select>
-                </td>
-                <td data-label="EasyVista" className="muted">{row.easyvista_ticket_id || '—'}</td>
-                <td data-label="JIRA Card #" style={{ minWidth: 140 }}>
-                  <input
-                    className="bs-inline-input"
-                    aria-label={`Update JIRA number for #${row.id}`}
-                    defaultValue={row.jira_number || ''}
-                    placeholder="JIRA-123"
-                    onMouseDown={(e) => e.stopPropagation()}
-                    onClick={(e) => e.stopPropagation()}
-                    onKeyDown={(e) => {
-                      e.stopPropagation();
-                      if (e.key === 'Enter') {
-                        updateJiraQuick(row.id, e.currentTarget.value.trim());
-                      }
-                    }}
-                    onBlur={(e) => {
-                      e.stopPropagation();
-                      updateJiraQuick(row.id, e.currentTarget.value.trim());
-                    }}
-                  />
-                </td>
-                <td data-label="Policy Premium ($)">{formatCurrency(row.policy_premium_impact)}</td>
-                <td data-label="Direct Impact ($)">{formatCurrency(row.direct_dollar_impact)}</td>
-                <td data-label="Policies Impacted">{formatNumber(row.policies_affected_count)}</td>
-                <td data-label="Frequency">
-                  {row.occurrence_count && row.occurrence_timeframe
-                    ? `${row.occurrence_count} per ${row.occurrence_timeframe_count > 1 ? `${row.occurrence_timeframe_count} ` : ''}${row.occurrence_timeframe}${row.occurrence_timeframe_count > 1 ? 's' : ''}`
-                    : '—'}
-                </td>
+                {orderedVisibleColumns.map((col) => {
+                  const cell = COLUMN_DEFS[col.key]?.renderCell(row, cellCtx);
+                  return cell ? cloneElement(cell, { key: col.key }) : null;
+                })}
               </tr>
             ))}
           </tbody>

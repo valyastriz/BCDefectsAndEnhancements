@@ -44,6 +44,14 @@ function defineModels(sequelize) {
     role: { type: DataTypes.STRING, allowNull: false },
   }, { tableName: 'users', timestamps: false });
 
+  const AdminViewPreference = sequelize.define('AdminViewPreference', {
+    id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
+    user_id: { type: DataTypes.INTEGER, allowNull: false, unique: true },
+    columns_json: { type: DataTypes.TEXT }, // JSON: ordered array of visible column keys
+    filters_json: { type: DataTypes.TEXT }, // JSON: array of visible filter keys
+    updated_at: { type: DataTypes.TEXT },
+  }, { tableName: 'admin_view_preferences', timestamps: false });
+
   const Submission = sequelize.define('Submission', {
     id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
     created_at: { type: DataTypes.TEXT, allowNull: false },
@@ -224,6 +232,7 @@ function defineModels(sequelize) {
 
   return {
     User,
+    AdminViewPreference,
     Submission,
     Attachment,
     SubmissionStatusEvent,

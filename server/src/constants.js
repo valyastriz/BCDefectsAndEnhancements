@@ -110,6 +110,42 @@ const SUBMISSION_TO_CLEANUP_STATUS = {
   Retired: 'Completed',
 };
 
+// Allow-list of admin table column keys and filter keys for per-admin view
+// preferences. Keep in sync with the client registries ADMIN_TABLE_COLUMNS and
+// ADMIN_FILTER_FIELDS (client/src/constants/adminConstants.js). Unknown keys are
+// dropped server-side, so drift fails safe (a stale key simply won't render).
+const ADMIN_VIEW_COLUMN_KEYS = [
+  'reportedDate',
+  'statusUpdate',
+  'type',
+  'summary',
+  'status',
+  'cleanupStatus',
+  'isPublic',
+  'easyvista',
+  'jiraCard',
+  'policyPremium',
+  'directImpact',
+  'policiesImpacted',
+  'frequency',
+];
+const ADMIN_VIEW_FILTER_KEYS = [
+  'statuses',
+  'retiredFilter',
+  'types',
+  'cleanupRequired',
+  'cleanupStatuses',
+  'search',
+  'requester',
+  'submittedBy',
+  'createdVia',
+  'year',
+  'inJira',
+  'easyvistaNumber',
+  'jiraNumber',
+  'releaseNumber',
+];
+
 const LOOKUP_TABLES = {
   statuses: {
     table: 'defect_enhancement_statuses',
@@ -195,5 +231,7 @@ module.exports = {
   CLEANUP_TAG_TYPES,
   CLEANUP_TO_SUBMISSION_STATUS,
   SUBMISSION_TO_CLEANUP_STATUS,
+  ADMIN_VIEW_COLUMN_KEYS,
+  ADMIN_VIEW_FILTER_KEYS,
   LOOKUP_TABLES,
 };

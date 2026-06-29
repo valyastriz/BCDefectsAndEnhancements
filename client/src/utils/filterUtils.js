@@ -37,6 +37,20 @@ export function buildDefaultFilters() {
 }
 
 /**
+ * Reset the given filter keys back to their default values. Used when an admin
+ * hides a filter control so it no longer silently constrains the table.
+ */
+export function resetFilterValues(filters, keys) {
+  if (!Array.isArray(keys) || keys.length === 0) return filters;
+  const defaults = buildDefaultFilters();
+  const next = { ...filters };
+  for (const key of keys) {
+    if (key in defaults) next[key] = defaults[key];
+  }
+  return next;
+}
+
+/**
  * Normalize a saved statuses value from localStorage.
  */
 export function normalizeSavedAdminStatuses(statusesValue, statusSelectionMode = 'legacy') {

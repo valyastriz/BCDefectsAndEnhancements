@@ -9,17 +9,20 @@ import {
   STATUS_TO_CLEANUP,
   ADMIN_FILTERS_STORAGE_KEY,
   ADMIN_RETIRED_FILTER_STORAGE_KEY,
+  DEFAULT_VISIBLE_FILTER_KEYS,
 } from '../constants/adminConstants';
 import { toNumeric } from '../utils/formatUtils';
 import {
   areAllStatusesSelected,
   buildDefaultFilters,
   defaultFilters,
+  resetFilterValues,
 } from '../utils/filterUtils';
 import { normalizeAdminRow } from '../utils/mappers';
 
 // ── Custom hooks ────────────────────────────────────────────────────────────
 import { useAdminMeta } from '../hooks/useAdminMeta';
+import { useAdminViewPreferences } from '../hooks/useAdminViewPreferences';
 import { useAdminNotifications } from '../hooks/useAdminNotifications';
 import { useDetailModal } from '../hooks/useDetailModal';
 import { useTicketPresence } from '../hooks/useTicketPresence';
@@ -43,6 +46,7 @@ import {
   ToastOverlay,
   AttachmentPreviewModal,
   CleanupPreviewModal,
+  CustomizeViewModal,
 } from '../components/admin';
 
 const cleanupOnlyStatus = CLEANUP_ONLY_STATUS;
@@ -141,6 +145,21 @@ export function AdminDashboardPage({ user, onLogout }) {
     loadBaselineCounts();
   }, [loadNewFormCount, loadBaselineCounts]);
 
+  // ── Per-admin view preferences (visible columns/filters + column order) ────
+  const viewPrefs = useAdminViewPreferences();
+  const [customizeOpen, setCustomizeOpen] = useState(false);
+
+  // Save the customized view; clear values of any filter that is now hidden so a
+  // hidden control can't silently constrain the table.
+  const handleViewSave = useCallback((next) => {
+    viewPrefs.saveView(next);
+    const hiddenKeys = DEFAULT_VISIBLE_FILTER_KEYS.filter((key) => !next.filters.includes(key));
+    if (hiddenKeys.length > 0) {
+      setFilters((prev) => resetFilterValues(prev, hiddenKeys));
+    }
+    setCustomizeOpen(false);
+  }, [viewPrefs]);
+
   // ── Custom hooks ──────────────────────────────────────────────────────────
   const meta = useAdminMeta({ setFilters, setNotice });
   const detailModal = useDetailModal({ loadRows, setRows, setNotice, setError, currentUsername: user?.username });
@@ -186,7 +205,7 @@ export function AdminDashboardPage({ user, onLogout }) {
   const { exportModalOpen, exportWorking, openExportModal } = exportModal;
 
   // ── Composite flags ───────────────────────────────────────────────────────
-  const isAnyAdminModalOpen = isDetailModalOpen || backdatedOpen || cleanupOpen || importModalOpen || exportModalOpen;
+  const isAnyAdminModalOpen = isDetailModalOpen || backdatedOpen || cleanupOpen || importModalOpen || exportModalOpen || customizeOpen;
 
   // ── Notifications (depends on isAnyAdminModalOpen) ────────────────────────
   const { submissionToasts, setSubmissionToasts } = useAdminNotifications({
@@ -433,6 +452,8 @@ export function AdminDashboardPage({ user, onLogout }) {
           dynamicCleanupStatuses={dynamicCleanupStatuses}
           isViewingNewFormOnly={isViewingNewFormOnly}
           preNewSubmissionFiltersRef={preNewSubmissionFiltersRef}
+          visibleFilters={viewPrefs.filters}
+          onOpenCustomize={() => setCustomizeOpen(true)}
         />
 
         <SubmissionsTable
@@ -448,6 +469,7 @@ export function AdminDashboardPage({ user, onLogout }) {
           setFilters={setFilters}
           loadRows={loadRows}
           openDetail={openDetail}
+          orderedVisibleColumns={viewPrefs.orderedVisibleColumns}
           updateStatusQuick={updateStatusQuick}
           updateCleanupStatusQuick={updateCleanupStatusQuick}
           updatePublicQuick={updatePublicQuick}
@@ -512,6 +534,20 @@ export function AdminDashboardPage({ user, onLogout }) {
         submissionToasts={submissionToasts}
         setSubmissionToasts={setSubmissionToasts}
       />
+
+      {customizeOpen && (
+        <CustomizeViewModal
+          open={customizeOpen}
+          onClose={() => setCustomizeOpen(false)}
+          columns={viewPrefs.columns}
+          filters={viewPrefs.filters}
+          onSave={handleViewSave}
+          onReset={() => {
+            viewPrefs.resetView();
+            setCustomizeOpen(false);
+          }}
+        />
+      )}
     </div>
   );
 }

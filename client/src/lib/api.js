@@ -124,6 +124,15 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ orderedIds: Array.isArray(orderedIds) ? orderedIds : [] }),
     }),
+  getAdminViewPreferences: () => request('/api/admin/view-preferences'),
+  saveAdminViewPreferences: ({ columns, filters }) =>
+    request('/api/admin/view-preferences', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ columns, filters }),
+    }),
+  resetAdminViewPreferences: () =>
+    request('/api/admin/view-preferences', { method: 'DELETE' }),
   login: (username, password) =>
     request('/api/auth/login', {
       method: 'POST',

@@ -9,4 +9,5 @@ export { ImportModal } from './ImportModal';
 export { BackdatedTicketModal } from './BackdatedTicketModal';
 export { DetailModal } from './DetailModal';
 export { ToastOverlay } from './ToastOverlay';
+export { CustomizeViewModal } from './CustomizeViewModal';
 export { AttachmentPreviewModal, CleanupPreviewModal } from './PreviewModals';
