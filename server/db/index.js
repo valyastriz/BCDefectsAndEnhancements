@@ -1,6 +1,6 @@
 const { QueryTypes } = require('sequelize');
 const { createSequelize } = require('./sequelize');
-const { defineModels } = require('./models');
+const { defineModels, migrateWithModels } = require('./models');
 
 const { provider, sequelize } = createSequelize();
 const dbMode = (process.env.DB_MODE || 'local').toLowerCase();
@@ -80,6 +80,15 @@ async function close() {
   initialized = false;
 }
 
+// Apply the schema (sync + seed lookups) using the app's own connection. Same
+// effect as `npm run migrate`, but callable in-process so production boot can
+// self-sync. Idempotent: sync({ alter: true }) reconciles existing tables and
+// the seeds use findOrCreate.
+async function migrate() {
+  await init();
+  await migrateWithModels(sequelize, models);
+}
+
 async function transaction(fn) {
   await init();
   const tx = await sequelize.transaction();
@@ -113,6 +122,7 @@ module.exports = {
   dbMode,
   provider,
   init,
+  migrate,
   getModels,
   query,
   execute,

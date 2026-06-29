@@ -318,6 +318,11 @@ npm run seed:admin
 npm run seed:sample
 ```
 
+> **Production note:** when `NODE_ENV=production`, the server also runs this
+> schema sync automatically on boot (so Render deploys that add tables/columns
+> don't need a manual `npm run migrate`). It's idempotent and non-fatal — the
+> server still starts if the sync fails, logging the error to the deploy logs.
+
 **Default admin credentials:**
 | Username | Password |
 |----------|----------|

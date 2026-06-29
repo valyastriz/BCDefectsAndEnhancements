@@ -71,7 +71,23 @@ app.get('/health', (_req, res) => res.json({ status: 'ok', ts: new Date().toISOS
 app.use(errorHandler);
 
 // ── Start ────────────────────────────────────────────────────────────────────
-server.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
-  startKeepAlive(db);
-});
+// In production (Render), self-apply the schema on boot so deploys that add
+// tables/columns don't need a manual `npm run migrate`. Guarded to production so
+// local runs (which may point at the live DB) never auto-alter it. Non-fatal:
+// the server still starts if the sync fails, and we log it for the deploy logs.
+async function start() {
+  if (IS_PRODUCTION) {
+    try {
+      await db.migrate();
+      console.log('Schema sync complete.');
+    } catch (error) {
+      console.error('Schema sync failed (starting anyway):', error);
+    }
+  }
+  server.listen(PORT, () => {
+    console.log(`Server running on http://localhost:${PORT}`);
+    startKeepAlive(db);
+  });
+}
+
+start();
