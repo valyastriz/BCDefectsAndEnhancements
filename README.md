@@ -38,6 +38,7 @@ A full-stack internal operations tool for the **Product Owners team** to track, 
   - [Data Provenance & Auditing](#data-provenance--auditing)
 - [Admin Dashboard Deep Dive](#admin-dashboard-deep-dive)
   - [New Submissions Alert](#new-submissions-alert)
+  - [Customize View](#customize-view-per-admin-columns--filters)
   - [Filtering](#filtering-16-controls)
   - [Sorting](#sorting)
   - [Inline Table Editing](#inline-table-editing)
@@ -86,6 +87,7 @@ This application solves all of these problems with a purpose-built workflow that
 - Import historical records from Excel spreadsheets with intelligent column mapping
 - Export filtered data to Excel for reporting and audits
 - Manage all dropdown options (statuses, types, priority levels, etc.) from a metadata page
+- Personalize the queue — choose which table columns and filters appear (and reorder columns), saved per-admin so it follows you across devices
 - Receive real-time browser notifications when new submissions arrive
 - Control which submissions are publicly visible on the status board
 - Track financial impact (policy premium, direct dollar, policies affected)
@@ -667,6 +669,19 @@ At the top of the admin dashboard, a **blue alert banner** appears when there ar
 - The banner is hidden when there are no new submissions
 - Count updates in real-time via Socket.IO
 
+### Customize View (Per-Admin Columns & Filters)
+
+Each admin can tailor the queue to their own workflow. The **"Customize View"** button in the filters bar opens an editor with two sections:
+
+- **Columns** — check which of the table columns appear, and use the **↑ / ↓** arrows to reorder them. At least one column must stay visible.
+- **Filters** — check which of the filter controls appear in the filters bar. Hiding a filter **clears its current value** so it can't silently constrain the table.
+
+A **"Reset to Default"** button restores the original column set/order and shows every filter.
+
+**Persistence:** preferences are saved **per admin on the server** (keyed to the user account), so a customized view follows the admin across browsers and **survives clearing `localStorage`**. A local copy is also cached for instant first paint, but the server is the source of truth — on load, the saved view is fetched and applied. (This is separate from **filter *values***, which are still cached in `localStorage` per the [Filtering](#filtering-16-controls) section.)
+
+> New columns or filters added in a future release default to **hidden** for admins who already have a saved view — open *Customize View* (or *Reset to Default*) to surface them.
+
 ### Filtering (16+ Controls)
 
 | Filter | Type | Description |
@@ -686,9 +701,10 @@ At the top of the admin dashboard, a **blue alert banner** appears when there ar
 | JIRA # | Text | Search by JIRA card number |
 | Release # | Text | Search by release version |
 | New Submissions Mode | Toggle | View only unreviewed rep_form submissions |
-| Reset Saved Filters | Button | Restore all filters to defaults |
+| Customize View | Button | Open the per-admin view editor — choose/reorder columns and choose which filters appear (see [Customize View](#customize-view-per-admin-columns--filters)) |
+| Reset Saved Filters | Button | Restore all filter **values** to defaults |
 
-All filter selections persist in `localStorage` and restore on page reload.
+All filter selections persist in `localStorage` and restore on page reload. *Which* filters are shown is a separate, server-saved per-admin setting (see [Customize View](#customize-view-per-admin-columns--filters)); a filter that is hidden has its value cleared so it never silently constrains results.
 
 **How status matching works:** The status filter selects rows by the status they are *displayed* as — an item with no status shows under "New", and cleanup-only items appear under the **Cleanup Only** option rather than their underlying status. Selecting every status (the default/reset state) applies no status whitelist, so a non-retired item is never hidden just because its status was later retired.
 
@@ -711,7 +727,7 @@ All filter selections persist in `localStorage` and restore on page reload.
 | Policies Impacted | `policies_affected_count_asc` / `_desc` | **Descending** |
 | Frequency | `frequency_asc` / `frequency_desc` | Ascending |
 
-**Note:** Numeric/financial columns (Policy Premium, Direct Impact, Policies Impacted) default to **descending** on first click (highest values first), while all other columns default to ascending. Clicking the same column header again toggles the direction. Sorting is performed server-side on the full dataset.
+**Note:** Numeric/financial columns (Policy Premium, Direct Impact, Policies Impacted) default to **descending** on first click (highest values first), while all other columns default to ascending. Clicking the same column header again toggles the direction. Sorting is performed server-side on the full dataset. Column visibility and order are controlled per-admin via [Customize View](#customize-view-per-admin-columns--filters); a sortable column that is currently hidden simply isn't shown.
 
 ### Inline Table Editing
 
@@ -931,6 +947,16 @@ A **theme toggle button** is located in the application header bar (next to the 
 | `POST` | `/api/admin/submissions` | Admin | Create (backdated, manual, cleanup) |
 | `PUT` | `/api/admin/submissions/:id` | Admin | Update fields, log status changes |
 
+### View Preferences
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| `GET` | `/api/admin/view-preferences` | Admin | Current admin's saved view (`{ columns, filters }`; `null` arrays = use defaults) |
+| `PUT` | `/api/admin/view-preferences` | Admin | Save visible/ordered column keys + visible filter keys (validated against an allow-list) |
+| `DELETE` | `/api/admin/view-preferences` | Admin | Reset to default (removes the saved row) |
+
+Identity comes from the session (`req.session.user.id`), never the request body.
+
 ### Attachments
 
 | Method | Endpoint | Auth | Description |
@@ -969,6 +995,7 @@ A **theme toggle button** is located in the application header bar (next to the 
 | Table | Purpose | Key Fields |
 |-------|---------|------------|
 | `users` | Admin accounts | `id`, `username`, `password_hash`, `role` |
+| `admin_view_preferences` | Per-admin dashboard view (visible/ordered columns + visible filters) | `id`, `user_id` (unique), `columns_json`, `filters_json`, `updated_at` |
 | `submissions` | Central entity (~40 columns) | `id`, `summary_of_issue`, `status_id`, `type_id`, `application_id`, `is_cleanup`, `is_public`, `is_retired`, `created_by`, `created_via`, `easyvista_ticket_id`, financial impact fields, occurrence tracking, resubmission chain fields |
 | `attachments` | File references | `id`, `submission_id`, `filename`, `mime_type`, `file_path`, `uploaded_by_role` |
 | `submission_status_events` | Status audit trail | `id`, `submission_id`, `status`, `changed_at`, `changed_by` |
