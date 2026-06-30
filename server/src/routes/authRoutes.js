@@ -1,6 +1,8 @@
 const express = require('express');
 const bcrypt = require('bcrypt');
 const dbApi = require('../../db');
+const { ensureAdmin } = require('../auth');
+const { signRealtimeToken } = require('../helpers/realtimeToken');
 const { createRateLimiter } = require('../middleware/rateLimit');
 
 const router = express.Router();
@@ -58,6 +60,14 @@ router.get('/api/auth/me', (req, res) => {
   }
 
   return res.json({ user: req.session.user });
+});
+
+// Issues a short-lived signed token so the client can authenticate a *direct*
+// Socket.IO connection to this server (the realtime path bypasses the frontend
+// proxy, which can't carry WebSocket upgrades). Same-origin + session-gated.
+router.get('/api/realtime/token', ensureAdmin, (req, res) => {
+  const { username, role } = req.session.user;
+  return res.json({ token: signRealtimeToken({ username, role }) });
 });
 
 module.exports = router;

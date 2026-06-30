@@ -1,5 +1,6 @@
 const { Server } = require('socket.io');
 const { CLIENT_ORIGINS } = require('./config');
+const { verifyRealtimeToken } = require('./helpers/realtimeToken');
 
 let io = null;
 
@@ -79,11 +80,22 @@ function initSocket(server, sessionMiddleware) {
   });
 
   io.use((socket, next) => {
-    sessionMiddleware(socket.request, {}, next);
+    // Prefer a signed handshake token (direct cross-origin connection, where the
+    // frontend's session cookie isn't sent). Fall back to the session cookie for
+    // same-origin / local-dev connections.
+    const tokenUser = verifyRealtimeToken(socket.handshake?.auth?.token);
+    if (tokenUser) {
+      socket.data.user = tokenUser;
+      return next();
+    }
+    sessionMiddleware(socket.request, {}, () => {
+      socket.data.user = socket.request?.session?.user || null;
+      next();
+    });
   });
 
   io.on('connection', (socket) => {
-    const user = socket.request?.session?.user;
+    const user = socket.data.user;
     socket.data.username = user?.username || null;
     if (user?.role === 'admin') {
       socket.join('admins');

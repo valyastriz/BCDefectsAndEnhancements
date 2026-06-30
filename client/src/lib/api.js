@@ -141,6 +141,9 @@ export const api = {
     }),
   logout: () => request('/api/auth/logout', { method: 'POST' }),
   me: () => request('/api/auth/me', { allowStatuses: [401] }),
+  // Short-lived token for authenticating a direct Socket.IO connection. 401 for
+  // non-admins (public watchers connect without a token).
+  getRealtimeToken: () => request('/api/realtime/token', { allowStatuses: [401] }),
   submitRepSubmission: (formData) =>
     request('/api/submissions', {
       method: 'POST',
