@@ -38,12 +38,18 @@ export function useTicketPresence({ openId, currentUsername }) {
     return () => socket.off('ticket:presence', onPresence);
   }, [openId]);
 
-  // Announce enter on open, leave on close / id change.
+  // Announce enter on open, leave on close / id change. Presence is tracked per
+  // socket connection server-side and wiped on disconnect, so re-announce on
+  // every (re)connect — otherwise a network blip silently drops the soft-lock
+  // while the modal is still open.
   useEffect(() => {
     if (!openId) return undefined;
     const socket = getSocket();
-    socket.emit('ticket:enter', { submissionId: openId });
+    const announce = () => socket.emit('ticket:enter', { submissionId: openId });
+    announce();
+    socket.on('connect', announce);
     return () => {
+      socket.off('connect', announce);
       socket.emit('ticket:leave', { submissionId: openId });
       setHolder(null);
     };

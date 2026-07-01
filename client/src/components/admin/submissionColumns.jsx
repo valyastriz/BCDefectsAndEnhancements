@@ -124,6 +124,9 @@ export const COLUMN_DEFS = {
     renderCell: (row, ctx) => (
       <td data-label="JIRA Card #" style={{ minWidth: 140 }}>
         <input
+          // Remount when the row value changes so live updates from other
+          // admins show up (defaultValue only applies on mount).
+          key={row.jira_number || ''}
           className="bs-inline-input"
           aria-label={`Update JIRA number for #${row.id}`}
           defaultValue={row.jira_number || ''}
@@ -132,13 +135,13 @@ export const COLUMN_DEFS = {
           onClick={(e) => e.stopPropagation()}
           onKeyDown={(e) => {
             e.stopPropagation();
-            if (e.key === 'Enter') {
-              ctx.updateJiraQuick(row.id, e.currentTarget.value.trim());
-            }
+            // Delegate to onBlur so Enter followed by blur can't double-submit.
+            if (e.key === 'Enter') e.currentTarget.blur();
           }}
           onBlur={(e) => {
             e.stopPropagation();
-            ctx.updateJiraQuick(row.id, e.currentTarget.value.trim());
+            const next = e.currentTarget.value.trim();
+            if (next !== (row.jira_number || '')) ctx.updateJiraQuick(row.id, next);
           }}
         />
       </td>

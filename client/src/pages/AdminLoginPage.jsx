@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
+import { resetSocket } from '../lib/socket';
 import { Button, Card, Input, Notice } from '../components/bite-size/BitsizeUI';
 
 export function AdminLoginPage({ user, onLogin }) {
@@ -20,6 +21,9 @@ export function AdminLoginPage({ user, onLogin }) {
     try {
       setLoading(true);
       const data = await api.login(username, password);
+      // Reconnect the socket so the server re-authenticates it as an admin
+      // (rooms and presence handlers are assigned at connect time).
+      resetSocket();
       onLogin(data.user);
       navigate('/admin');
     } catch (loginError) {

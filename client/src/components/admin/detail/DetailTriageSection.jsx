@@ -1,12 +1,12 @@
 import { Input, Select, Textarea } from '../../bite-size/BitsizeUI';
-import { STATUS_TO_CLEANUP } from '../../../constants/adminConstants';
+import { CLEANUP_ONLY_STATUS, STATUS_TO_CLEANUP } from '../../../constants/adminConstants';
 import {
   formatMetaTypeLabel,
   formatCreatedViaLabel,
   isAutoEasyVistaReporter,
 } from '../../../utils/formatUtils';
 
-const cleanupOnlyStatus = '⛏ Cleanup Only';
+const cleanupOnlyStatus = CLEANUP_ONLY_STATUS;
 const statusToCleanup = STATUS_TO_CLEANUP;
 
 /**

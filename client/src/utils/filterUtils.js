@@ -43,11 +43,18 @@ export function buildDefaultFilters() {
 export function resetFilterValues(filters, keys) {
   if (!Array.isArray(keys) || keys.length === 0) return filters;
   const defaults = buildDefaultFilters();
+  let changed = false;
   const next = { ...filters };
   for (const key of keys) {
-    if (key in defaults) next[key] = defaults[key];
+    if (!(key in defaults)) continue;
+    if (JSON.stringify(next[key]) !== JSON.stringify(defaults[key])) {
+      next[key] = defaults[key];
+      changed = true;
+    }
   }
-  return next;
+  // Same reference when nothing changed, so setFilters(resetFilterValues(...))
+  // doesn't retrigger filter effects needlessly.
+  return changed ? next : filters;
 }
 
 /**

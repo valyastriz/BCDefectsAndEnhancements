@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
+import { resetSocket } from '../lib/socket';
 import { Card, Notice } from '../components/bite-size/BitsizeUI';
 
 // ── Constants & utilities ───────────────────────────────────────────────────
@@ -149,16 +150,21 @@ export function AdminDashboardPage({ user, onLogout }) {
   const viewPrefs = useAdminViewPreferences();
   const [customizeOpen, setCustomizeOpen] = useState(false);
 
-  // Save the customized view; clear values of any filter that is now hidden so a
-  // hidden control can't silently constrain the table.
   const handleViewSave = useCallback((next) => {
     viewPrefs.saveView(next);
-    const hiddenKeys = DEFAULT_VISIBLE_FILTER_KEYS.filter((key) => !next.filters.includes(key));
+    setCustomizeOpen(false);
+  }, [viewPrefs]);
+
+  // A hidden filter must never silently constrain the table. Filter values are
+  // restored from this browser's localStorage while the visible-filter set comes
+  // from the server, so reconcile whenever the visible set resolves or changes
+  // (covers save-time too — saveView updates viewPrefs.filters optimistically).
+  useEffect(() => {
+    const hiddenKeys = DEFAULT_VISIBLE_FILTER_KEYS.filter((key) => !viewPrefs.filters.includes(key));
     if (hiddenKeys.length > 0) {
       setFilters((prev) => resetFilterValues(prev, hiddenKeys));
     }
-    setCustomizeOpen(false);
-  }, [viewPrefs]);
+  }, [viewPrefs.filters]);
 
   // ── Custom hooks ──────────────────────────────────────────────────────────
   const meta = useAdminMeta({ setFilters, setNotice });
@@ -394,6 +400,9 @@ export function AdminDashboardPage({ user, onLogout }) {
 
   async function logout() {
     await api.logout();
+    // Drop the admin-authenticated socket so this browser stops receiving
+    // admin-only events and releases any ticket presence it holds.
+    resetSocket();
     onLogout();
   }
 
@@ -467,7 +476,6 @@ export function AdminDashboardPage({ user, onLogout }) {
           setPageSize={setPageSize}
           filters={filters}
           setFilters={setFilters}
-          loadRows={loadRows}
           openDetail={openDetail}
           orderedVisibleColumns={viewPrefs.orderedVisibleColumns}
           updateStatusQuick={updateStatusQuick}

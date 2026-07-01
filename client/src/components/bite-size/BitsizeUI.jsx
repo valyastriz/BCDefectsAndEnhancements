@@ -169,13 +169,32 @@ export function Badge({ value, tone, children }) {
   return <span className={`bs-badge ${modifier}`.trim()}>{content}</span>;
 }
 
+// Stack of currently-open modals so Escape only closes the topmost one — e.g.
+// an attachment preview over the detail modal must not close both at once.
+const openModalStack = [];
+
 export function Modal({ open, onClose, title, headerActions, children }) {
+  // Mirror onClose into a ref so the stack effect depends only on `open` —
+  // stack order must follow open order, not re-render order.
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
   useEffect(() => {
     if (!open) return;
-    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    const onKey = (e) => {
+      if (e.key === 'Escape' && openModalStack[openModalStack.length - 1] === onKey) {
+        onCloseRef.current();
+      }
+    };
+    openModalStack.push(onKey);
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [open, onClose]);
+    return () => {
+      const index = openModalStack.indexOf(onKey);
+      if (index !== -1) openModalStack.splice(index, 1);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
 
   if (!open) return null;
   return (

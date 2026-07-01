@@ -88,7 +88,12 @@ function initSocket(server, sessionMiddleware) {
       socket.data.user = tokenUser;
       return next();
     }
-    sessionMiddleware(socket.request, {}, () => {
+    sessionMiddleware(socket.request, {}, (err) => {
+      if (err) {
+        console.error('Socket session lookup failed:', err.message || err);
+        socket.data.user = null;
+        return next();
+      }
       socket.data.user = socket.request?.session?.user || null;
       next();
     });

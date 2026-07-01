@@ -33,3 +33,13 @@ export function getSocket() {
 
   return socket;
 }
+
+// Force a fresh handshake. The server decides the socket's role (admins room,
+// ticket presence handlers) only at connect time, so call this after login or
+// logout — otherwise an anonymous socket keeps missing admin events after
+// login, and a logged-out admin keeps receiving them.
+export function resetSocket() {
+  if (!socket) return;
+  socket.disconnect();
+  socket.connect();
+}

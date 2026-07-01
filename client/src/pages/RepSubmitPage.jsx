@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { api } from '../lib/api';
 import { Button, Card, Input, Modal, Notice, Select, Textarea } from '../components/bite-size/BitsizeUI';
 
@@ -34,6 +34,15 @@ export function RepSubmitPage() {
   const [saving, setSaving] = useState(false);
   const [submittedId, setSubmittedId] = useState(null);
   const [previewImage, setPreviewImage] = useState(null);
+  const [fileUrls, setFileUrls] = useState([]);
+
+  // One object URL per attached file, revoked whenever the list changes or the
+  // page unmounts — creating them inline in render leaks a new URL per keystroke.
+  useEffect(() => {
+    const urls = files.map((file) => URL.createObjectURL(file));
+    setFileUrls(urls);
+    return () => urls.forEach((url) => URL.revokeObjectURL(url));
+  }, [files]);
 
   const isDefect = form.type === 'defect';
   const isEnhancement = form.type === 'enhancement';
@@ -221,7 +230,8 @@ export function RepSubmitPage() {
           {files.length > 0 && (
             <div className="thumb-grid">
               {files.map((file, index) => {
-                const url = URL.createObjectURL(file);
+                const url = fileUrls[index];
+                if (!url) return null;
                 return (
                   <article key={`${file.name}-${file.size}-${index}`} className="thumb-item">
                     <button type="button" className="thumb-open-btn" onClick={() => setPreviewImage(url)}>

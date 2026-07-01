@@ -107,6 +107,15 @@ export function useDetailModal({ loadRows, setRows, setError, currentUsername })
           } catch { /* ignore malformed draft */ }
         }
         setRecoverableDraft(recoverable);
+      } else if (!hasPendingRef.current) {
+        // Live refresh for a pure viewer (no unsaved edits): adopt the fresh
+        // version as the new edit base. Keeping the stale snapshot would make
+        // the form show outdated values and a follow-up Save would silently
+        // revert the other admin's change.
+        const editable = editableFromDetail(data);
+        setEdit(editable);
+        baseEditRef.current = editable;
+        baseUpdatedAtRef.current = data?.updated_at ?? null;
       }
       setOpenId(id);
       return data;
@@ -431,7 +440,10 @@ export function useDetailModal({ loadRows, setRows, setError, currentUsername })
       const draftPayload = hasPendingModalChanges(detail, edit) ? buildAdminUpdatePayload(edit) : null;
 
       if (!isResubmit && draftPayload) {
-        await api.updateAdminSubmission(openId, buildAdminUpdatePayload(edit));
+        await api.updateAdminSubmission(openId, {
+          ...draftPayload,
+          base_updated_at: baseUpdatedAtRef.current,
+        });
       }
 
       const result = await api.submitToEasyVista(

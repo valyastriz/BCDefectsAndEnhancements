@@ -27,7 +27,7 @@ const {
   calculateOccurrenceRate,
 } = require('../helpers/utils');
 const { SUBMISSION_INSERT_COLUMNS, buildInsertPayload } = require('../helpers/submissionInsert');
-const { mapSubmission } = require('../helpers/mappers');
+const { mapSubmission, mapPublicSubmission } = require('../helpers/mappers');
 const { emitAdminNotification, emitPublicUpdate } = require('../socket');
 const { submitToEasyVista } = require('../easyvista');
 
@@ -875,9 +875,21 @@ async function updateAdminSubmission(db, { id, body, username }) {
     occurrence_rate: calculateOccurrenceRate(next.occurrence_count, next.occurrence_timeframe_count, next.occurrence_timeframe),
   };
 
-  await Submission.update(updatePayload, {
-    where: { id: Number(id) },
-  });
+  // Repeat the optimistic-concurrency check inside the UPDATE's WHERE so two
+  // admins who both passed the read-time check can't both write: whichever
+  // update lands second matches 0 rows and gets the same 409 conflict.
+  const updateWhere = body.base_updated_at
+    ? { id: Number(id), updated_at: rawExisting.updated_at }
+    : { id: Number(id) };
+  const [changedRows] = await Submission.update(updatePayload, { where: updateWhere });
+  if (body.base_updated_at && changedRows === 0) {
+    const current = await Submission.findByPk(Number(id), { raw: true });
+    return {
+      status: 409,
+      error: 'This item was changed by someone else while you had it open.',
+      body: { conflict: true, currentUpdatedAt: current?.updated_at ?? null },
+    };
+  }
 
   const statusChanged = String(next.status || '') !== String(existing.status || '');
   const retiredStateChanged = Boolean(next.is_retired) !== Boolean(existing.is_retired);
@@ -1022,7 +1034,9 @@ async function updateAdminSubmission(db, { id, body, username }) {
   const saved = await getSubmissionByIdWithLookups(db, id);
   emitAdminNotification('submission:updated', { ...mapSubmission(saved), updatedBy: username || null });
   if (saved.is_public) {
-    emitPublicUpdate(mapSubmission(saved));
+    // Public watchers include unauthenticated sockets — send only the
+    // allow-listed fields, same as the public REST endpoints.
+    emitPublicUpdate(mapPublicSubmission(saved));
   }
 
   return { status: 200, body: mapSubmission(saved) };

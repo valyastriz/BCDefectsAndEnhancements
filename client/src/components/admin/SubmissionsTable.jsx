@@ -22,7 +22,6 @@ export function SubmissionsTable({
   setPageSize,
   filters,
   setFilters,
-  loadRows,
   openDetail,
   orderedVisibleColumns,
   updateStatusQuick,
@@ -54,9 +53,9 @@ export function SubmissionsTable({
     if (filters.sort === asc) nextSort = desc;
     else if (filters.sort === desc) nextSort = asc;
     else nextSort = numericFirst.includes(colKey) ? desc : asc;
-    const nextFilters = { ...filters, sort: nextSort };
-    setFilters(nextFilters);
-    loadRows(nextFilters);
+    // The page's filters effect reloads the table; calling loadRows here too
+    // would double-fetch on every sort click.
+    setFilters({ ...filters, sort: nextSort });
   }
 
   function sortTh(colKey, label, style) {
