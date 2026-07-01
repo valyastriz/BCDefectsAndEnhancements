@@ -1,9 +1,10 @@
 import { Button, Notice } from '../../bite-size/BitsizeUI';
 import { SaveWithTooltip } from './SaveWithTooltip';
+import { buildRespondToUserMailto } from '../../../utils/formatUtils';
 
 /**
- * Footer actions row (Save / Retire-Unretire / Submit-to-EasyVista) plus the
- * trailing notices.
+ * Footer actions row (Save / Retire-Unretire / Respond-to-User /
+ * Submit-to-EasyVista) plus the trailing notices.
  */
 export function DetailActions({
   detail,
@@ -20,6 +21,7 @@ export function DetailActions({
   modalBottomNotice,
   easyVistaConfirmation,
 }) {
+  const respondMailto = buildRespondToUserMailto(detail);
   return (
     <>
       {/* ── Actions ── */}
@@ -49,6 +51,12 @@ export function DetailActions({
             Retire Item
           </Button>
         )}
+        <Button
+          kind="secondary"
+          onClick={() => { window.location.href = respondMailto; }}
+        >
+          Respond to User
+        </Button>
         <Button
           kind="secondary"
           onClick={submitEasyVista}

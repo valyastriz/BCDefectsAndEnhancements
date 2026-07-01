@@ -125,6 +125,50 @@ export function formatTimeAgo(value) {
 }
 
 /**
+ * Extract a usable requester email from a submission, or '' if absent.
+ * (created_by_email is stored as '-' when the form was submitted without one.)
+ */
+export function getRequesterEmail(detail) {
+  const email = String(detail?.created_by_email || '').trim();
+  return email.includes('@') ? email : '';
+}
+
+/**
+ * Build a mailto: URL that opens a prefilled draft responding to the
+ * requester of a submission. When no usable email is on file the recipient
+ * is left blank for the admin to fill in. mailto bodies are plain text
+ * only, so this stays compact — key identifiers, not the full submission
+ * narrative.
+ */
+export function buildRespondToUserMailto(detail) {
+  const email = getRequesterEmail(detail);
+
+  const typeLabel = formatMetaTypeLabel(detail.type) || 'Submission';
+  const summary = String(detail.summary_of_issue || '').trim();
+  const subject = `RE: ${typeLabel} Submission #${detail.id}${summary ? ` - ${summary}` : ''}`;
+
+  const referenceLines = [
+    `Application: ${detail.application_name || 'N/A'}`,
+    `Submitted: ${formatDateOnly(detail.created_at)}`,
+  ];
+  if (detail.policy_num) referenceLines.push(`Policy #: ${detail.policy_num}`);
+  if (detail.account_num) referenceLines.push(`Account #: ${detail.account_num}`);
+  if (detail.easyvista_ticket_id) referenceLines.push(`EasyVista Ticket: ${detail.easyvista_ticket_id}`);
+
+  const body = [
+    `Hi ${detail.created_by || 'there'},`,
+    '',
+    `I'm reaching out regarding your ${typeLabel.toLowerCase()} submission #${detail.id}${summary ? `: "${summary}"` : ''}.`,
+    '',
+    ...referenceLines,
+    '',
+    '',
+  ].join('\r\n');
+
+  return `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+}
+
+/**
  * Format a timeline status value into a display-friendly label.
  * Requires the dynamic status sets from meta to classify unknown values.
  * @param {string} statusValue - The raw status string
