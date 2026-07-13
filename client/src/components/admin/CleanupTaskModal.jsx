@@ -290,11 +290,7 @@ export function CleanupTaskModal({
           <label className="bs-field">
             <span>
               {cleanupForm.cleanup_tag_type === 'defect'
-                ? (
-                  cleanupRequiresEasyVistaFields
-                    ? 'Screenshots (required for EasyVista Defect submission)'
-                    : 'Screenshots (optional unless submitting to EasyVista)'
-                )
+                ? 'Screenshots (optional, strongly encouraged)'
                 : 'Supporting files (optional)'}
             </span>
             <input

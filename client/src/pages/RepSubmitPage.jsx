@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api } from '../lib/api';
 import { Button, Card, Input, Modal, Notice, Select, Textarea } from '../components/bite-size/BitsizeUI';
 
@@ -35,6 +35,8 @@ export function RepSubmitPage() {
   const [submittedId, setSubmittedId] = useState(null);
   const [previewImage, setPreviewImage] = useState(null);
   const [fileUrls, setFileUrls] = useState([]);
+  const [confirmNoScreenshots, setConfirmNoScreenshots] = useState(false);
+  const formRef = useRef(null);
 
   // One object URL per attached file, revoked whenever the list changes or the
   // page unmounts — creating them inline in render leaks a new URL per keystroke.
@@ -79,17 +81,12 @@ export function RepSubmitPage() {
     setFiles((prev) => prev.filter((_, i) => i !== index));
   }
 
-  async function onSubmit(event) {
+  function onSubmit(event) {
     event.preventDefault();
     setError('');
     setSubmittedId(null);
 
     const isBlank = (v) => String(v ?? '').trim().length === 0;
-
-    if (isDefect && files.length < 1) {
-      setError('At least one screenshot is required for defects.');
-      return;
-    }
 
     const missing = [];
     if (isBlank(form.created_by)) missing.push('Requester Name');
@@ -108,6 +105,15 @@ export function RepSubmitPage() {
       return;
     }
 
+    if (isDefect && files.length < 1) {
+      setConfirmNoScreenshots(true);
+      return;
+    }
+
+    submitForm();
+  }
+
+  async function submitForm() {
     try {
       setSaving(true);
       const formData = new FormData();
@@ -126,7 +132,7 @@ export function RepSubmitPage() {
       setSubmittedId(result.id);
       setForm(initialForm);
       setFiles([]);
-      event.target.reset();
+      formRef.current?.reset();
     } catch (submitError) {
       setError(submitError.message);
     } finally {
@@ -159,7 +165,7 @@ export function RepSubmitPage() {
       </div>
 
       <Card>
-        <form className="bs-form" onSubmit={onSubmit}>
+        <form ref={formRef} className="bs-form" onSubmit={onSubmit}>
 
           {/* ── Request type toggle ── */}
           <div className="bs-field">
@@ -200,10 +206,11 @@ export function RepSubmitPage() {
               <Textarea label="Steps to Reproduce" rows={3} value={form.steps_to_reproduce} onChange={(e) => updateField('steps_to_reproduce', e.target.value)} />
               <Textarea label="What Happened? (Exact Details)" rows={4} required value={form.what_happened_exact_details} onChange={(e) => updateField('what_happened_exact_details', e.target.value)} />
 
-              <p className="section-label">Screenshots <em className="bs-required">*</em></p>
+              <p className="section-label">Screenshots (strongly encouraged)</p>
               <label className="bs-field">
                 <input type="file" accept="image/*" multiple onChange={onFileChange} />
                 <span className="muted" style={{ fontSize: '12px' }}>{files.length}/3 selected — click a thumbnail to preview</span>
+                <span className="muted" style={{ fontSize: '12px' }}>Screens change over time — a screenshot makes it far more likely developers can see and reproduce the issue.</span>
               </label>
             </>
           )}
@@ -259,6 +266,34 @@ export function RepSubmitPage() {
 
       <Modal open={Boolean(previewImage)} onClose={() => setPreviewImage(null)} title="Image Preview">
         {previewImage && <img className="bs-preview-image" src={previewImage} alt="Preview" />}
+      </Modal>
+
+      <Modal
+        open={confirmNoScreenshots}
+        onClose={() => setConfirmNoScreenshots(false)}
+        title="Submit Without Screenshots?"
+      >
+        <p>
+          Screenshots are strongly encouraged for defects. Screens change over time, and without
+          one, developers may not be able to see what the issue looked like — which dramatically
+          reduces the chances of reproducing and fixing it.
+        </p>
+        <div className="bs-actions">
+          <Button type="button" onClick={() => setConfirmNoScreenshots(false)}>
+            Go Back &amp; Add Screenshots
+          </Button>
+          <Button
+            kind="ghost"
+            type="button"
+            disabled={saving}
+            onClick={() => {
+              setConfirmNoScreenshots(false);
+              submitForm();
+            }}
+          >
+            Submit Anyway
+          </Button>
+        </div>
       </Modal>
     </div>
   );

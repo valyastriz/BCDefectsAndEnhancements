@@ -102,9 +102,6 @@ export function useCleanupModal({ user, loadRows, setNotice }) {
       if (!String(cleanupForm.date_of_error || '').trim()) {
         missing.push('Date of Error');
       }
-      if (cleanupFiles.length < 1) {
-        missing.push('At least one screenshot');
-      }
     }
 
     if (requiresEasyVistaFields && isEnhancementTagged) {

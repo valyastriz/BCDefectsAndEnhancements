@@ -76,10 +76,6 @@ router.post('/api/submissions', imageUpload.array('attachments', 3), async (req,
       });
     }
 
-    if (!req.files || req.files.length < 1) {
-      return res.status(400).json({ error: 'At least one screenshot is required for defects' });
-    }
-
     normalized = {
       ...normalized,
       application_name: normalized.application_name || 'Billing Center',
