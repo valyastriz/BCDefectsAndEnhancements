@@ -207,8 +207,8 @@ export function RepSubmitPage() {
               <Textarea label="What Happened? (Exact Details)" rows={4} required value={form.what_happened_exact_details} onChange={(e) => updateField('what_happened_exact_details', e.target.value)} />
 
               <p className="section-label">Screenshots (strongly encouraged)</p>
-              <p className="muted" style={{ fontSize: '12px', marginTop: 0 }}>Screens change over time — a screenshot makes it far more likely developers can see and reproduce the issue.</p>
               <label className="bs-field">
+                <span className="muted" style={{ fontSize: '12px', margin: 0 }}>Screens change over time — a screenshot makes it far more likely developers can see and reproduce the issue.</span>
                 <input type="file" accept="image/*" multiple onChange={onFileChange} />
                 <span className="muted" style={{ fontSize: '12px' }}>{files.length}/3 selected — click a thumbnail to preview</span>
               </label>
