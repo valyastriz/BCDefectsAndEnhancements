@@ -208,7 +208,7 @@ export function RepSubmitPage() {
 
               <p className="section-label">Screenshots (strongly encouraged)</p>
               <label className="bs-field">
-                <span className="muted" style={{ fontSize: '12px', margin: 0 }}>Screens change over time — a screenshot makes it far more likely developers can see and reproduce the issue.</span>
+                <span className="muted" style={{ fontSize: '12px', margin: 0, color: 'var(--color-muted)', fontWeight: 400 }}>Screens change over time — a screenshot makes it far more likely developers can see and reproduce the issue.</span>
                 <input type="file" accept="image/*" multiple onChange={onFileChange} />
                 <span className="muted" style={{ fontSize: '12px' }}>{files.length}/3 selected — click a thumbnail to preview</span>
               </label>
