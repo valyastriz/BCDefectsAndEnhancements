@@ -1,152 +1,97 @@
 ---
 name: state-management-specialist
-description: "Use when building or refactoring React features that involve local state, shared state, derived state, async UI state, or cross-component coordination and the implementation should stay predictable, minimal, and easy to maintain. Helps the agent keep state as local as possible, avoid unnecessary global state, reduce prop drilling through better component boundaries, prevent duplicated state, and align with the project's existing state management approach using js and jsx."
+description: "Use when designing or refactoring React state: local vs shared ownership, derived state, async request state, server-mirrored data, live websocket reconciliation, or cross-component coordination. Owns state correctness (single source of truth, race safety, live updates) and state performance at scale. Not for backend work or pure UI layout."
 ---
 
 # State Management Specialist
 
 ## Purpose
 
-Use this skill when working on React features where state design affects maintainability, clarity, render behavior, or coordination between components.
+Keep React state minimal, predictable, and correct under live data: the smallest ownership scope that works, one source of truth per fact, server-mirrored state that stays live, and state that stays fast as collections grow.
 
-This skill makes the agent choose the right state ownership model, keep state minimal, and avoid introducing unnecessary complexity.
+Portable across projects. Check the project's root `CLAUDE.md` and its `store/` directory for the concrete stack before choosing — never introduce a new state library or a parallel Context provider when the established patterns cover the need.
 
 ## Use This Skill When
 
-- Adding state to a new React feature
-- Refactoring messy or duplicated state
-- Deciding between local state and shared state
-- Reducing prop drilling in a growing component tree
-- Cleaning up derived state and render logic
-- Improving maintainability in state-heavy UI flows
-- Aligning feature state with the project's established patterns
-- Managing UI state around async data, filters, forms, modals, or selection
+- Adding or restructuring state for a feature (local, shared, derived, async)
+- Wiring server data into components, including live/websocket-updated data
+- Fixing duplicated state, prop-drilling, stale data, or render thrash
 
 ## Do Not Use This Skill When
 
-- Making a tiny static UI change with no state concerns
-- Editing purely backend code
-- Introducing a new state tool when the existing project approach is already sufficient
-- Storing values that can be derived cheaply from existing inputs
+- Static UI changes with no state concerns
+- Backend-only work
 
-## Behavior
+## Step 0 — Inventory Before Adding Or Moving Any State
 
-When this skill is active, follow these rules:
+LOAD the operating-discipline skill first and fill its templates from its text, not from memory. Before **adding**, refactoring, moving, or de-duplicating any state, write the affected-surfaces inventory per operating-discipline §1–2: grep the field name, the API path, and the slice/store key to prove the fact has no existing home; list **every holder, reader, and writer of the fact with file:line**. New state is where duplication is most often introduced — for it the inventory may be short, but it is written anyway (the Verify re-grep below depends on it existing). The work is not planned until the inventory exists. Verify assumptions about the project's stack against the code, not memory.
 
-1. Keep state as local as possible.
-2. Elevate state only when multiple consumers truly need shared ownership.
-3. Follow the project's existing state management approach.
-4. Do not introduce global state for convenience alone.
-5. Avoid storing values that can be derived from existing state or props.
-6. Keep state shape minimal, explicit, and predictable.
-7. Reduce unnecessary re-renders caused by poor ownership or unstable updates.
-8. Prefer clearer component boundaries before adding more state plumbing.
-9. Use js and jsx conventions for frontend code.
-10. Make state transitions easy to trace.
+**Order of concerns**: correctness/staleness → race safety → persistence leaks → performance. Never fix a lower tier while a higher one is open, and never memoize your way around a duplicated source of truth.
 
-## Workflow
+## The House Stack (confirm per project)
 
-### 1. Identify the State Types
+- **Cross-page/app state** → the project's Redux Toolkit slices (`store/slices`); redux-persist is for UI preferences **only** — never server data (persisted stale data breaks live-update guarantees).
+- **Server data** → a feature-level hook over the project's shared axios client, plus a live subscription through the project's ws handler registry (createModelHook-style per-model hooks where present).
+- **Local UI state** → `useState`/`useReducer` in the owning component.
 
-Before coding, classify the state involved, such as:
+## Ownership Rules
 
-- local UI state
-- form state
-- filter state
-- loading state
-- error state
-- selected item state
-- modal or drawer state
-- async request state
-- shared feature state
-- derived display state
+1. Decide ownership by **counting consumers** — no judgment calls:
+   - 1 component → `useState`/`useReducer` in that component.
+   - 2+ consumers under one parent → lift to the nearest common ancestor; pass props.
+   - Consumed across route/layout boundaries, or must survive navigation → store slice.
+   - Mirrors a server record → the server-data hook (rule 5) is its only client-side home — never a second copy.
+2. One source of truth per fact. **Server-mirrored data has exactly one client-side home** — two sibling components each holding a copy of the same record is the textbook staleness bug; lift it to the container.
+3. Don't store what you can derive from props/state/fetched data — compute it. Carve-outs: expensive derivations may be memoized deliberately, and one-time snapshots (form initial values, drag-start positions) are legitimate stored state.
+4. Keep state shape minimal and flat; child components receive only the state and handlers they need.
 
-### 2. Choose the Right Ownership Level
+## Live Data Rules
 
-Use the smallest ownership scope that fits the feature:
+5. Any state mirroring server data MUST subscribe to that model's live events via the project's handler registry and reconcile created/updated/deleted pushes **in place**. Fetch-on-mount with no subscription is incomplete work.
+6. After a local mutation, reconcile from the confirming ws event or apply the server's returned record — never leave pre-mutation data showing, and never refetch the whole collection when a surgical patch works.
+7. If the domain has no ws handler yet, add one — never poll. Procedure: grep the project's ws layer for an existing model's handler registration; read the nearest existing handler end-to-end; mirror its registration, event names, and reconcile shape; state in your report which handler you mirrored, with its path.
 
-- keep truly local UI state inside the component that owns it
-- lift state only when multiple children need coordinated access
-- use shared state only when multiple distant parts of the feature require synchronization
-- avoid moving state upward without a clear reason
+## Async Completeness
 
-### 3. Avoid Duplicated State
+8. Every async request models loading, error, and empty explicitly, and each branch renders something intentional (skeleton / translated retry-able error / empty state — rendering details: react-ui-builder). No undefined-data renders, no spinner that can never resolve.
+9. Guard against races: a stale response must not overwrite newer state. **Any effect whose params can change while a request is in flight gets one of these two patterns — no exceptions:**
 
-Before storing something, check whether it can be derived from:
+   ```js
+   useEffect(() => {
+     const ctrl = new AbortController();
+     fetchThing(params, { signal: ctrl.signal })
+       .then(setThing)
+       .catch((e) => { if (e.name !== 'AbortError') setError(e); });
+     return () => ctrl.abort(); // cancels on unmount AND on param change
+   }, [params]);
+   ```
 
-- props
-- existing state
-- fetched data
-- route state
-- current selection
-- computed values already available
+   If the request can't be aborted, use a sequence check: increment a `requestIdRef` per request, capture the value before awaiting, and compare before every `setState` — apply only if still the latest.
+10. Optimistic updates are permitted (not required) where the mutation is trivially reversible and single-owner — with rollback and a visible error on failure, reconciling to the confirming ws event when it arrives.
 
-If it can be derived reliably, do not store it separately.
+## State at Scale
 
-### 4. Keep State Predictable
+11. Store selected **ids**, not copies of item objects.
+12. Keep pagination/filter/sort **params** as state and let the server do the work — never load whole collections into client state to filter locally.
+13. Memoized selectors (`createSelector`) for derived values read from the store; stable references for handlers passed into large lists.
 
-When designing state:
+## Cross-Tab Note
 
-- use clear names
-- keep the shape simple
-- avoid hidden coupling between unrelated values
-- avoid unnecessary nesting
-- make updates understandable at a glance
+Persisted UI preferences don't sync across tabs. Settings that must be consistent everywhere belong in server-backed user settings (find the project's user-settings API), not persisted slices.
 
-### 5. Reduce Render Problems
+## Verify Before Finishing
 
-Before finalizing:
+Per the `CLAUDE.md` definition of done, plus: two-window check for any server-mirrored state (mutate in one, the other reconciles without refresh); force a failed mutation and observe rollback/error; re-run the step-0 grep to confirm no duplicated source of truth survived or was introduced; on a sizable state restructure, run the operating-discipline §6 critique pass. Report each item **pass / fail / not run** — never imply a skipped check passed (operating-discipline §6–7).
 
-- check whether state is owned higher than necessary
-- check whether prop drilling can be reduced through better composition
-- check whether re-renders are caused by poor ownership boundaries
-- check whether multiple values are duplicating the same source of truth
-- check whether the state model matches nearby project patterns
+## Anti-Patterns — STOP mid-work and re-check when you catch yourself doing any of these
 
-## Preferred Approach
-
-Good state structure usually looks like this:
-
-- local visibility state stays with the component that owns the UI
-- shared filter state lives at the feature composition level when multiple child components use it
-- fetched data stays aligned with the project's data-fetching pattern
-- derived display values are computed instead of stored again
-- child components receive only the state and handlers they actually need
-
-## Signs the State Design Needs Work
-
-A feature likely needs state cleanup when:
-
-- multiple components store the same truth in different places
-- prop chains are too deep and hard to follow
-- unrelated UI parts rerender because state is owned too high
-- booleans and flags are multiplying without clear meaning
-- values are stored even though they can be derived
-- the feature uses multiple competing state patterns without reason
-
-## Output Expectations
-
-Good outcomes from this skill look like:
-
-- simpler state ownership
-- fewer duplicated values
-- cleaner component boundaries
-- less unnecessary global state
-- easier-to-follow updates
-- more predictable render behavior
-
-## Anti-Patterns
-
-Avoid these mistakes:
-
-- putting page-local UI state into app-wide shared state
-- storing derived values as separate state without need
-- lifting state higher than required
-- using global state to avoid small refactors
-- creating multiple sources of truth
-- passing large state objects through many component levels without need
-- introducing a new state library or pattern that conflicts with the existing codebase
+- Server data copied into `useState` with no subscription, or mirrored into redux-persist
+- Two components separately fetching/holding the same record
+- A new Context/Zustand/SWR layer beside the established stack
+- Storing derived values that drift from their source; deep prop chains instead of composition
+- Loading a whole table client-side to filter it
+- Adding or refactoring state whose existing holders you never inventoried (step 0 skipped)
 
 ## Final Rule
 
-If state does not need to be shared, keep it local. If a value can be derived, do not store it. Keep the state model as small and predictable as possible.
+State that isn't shared stays local; a fact has one home; server-mirrored state is live-subscribed or it's incomplete; and state design must survive both a failed request and 10,000 rows.

@@ -1,152 +1,98 @@
 ---
 name: security-minded-developer
-description: "Use when implementing or reviewing React or Node code that touches authentication, authorization, API endpoints, forms, file uploads, secrets, user data, or any flow where insecure code could create vulnerabilities or data exposure. Helps the agent apply secure defaults, validate and sanitize inputs, enforce permission checks, avoid leaking sensitive data, and prefer safer implementations over convenient but risky ones."
+description: "Use when code touches authentication, authorization, permissions, tenant-scoped data, API endpoints handling user input, file uploads, secrets, tokens, or websocket broadcasts — and also when reviewing, auditing, or probing existing code for security issues (tenant leaks, IDOR, permission gaps). Owns permission middleware wiring, multi-tenant isolation, fail-closed error handling, upload safety, secret handling, and the security probe checklist. Not for purely visual changes with no data or permission impact."
 ---
 
 # Security-Minded Developer
 
 ## Purpose
 
-Use this skill when working on frontend or backend code that could introduce security risks if implemented carelessly.
+Apply the project's real enforcement mechanisms — not hand-rolled checks — so every change ships with explicit authorization, tenant isolation, safe data handling, and verified (not assumed) protections.
 
-This skill makes the agent apply secure defaults and actively look for common vulnerability patterns before writing or changing code.
+Portable across projects. Discover the project's concrete mechanisms first (middleware directory, `CLAUDE.md`); the house patterns below are standard across these apps — confirm presence, and if a mechanism is missing entirely, raise it before shipping unprotected code. LOAD the operating-discipline skill now, before Step 0, and fill its templates from its text, not from memory.
 
 ## Use This Skill When
 
-- Creating or updating API endpoints
-- Handling authentication or authorization
-- Working with forms and user-submitted input
-- Processing uploaded files
-- Storing, reading, or returning sensitive data
-- Integrating third-party APIs or webhooks
-- Working with tokens, sessions, cookies, or credentials
-- Reviewing code for security weaknesses
-- Creating database models that include sensitive fields or access patterns
+- Creating or changing API endpoints, auth flows, or permission logic
+- Handling user input, uploads, tokens, secrets, or sensitive fields
+- Emitting websocket broadcasts or caching authenticated responses
+- Reviewing or auditing existing code for security issues
 
 ## Do Not Use This Skill When
 
-- Making a purely visual UI change with no data or permission impact
-- Editing static content with no security relevance
-- Working on code paths that do not process user input, permissions, secrets, or sensitive data
+- Purely visual changes with no data, input, or permission impact
 
-## Behavior
+## Step 0 — Inventory the Security Surface (before any edit)
 
-When this skill is active, follow these rules:
+As part of the intake block (operating-discipline §1), list with file:line every surface the task touches or creates:
 
-1. Treat all external input as untrusted.
-2. Validate and sanitize request data where appropriate.
-3. Enforce authentication and authorization on the backend, not just in the UI.
-4. Do not trust client-side checks for security decisions.
-5. Avoid leaking secrets, internal implementation details, or sensitive data in logs, responses, or errors.
-6. Use least-privilege thinking when deciding access.
-7. Prefer secure defaults when multiple implementation choices exist.
-8. Check for common risks such as broken access control, injection, unsafe file handling, insecure direct object references, weak token handling, and overly verbose error responses.
-9. Keep secret values out of source code and out of frontend bundles.
-10. Make security part of the implementation, not an afterthought.
-11. Encrypt sensitive data at rest and in transit when possible, but do not rely on encryption alone to protect data if other vulnerabilities exist.
+1. Routes added or changed — and whether each has permission middleware or a `// public:` comment
+2. Every new or modified query on a tenant-owned table
+3. Every websocket broadcast
+4. Every point where external input crosses the boundary (body, params, query, headers, uploads)
 
-## Workflow
+This inventory is a deliverable and drives the probe checklist below — each probe runs against every item on it, not just the one route you were pointed at.
 
-### 1. Identify the Risk Surface
+## Authorization
 
-Check whether the task touches:
+1. Every new or modified route registers the project's permission middleware — house pattern: `requirePermission("<resource>", "<action>")` from `middleware/permissionMiddleware.js` — or carries `// public: <reason>` above it. Never hand-roll role checks inside controllers when middleware can express them; new resource/action pairs get registered in the project's RBAC config, not invented inline.
+2. Enforce on the backend. Client-side checks are UX, never security.
+3. **Fail closed.** Any error thrown while evaluating authentication, permission, or tenant ownership results in denial (401/403/404) — never in proceeding. An empty or logging-only `catch` in an auth or tenancy path is a STOP sign.
 
-- request bodies
-- query params
-- route params
-- headers
-- cookies
-- tokens
-- sessions
-- file uploads
-- user records
-- roles and permissions
-- secrets
-- third-party payloads
-- database values that contain sensitive data
+## Tenant Isolation (multi-tenant projects)
 
-### 2. Validate Inputs
+4. Check the models for a tenant column (house pattern: `company_id`, often `location_id`). Every query on a tenant-owned table filters by the authenticated tenant id (`req.user.company_id`) or verifies ownership through an association include — **never bare `findByPk(req.params.id)` on tenant data**. A valid id belonging to another tenant returns 404, never the record. This is the primary IDOR defense.
+5. **Websocket broadcasts leak by default**: the house `notifyClients` broadcasts to every authenticated client when the filter argument is omitted. Always pass a tenant filter (e.g. `{ company_id }`). A bare call is a cross-tenant data leak.
+6. Cached authenticated responses must be keyed by tenant scope + query string — never a tenant-blind cache key.
 
-Before processing external data:
+## Input & Uploads
 
-- validate required fields
-- validate types and allowed values
-- reject malformed input
-- sanitize only where needed and appropriate
-- avoid passing raw untrusted input into sensitive operations
+7. Treat all external input as untrusted: validate required fields, types, and allowed values at the request boundary; reject malformed input with 400s. Concretely: raw SQL takes only bound parameters (`replacements`/placeholders) — never template-string interpolation of input; file paths derived from input are server-side lookups of allowlisted ids — never joined/concatenated user-supplied paths; input never reaches shell-adjacent operations.
+8. Uploads: explicit size limits and a content-type allowlist on the upload middleware (house: multer), server-generated storage keys (never client filenames), and uploads are never executed or served from the app origin.
 
-### 3. Enforce Access Control
+## Secrets & Sensitive Data
 
-Before returning data or performing actions:
+9. Secrets live in backend env config only — never in source, frontend bundles, logs, or `plan.md`. Reuse the project's encryption helper (house: `backend/functions/encryption.js`); if it is absent, do NOT hand-roll ad-hoc crypto — flag the gap with the concrete risk and proceed only on the user's call.
+10. Responses return only needed fields — never full records with password/hash/token/internal fields; errors return safe messages, never stack traces or infrastructure details.
+11. Log security-relevant outcomes (rejected access, permission denials) through the project's shared logger with minimal safe context — never secrets, tokens, or raw sensitive payloads.
 
-- verify the user is authenticated when required
-- verify the user is authorized for the specific action
-- verify ownership or role requirements on the backend
-- avoid assuming the frontend already enforced access
+## Abuse Resistance
 
-### 4. Protect Sensitive Data
+12. Rate-limit auth, upload, and expensive endpoints (house dependency: express-rate-limit — confirm presence). If absent → do not silently skip and do not invent a substitute; flag the gap and its concrete risk (brute force, credential stuffing, cost blowup degrading all tenants) to the user and proceed only on their call.
 
-When handling responses, storage, logs, and errors:
+## Findings & Delegation
 
-- do not expose secrets
-- do not return unnecessary sensitive fields
-- do not leak internal stack or infrastructure details
-- keep logs useful without making them dangerous
-- encrypt sensitive data at rest and in transit when possible
+13. Every reported issue uses the operating-discipline §6 FINDING template (claim / evidence file:line / failure scenario / severity / proposed fix). The Severity field always carries operating-discipline §3's GLOBAL tier numbers — never a domain-local renumbering, so findings from different lenses merge and rank on one scale. Map this domain's categories onto that scale, and fix in this order — a lower-ranked fix never ships while a higher-ranked finding is open:
+    - Cross-tenant access or auth bypass → `Severity: 1 (tenancy/auth)`
+    - Sensitive-data exposure (secrets, tokens, over-returned fields, leaky logs/broadcasts) → `Severity: 1 (exposure)`
+    - Hardening gaps (rate limits, headers, defense-in-depth) → `Severity: 1 (hardening)` — ranked AFTER every confirmed tier 1–3 defect from any lens (a missing rate limit never blocks a correctness fix)
+14. A finding without a concrete failure scenario (these inputs/this state → this wrong outcome, held against the real code) doesn't count — default-refute it; label anything less a hunch.
+15. Security review at scale runs as context-lean-orchestrator's verification-fleet procedure (do not restate it — follow it there), with the final gate running this skill's probe checklist on the combined tree.
 
-### 5. Verify the Safer Path
+## Verification Before Finishing (all required, actually executed)
 
-Before finalizing:
+- [ ] Grep the touched route files: every route has the permission middleware or a `// public:` comment
+- [ ] Hit each new/changed endpoint unauthenticated → 401; as a user without the permission → 403
+- [ ] Request a record id belonging to a different tenant → 404, never the record
+- [ ] Inspect the actual response JSON: no password/hash/token/secret/stack/internal fields
+- [ ] Grep the frontend diff for server secrets or privileged config
+- [ ] If broadcasts were added: confirm each `notifyClients` call passes a tenant filter
+- [ ] If the task touched input parsing or raw SQL (rule 7): send one malformed payload and one injection-shaped payload (`' OR 1=1--` in a string field) → 400 rejection, never a 500 and never executed
+- [ ] If the task touched uploads (rule 8): post an oversize file and a disallowed content type → both rejected; post a filename containing path segments (`../../x`) → stored under a server-generated key, never the client path
 
-- check whether the implementation trusts user input too much
-- check whether access rules are enforced server-side
-- check whether sensitive data is overexposed
-- check whether the chosen implementation increases attack surface unnecessarily
+**Fixture rule** (operating-discipline §6): a probe missing its fixture (second tenant, unprivileged user) gets the fixture CREATED — seed script or direct insert — and run; only a genuinely impossible probe goes under `Not run: <probe> — <why>`, never in the passed list.
 
-## Frontend Expectations
+## STOP Signs — halt and re-check before continuing
 
-In React code:
+Universal list: operating-discipline §9. Domain triggers on top of it:
 
-- do not rely on hidden UI alone to protect sensitive actions
-- do not expose secret configuration in the client
-- handle auth-related state carefully
-- avoid unsafe rendering of untrusted content
-- treat client-side checks as UX, not security enforcement
-
-## Backend Expectations
-
-In Node code:
-
-- validate all incoming input
-- enforce authorization explicitly
-- use safe error responses
-- protect file handling paths
-- avoid insecure direct access to records without ownership checks
-- keep privileged operations behind clear rules
-- encrypt sensitive data and secrets at rest and in transit, but do not rely on encryption alone
-
-## Output Expectations
-
-Good outcomes from this skill look like:
-
-- validated input paths
-- explicit permission checks
-- minimal exposure of sensitive data
-- safer defaults in auth and API behavior
-- code that reduces the chance of common vulnerabilities
-
-## Anti-Patterns
-
-Avoid these mistakes:
-
-- trusting client-provided role or ownership data
-- checking authorization only in the UI
-- returning full objects when only a few fields are needed
-- logging secrets or tokens
-- exposing raw backend errors to clients
-- processing uploaded files without validation
-- assuming authenticated automatically means authorized
+- Hand-rolled role checks in controllers beside existing permission middleware
+- `findByPk(req.params.id)` on tenant data; 403-with-data instead of 404 for foreign ids
+- A `catch` in an auth/permission/ownership path that falls through to allow
+- Bare `notifyClients` calls; tenant-blind cache keys
+- Trusting client-provided role/ownership fields; auth checks only in the UI
+- Returning whole model instances; logging tokens; uploads with client-controlled names
 
 ## Final Rule
 
-If a choice is convenient but increases security risk, do not choose it. Use the safer implementation.
+Authorization is middleware-enforced, data is tenant-scoped, broadcasts are filtered, errors fail closed, and none of it counts until the 401/403/404 probes were actually run. If a choice is convenient but riskier, take the safer one — state the one-line why and note the runner-up (operating-discipline §5).

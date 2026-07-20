@@ -1,98 +1,70 @@
 ---
 name: codebase-aware-implementer
-description: "Use when implementing a feature, change, or fix inside an existing production codebase and the work must match the project's established architecture, patterns, and conventions instead of introducing parallel systems. Helps the agent read relevant files first, trace data flow end-to-end, reuse existing code, and make minimal, targeted changes that look like the original maintainers wrote them."
+description: "Use when implementing, extending, or fixing code in an existing React or Node codebase: enforces inspect-first, reuse-first work that follows the project's established architecture, conventions, shared abstractions, and localization — instead of creating parallel solutions. The default skill for feature work in a mature repo. Not for scaffolding a brand-new project (new-project-creation), pure refactoring/cleanup (refactor-and-cleanup), pure debugging (root-cause-debugger), or visual redesigns (artifact-mockup-first)."
 ---
 
 # Codebase-Aware Implementer
 
-You are a senior software engineer working inside an existing production codebase.
-
 ## Purpose
 
-Use this skill when adding or changing code in an established project where consistency with the existing architecture matters more than personal style. This skill makes the agent understand the current system before writing code, then implement changes that blend in with what is already there.
+Make every change fit the codebase it lands in: inspect first, reuse existing building blocks, extend established patterns, and ship complete (verified, localized, live-updating) work.
+
+Portable across projects: concrete names, paths, and commands live in the project's root `CLAUDE.md` — read it first (if absent, create one from the new-project-creation template as part of the task). LOAD the operating-discipline skill now, before Workflow step 1, and fill its templates from its text, not from memory ("section N" below = operating-discipline section N).
 
 ## Use This Skill When
 
-- Implementing a new feature in an existing app
-- Modifying or extending existing functionality
-- Fixing a bug that requires touching established code paths
-- Wiring a new endpoint, component, or service into existing infrastructure
-- Working in a mature repo with strong existing conventions
-- Any change where matching the current architecture is a requirement
+- Adding a feature, endpoint, or UI to an existing codebase
+- Extending shared components, hooks, services, utilities, or middleware
+- Fixing bugs where established patterns must be preserved
 
 ## Do Not Use This Skill When
 
-- Starting a brand new project with no existing patterns to follow
-- The task explicitly calls for replacing or rewriting the current architecture
-- Prototyping throwaway code outside the production codebase
+- Scaffolding a brand-new project (use new-project-creation)
+- The task is pure refactoring/cleanup (use refactor-and-cleanup) or pure debugging (use root-cause-debugger)
 
-## Before Writing Code
+## Behavior
 
-- Read all relevant files.
-- Trace data flow end-to-end.
-- Understand the current architecture.
-- Identify reusable code.
-- Verify assumptions against the actual implementation, not memory or guesses.
-
-## When Implementing
-
-- Match existing patterns exactly.
-- Preserve architectural consistency.
-- Prefer modification over duplication.
-- Keep changes minimal and targeted.
-- Update types, tests, and documentation as needed.
-
-## Core Rules
-
-1. Understand the relevant code before changing it.
-2. Follow the conventions already present in the files you touch.
-3. Reuse existing components, hooks, services, utilities, and helpers before creating new ones.
-4. Extend established systems instead of building parallel ones.
-5. Keep the change surface as small as the task allows.
-6. Do not introduce new libraries, patterns, or abstractions when the repo already has a working approach.
-7. Keep naming, file placement, and structure consistent with neighboring code.
-8. Update the supporting pieces a change implies: types, tests, docs, and related call sites.
+0. New page/feature or redesign? Follow `artifact-mockup-first` before writing product code (approved mockup first).
+1. Follow the project contracts in `CLAUDE.md`: definition of done, live updates, migration workflow, logging, localization, and code layout. Do not restate or improvise them.
+2. **Search before building.** Before creating any file or abstraction, grep the concept name plus two synonyms across frontend and backend. Check the standard homes: the shared UI components directory, the hooks directory, the shared API client, backend `functions/` and `middleware/`. Reuse or extend what fits; create new only when nothing suitable exists — and then place and name it where similar code already lives.
+3. **Evaluate fit before reusing:** does the candidate solve the problem fully or with a small extension, is it actively used, does reusing it improve consistency? Do not force a poor-fit abstraction. Record the pick as one DECISION line (section 5): `reused X` | `extended X with <what>` | `created new — candidates A/B failed criterion <which>`.
+4. **Extending shared code is a regression risk.** Every usage site of the component/hook/service/middleware you are changing goes into the intake affected-surfaces inventory (file:line) BEFORE the first edit. Extensions must be backward compatible — optional props/params with defaults that preserve current behavior. When finishing, list the usage sites you checked — "checked" means the consumer's screen/flow was rendered or its test executed AFTER the change; sites you only re-read go under Not run.
+5. **Mirror the nearest similar feature** for file placement and naming — never introduce a new top-level folder scheme. Before mirroring, read the sibling end-to-end and state in one line why it is shaped that way; never copy code whose purpose you cannot explain — you will clone its quirks and stale patterns along with its shape.
+6. Keep changes focused on the requested task; no unrelated refactors or drive-by changes.
+7. **Live updates:** every mutation you add emits the project's live-update event (house pattern: `notifyClients` in `backend/functions/webSocketUtils.js` — confirm in this project), and views showing that data subscribe via the project's ws layer. Acceptance: two windows open, mutate in one, the other updates without refresh.
+8. **Scale defaults:** list endpoints paginate and filter in SQL — follow node-api-structure-enforcer's Query and Payload Rules for any backend work.
+9. **Localization:** all user-facing text goes through the project's i18n system with keys added to every locale file; run the project's locale check scripts (see `CLAUDE.md`). Missing translations = incomplete work.
+10. **Completion:** no stubs, TODOs, dead buttons, or unfinished flows. A user-facing feature isn't done until its in-app help docs reflect the change **and** any existing guided tour covering that flow is updated (steps + selector targets) and still runs end-to-end — see guided-onboarding-walkthroughs. Exercise the changed flow per the `CLAUDE.md` definition of done before reporting done.
+11. New pages get registered in the project's navigation/menu registry and breadcrumbs (UI details: react-ui-builder).
+12. Schema changes go through the project's migration manager (house pattern: declare in models, let database-manager generate) — never hand-written migrations.
+13. Keep `plan.md` current per project-plan-maintenance.
 
 ## Workflow
 
-### 1. Investigate First
+1. **Read `CLAUDE.md`, then intake (section 1).** Write the INTAKE block WITH the project's definition of done open — its items (localization, live updates, tour/doc upkeep, etc.) belong in the done-means, not discovered late. Before the first edit the block holds: goal + observable done-means, the user's constraints VERBATIM, the grep-driven affected-surfaces inventory (file:line for every consumer/reader/writer of each symbol, endpoint, table, and event the change touches), and unknowns split blocking vs deferrable. Blocking unknowns are resolved by reading/mapping before any edit.
+2. **Verify premises (section 2).** Check against current code that the endpoint/field/flow the request assumes exists and behaves as described. A false premise is the headline of your next message; dependent work stops until direction is re-confirmed.
+3. **Inspect the files nearest to where the change lands**: structure, naming, state approach, API access, error handling, localization pattern.
+4. **Search for existing solutions** (rule 2) and pick reuse/extend/create with rule 3, recording the DECISION line.
+5. **Implement consistently** — same naming, placement, imports, error handling, and localization mechanism as the surrounding code. At every change point run the ordered blast-radius scan (section 3); tiers 1–2 (tenancy, money) block everything below them.
+6. **Verify:** changed flow exercised end-to-end (happy + failure path), live-update check where data changes, usage sites of extended shared code checked (rule 4's definition — rendered/executed, not re-read), locale scripts pass, no duplicate abstraction created, `git status` shows only task files. On a sizable diff, run the operating-discipline §6 critique pass before reporting.
+7. **Report** with the REPORT template (section 7): outcome first, every definition-of-done item marked pass / fail / not run — never state or imply a skipped check passed.
 
-Before editing, build an accurate picture of the area:
+## Delegation
 
-- locate the files involved in the feature or bug
-- trace the full data flow from entry point to persistence and back
-- note the existing patterns for state, data access, validation, and error handling
-- find existing code that already does part of the job
-
-### 2. Plan the Smallest Consistent Change
-
-- decide what to modify versus what to add
-- prefer extending an existing module over creating a new one
-- confirm the approach matches how similar features are already built
-
-### 3. Implement to Match
-
-- mirror the surrounding code's style and structure
-- reuse shared building blocks instead of duplicating them
-- keep the diff focused on the actual task
-
-### 4. Finish the Job
-
-- update types, tests, and documentation affected by the change
-- check related call sites and edge cases
-- verify the change behaves consistently with the rest of the system
+- **Map before implementing across unfamiliar areas** — per context-lean-orchestrator, fan out parallel mapper subagents that write structured maps to scratchpad files; read only their summaries, conventions, and gotchas. Detail sections stay on disk for whoever builds.
+- **Multi-area implementation gets ownership-partitioned builder agents** (each owns its files; none touches another's) per context-lean-orchestrator. Single-area feature work stays inline.
+- Every builder still follows this skill inside its boundary: search-before-building, backward-compatible extensions, localization, and the full verification list.
 
 ## Anti-Patterns
 
-Avoid these mistakes:
-
-- writing code before reading the relevant files
-- creating a parallel system when an existing one can be extended
-- duplicating logic that already exists in a reusable form
-- introducing a new pattern or library that conflicts with the repo
-- leaving types, tests, or docs out of sync with the change
-- making a broad rewrite when a targeted change was enough
+- Rebuilding a shared component because it wasn't found quickly — search first
+- A second helper/hook/service with slightly different naming next to an existing one
+- Changing a shared abstraction without checking its other consumers
+- A mutation endpoint with no live-update emit, or a view that needs refresh to show changes
+- Hardcoded user-facing strings, or a translation key added to only one locale file
+- Introducing a folder scheme or state library the project doesn't already use
+- Plus the full operating-discipline STOP list (section 9) — it applies mid-keystroke
 
 ## Final Rule
 
-Never create parallel systems when an existing system can be extended. Every implementation should look as though it was written by the original project maintainers.
+Make the code fit the codebase before making the code fit your preference — and nothing ships until it is reused-where-possible, localized everywhere, live-updating, and verified per the project's definition of done.

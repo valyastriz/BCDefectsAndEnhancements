@@ -1,6 +1,6 @@
 ---
 name: new-project-creation
-description: "Use when creating a new Node or React project that should be scaffolded around a copied database-manager.js and generate-migrations.js, with full PostgreSQL + Sequelize support, optional Redis auto invalidation, optional ws-based live data, and optional multi-language support matching the current react-intl and backend translation patterns. Helps the agent build the required project structure, support files, environment variables, startup wiring, and verification flow so the copied migration system works correctly from the start."
+description: "Use when the task is a NEW project — trigger phrases: 'new project', 'scaffold', 'bootstrap', 'green-field repo' — creating a Node or React project around a copied database-manager.js and generate-migrations.js with PostgreSQL + Sequelize, plus optional (ask-first) Redis auto invalidation, ws-based live data, and react-intl multi-language support. Scaffolds the house patterns (structure, env, startup, CLAUDE.md + plan.md project contracts, locale check scripts) and verifies the project boots before finishing. Not for adding features or layers to an existing project."
 ---
 
 # New Project Creation
@@ -17,9 +17,7 @@ This skill makes the agent scaffold the support files, environment, startup flow
 - Bootstrapping a new Sequelize + PostgreSQL project from scratch
 - Reusing the migration and auto-sync system in another repository
 - Setting up a fresh project where the only supplied files are or will be (ask the user if they want to provide them) `database-manager.js` and `generate-migrations.js`
-- Creating a new project that may optionally include Redis auto invalidation
-- Creating a new project that may optionally include live data using the current `ws` pattern
-- Creating a new project that may optionally include multi-language UI and translated dynamic content
+- Creating a new project that may optionally include Redis auto invalidation, `ws`-based live data, and/or multi-language UI with translated dynamic content
 - Building a project that must match the current migration, cache, and live update architecture instead of replacing it
 
 ## Do Not Use This Skill When
@@ -31,7 +29,9 @@ This skill makes the agent scaffold the support files, environment, startup flow
 
 ## Behavior
 
-When this skill is active, follow these rules:
+When this skill is active, follow these rules. They are numbered sequentially and grouped: scope and detection (1–7), ask-first gates (8–12), hard security and data rules (13–22), finish-line checks (23–24). LOAD the operating-discipline skill before starting and fill its templates from its text, not from memory.
+
+### Scope and detection
 
 1. Assume the only guaranteed source files are `database-manager.js` and `generate-migrations.js` unless the user provides more.
 2. Detect whether those files already exist in the target project before creating support files around them.
@@ -39,16 +39,55 @@ When this skill is active, follow these rules:
 4. Do not redesign `database-manager`; build the project around its existing import and runtime expectations.
 5. Always create the minimum compatible support files before trying to run migrations.
 6. Never manually author schema migrations when `database-manager` is the intended migration system. Change models and let the manager detect and generate migrations.
-7. Ask the user before adding Redis support.
-8. Ask the user before adding live data support.
-9. Ask the user before adding multi-language support.
-10. If the user wants live data, implement the current `ws` pattern, not Socket.IO, unless they explicitly ask for a Socket.IO adaptation.
-11. If the user wants multi-language support, implement the current `react-intl` frontend pattern and backend user-language resolution pattern rather than inventing a different i18n stack.
-12. Treat destructive database options as opt-in only and keep them disabled until verification passes.
-13. Prefer a `backend/` folder layout when creating a fullstack project, but adapt to a flat project root if that is the target structure.
-14. Always build all frontend projects in PWA-compatible React with the existing WebSocketContext and wsManager patterns, even if the initial scope is backend-only. This ensures the project can expand to live data later without a breaking refactor.
-15. Build the database layer around Sequelize models, associations, scopes, and ORM methods instead of hardcoded SQL strings.
-16. Only use raw SQL when there is a clear technical need that Sequelize cannot cover cleanly, and isolate that query behind a narrow data-access boundary instead of scattering SQL through controllers or services.
+7. Layout decision: use a `backend/` folder for a fullstack project. Choose a flat root ONLY if the repo already has server code at its root or the user explicitly asks for it; record the choice with a one-line reason (operating-discipline section 5).
+
+### Ask-first gates
+
+8. Ask the user before adding Redis support.
+9. Ask the user before adding live data support.
+10. Ask the user before adding multi-language support.
+11. If the user chooses live data (rule 9 governs — always ask first), implement the current `ws` pattern, not Socket.IO, unless they explicitly ask for a Socket.IO adaptation; build the frontend on the WebSocketContext and wsManager patterns from the start, and keep the frontend PWA-compatible so live data can expand later without a breaking refactor.
+12. If the user chooses multi-language support, implement the current `react-intl` frontend pattern and backend user-language resolution pattern rather than inventing a different i18n stack.
+
+### Hard security and data rules
+
+13. Scaffold backend code around the shared logger in `backend/functions/logger.js` and make new backend modules use that logger instead of raw console statements.
+14. Any backend code you create must include meaningful structured logs for startup, important background work, guard-path exits, successful mutations, and caught failures.
+15. Keep generated logs safe and useful: include identifiers and outcome context, but do not log secrets, credentials, tokens, or full sensitive payloads.
+16. Never authenticate with `jwt.decode` anywhere — websocket and HTTP auth use `jwt.verify` with explicit algorithms, audience, and issuer.
+17. Never cache an authenticated response under a tenant-blind key: cache keys include tenant scope and the query string, and invalidation uses tenant-scoped patterns.
+18. Money is never FLOAT/DOUBLE: any currency-amount column is `DECIMAL` with explicit precision. Relations join on ids, never on name strings — a rename must never silently unlink data.
+19. Scaffold every list route paginated by default (`page`/`limit` clamps, `{ rows, total }` response) — fetch-all list endpoints must not be the starter pattern.
+20. Build the database layer around Sequelize models, associations, scopes, and ORM methods instead of hardcoded SQL strings.
+21. Raw SQL is allowed only where Sequelize cannot cover the need cleanly — canonical cases: a recursive CTE, window functions over large sets, bulk upsert with `ON CONFLICT` arithmetic — and each such query lives behind one named data-access function, never scattered through controllers or services.
+22. Treat destructive database options as opt-in only and keep them disabled until verification passes.
+
+### Finish-line checks
+
+23. Snippets in this skill are starting points, not literal truth: before finishing, confirm every import in generated files resolves to a file you scaffolded, every referenced function exists, and no placeholder invalidation, stubbed handler, or unwired `res.locals` contract remains.
+24. Also scaffold the project's contracts layer: a root `CLAUDE.md` and a root `plan.md` (see the sections below) and the frontend locale check scripts with their npm aliases.
+
+### STOP — mid-scaffold red flags
+
+Halt and fix (operating-discipline section 9) the moment you catch yourself:
+
+1. Authenticating a websocket or route with `jwt.decode` instead of `jwt.verify`.
+2. Writing a cache key without tenant scope or the query string.
+3. Scaffolding an unbounded `findAll` list route.
+4. Typing FLOAT/DOUBLE for a money column, or joining on a name string where an id exists.
+5. Copying a snippet from this skill without confirming it matches the source project's current file — the source project wins; surface any divergence as a headline (see the premise check in Inspect First).
+
+## Delegation
+
+Per context-lean-orchestrator, scaffolding a project is a job for one strong subagent, not inline orchestrator work. The Required Questions below are answered with the user BEFORE dispatch. The orchestrator writes a brief file in the scratchpad using operating-discipline section 8's BRIEF template, with these fields filled concretely:
+
+- Constraints (VERBATIM): the user's answer to every Required Question, quoted — the subagent never guesses about Redis, live data, or multi-language support.
+- Chosen layers: each optional layer marked add / do NOT add — an unchosen layer is explicitly forbidden, not merely omitted.
+- You own: the new project's tree. You must NOT touch: the source project (read-only reference) or anything outside the new tree.
+- Checklist: the scaffold steps, prune/rename lists, and the End-of-Scaffold Boot Checklist — to be executed, not described.
+- Return exactly: operating-discipline's REPORT, plus the boot checklist item-by-item with the command run and observed result, and an explicit "not run:" list.
+
+The orchestrator reviews the returned report against the brief before accepting the work.
 
 ## Workflow
 
@@ -63,7 +102,12 @@ Before writing code, inspect the target project and identify:
 - whether there is already a `models/index.js`
 - whether data access is expected to go through Sequelize models and associations rather than raw queries
 - whether there is already a logging bridge compatible with `initializeBackendLogging()`
+- whether nearby backend modules already define structured logging patterns worth reusing
 - whether frontend live data is needed or backend-only notifications are enough
+
+Record these findings with file references as the Knowns of your INTAKE block (operating-discipline section 1) — inspection that stays in your head is not inspection.
+
+**Premise check (operating-discipline section 2):** before scaffolding any pattern this skill calls "current" or "house", open the source project the user is copying from and confirm the pattern still exists there in that shape. Where a snippet in this skill diverges from the source project's current files, the source project wins — surface the divergence as a headline in your report; never silently scaffold the stale version. This applies especially to the legacy `modelCacheHooks` template below: some source projects have retired model-hook invalidation in favor of explicit invalidation in mutation paths. If the source project cannot be inspected (files pasted, no repo access), the default is NO `modelCacheHooks` — invalidate explicitly in mutation paths; scaffold the legacy file only on positive confirmation that the source still uses it.
 
 ### 2. Ask The Required Questions
 
@@ -92,6 +136,8 @@ Recommended multi-language choices:
 - UI translations plus persisted user language preference
 - full multi-language support with UI translations and backend dynamic-content translation
 
+Record each answer and each structural choice (layout, chosen layers) as a one-line DECISION with its reason (operating-discipline section 5) — in the delegation brief when delegated, in your working notes when inline. A layer the user did NOT choose is recorded as forbidden ("do NOT add"), not merely left unchosen.
+
 ### 3. Scaffold Base Migration Support
 
 Create the minimum files required to support the copied migration system:
@@ -119,7 +165,23 @@ The base startup order should be:
 7. optionally start queue workers
 8. optionally attach websocket server and listeners
 
-### 5. Verify Before Expanding
+The HTTP server is guarded from the first route: scaffold `middleware/authMiddleware.js` (verify JWTs with `jwt.verify` + JWKS, explicit algorithms/audience/issuer — the same options as the websocket auth snippet, NEVER `jwt.decode`) mounted on all `/api` routes, and `middleware/permissionMiddleware.js` exporting a `requirePermission("<resource>", "<action>")` stub that every route registers (or a `// public: <reason>` comment). Scaffold both BEFORE the first route file so later routes inherit the guard — a project whose REST routes ship open fails the boot checklist.
+
+### 5. Scaffold the Project Contracts (CLAUDE.md + plan.md)
+
+Every new project gets a root `CLAUDE.md` so the shared skills have their per-project grounding layer. Model it on the source project's `CLAUDE.md`, filled in with the new project's concrete names:
+
+- Definition of Done (runnable verification checklist with this project's commands and ports)
+- Live-update contract (this project's ws helper and frontend subscription layer, tenant filter requirement)
+- Migration workflow (this project's commands; whether migrations auto-run on boot)
+- Backend + frontend conventions (layout, permission middleware, pagination default, logger, theme, snackbar/dialog components)
+- Localization workflow (locale set, `locales:check`/`locales:clean`)
+- Docs & guided-tour upkeep: if/when the project has an in-app help-docs module or guided tours, keeping them current for a changed feature is part of the Definition of Done (see guided-onboarding-walkthroughs)
+- AI usage guidance (match model/effort to task complexity)
+
+Also scaffold a root `plan.md` from the project-plan-maintenance skill's skeleton: overview, architecture, chosen optional layers, and each Required-Question decision with its one-line reason. The scaffolded CLAUDE.md and plan.md carry the durable decisions; the brief or working notes carry the rest.
+
+### 6. Verify Before Expanding
 
 Before enabling destructive flags or optional features:
 
@@ -129,6 +191,20 @@ Before enabling destructive flags or optional features:
 - confirm migration output is written to `migrations/`
 - confirm checksum and schema diff behavior works
 - if multi-language support is enabled, verify locale fallback to English, saved user language hydration, and translation-aware response serialization
+
+### 7. End-of-Scaffold Boot Checklist (all required)
+
+The scaffold is not done until each of these was actually executed:
+
+- `npm install` completes cleanly in every scaffolded package
+- every import in generated files resolves; no placeholder invalidation or stubbed handler remains
+- `database-manager.js` runs clean and the backend boots without require errors
+- an unauthenticated request to a protected route returns 401, and a request with a valid token succeeds — executed, not assumed
+- if live data: the websocket authenticate round-trip succeeds with a real verified JWT, and a second client receives a mutation event without refresh
+- if Redis: observe cache MISS → HIT → invalidate on a real endpoint, and confirm the app degrades gracefully with Redis stopped
+- if multi-language: `locales:check` and `locales:clean` run clean
+
+Then run the operating-discipline §6 critique pass on the scaffolded tree before reporting. Report the checklist item-by-item per operating-discipline §6–7 — the command run and the observed result; items that could not run (e.g., Docker unavailable) go under an explicit "not run:" heading with the reason; never summarize as "all checks pass".
 
 ## Preferred Structure
 
@@ -151,10 +227,12 @@ project-root/
             cacheUtils.js
             appLanguages.js
             chatTranslation.js
-            modelCacheHooks.js
+            modelCacheHooks.js   # legacy — only if the source project still uses it
             queueWorkers.js
             webSocketUtils.js
         middleware/
+            authMiddleware.js        # HTTP jwt.verify (JWKS) — mounted on all /api routes
+            permissionMiddleware.js  # requirePermission("<resource>", "<action>")
             cacheMiddleware.js
         models/
             index.js
@@ -236,6 +314,10 @@ const logCriticalError = (...args) => {
     console.error(...args);
 };
 
+const logStructuredMessage = (...args) => {
+    console.log(...args);
+};
+
 const initializeBackendLogging = () => {
     if (loggingInitialized) {
         return;
@@ -248,6 +330,7 @@ module.exports = {
     initializeBackendLogging,
     logMessage,
     logCriticalError,
+    logStructuredMessage,
 };
 ```
 
@@ -310,11 +393,12 @@ At minimum, add these scripts:
         "db:migrate:undo": "sequelize-cli db:migrate:undo",
         "db:migrate:status": "sequelize-cli db:migrate:status",
         "migration:create": "node scripts/generate-migrations.js",
-        "migration:health": "node scripts/database-manager.js",
         "migration:run": "node scripts/database-manager.js"
     }
 }
 ```
+
+Add `"migration:health": "node scripts/health-check.js"` only if you also copy `scripts/health-check.js` from the source project — do not map `migration:health` to `database-manager.js` (they are different tools in the source repo).
 
 ### `start.sh`
 
@@ -398,16 +482,16 @@ LOG_MODE=3
 
 Only add this section after the user confirms they want multi-language support.
 
-The current implementation has two layers:
+The house pattern has two layers:
 
 - static UI translations in the frontend using `react-intl`
 - dynamic content translation in the backend using user language preferences and provider-backed translation helpers
 
-Do not replace this with a different i18n stack unless the user explicitly asks for one.
+The backend translation files below (`appLanguages.js`, `chatTranslation.js`) are **new-file templates this skill creates** — they are not files copied from an existing project. Do not replace this stack with a different i18n approach unless the user explicitly asks for one.
 
 ### Supported Languages
 
-Use the same app language set unless the user requests a different list:
+Ask the user which languages the app needs (their market decides the list); only if they defer, use this default set:
 
 - `en`
 - `es`
@@ -433,6 +517,8 @@ For static UI translations, create:
 - `frontend/src/contexts/ConfigContext.jsx`
 - `frontend/src/layout/UserSettingsLoader.jsx`
 - `frontend/src/layout/MainLayout/Header/LocalizationSection/index.jsx` or an equivalent language selector
+- the support files the snippets import: `frontend/src/config.js`, `frontend/src/hooks/useConfig.js`, `frontend/src/hooks/useLocalStorage.js`, `frontend/src/api/userSettings.js` (every import in a scaffolded file must resolve)
+- `frontend/scripts/check-missing-locale-keys.js` and `frontend/scripts/dedupe-locales.js` (copy from the source project), wired as npm aliases: `"locales:check": "node scripts/check-missing-locale-keys.js"`, `"locales:clean": "node scripts/dedupe-locales.js"`
 
 For persisted user language preferences, also add:
 
@@ -449,14 +535,13 @@ For dynamic translated content, also add:
 
 Frontend and persistence support does not require special env vars beyond the normal app config.
 
-If dynamic provider-backed translation is enabled, support these provider keys:
+If dynamic provider-backed translation is enabled, support provider keys such as:
 
 - `GROK_API_KEY`
-- `GPT_API_KEY`
 - `OPENAI_API_KEY`
-- `CLAUD_API_KEY`
+- `ANTHROPIC_API_KEY`
 
-At least one provider must be configured when dynamic translation is requested.
+The exact names must match what the scaffolded (or copied) provider manager actually reads — verify against its code, never against this list alone. At least one provider must be configured when dynamic translation is requested.
 
 ### Multi-Language Dependencies
 
@@ -658,7 +743,7 @@ When Redis is requested, create:
 - `config/redisConfig.js`
 - `functions/cacheUtils.js`
 - `middleware/cacheMiddleware.js`
-- `functions/modelCacheHooks.js`
+- `functions/modelCacheHooks.js` — legacy: scaffold only if the source project still uses model-hook invalidation (verify per the premise check in Inspect First); otherwise invalidate explicitly in mutation paths
 
 If the user also wants queued invalidation workers, create:
 
@@ -694,7 +779,7 @@ REDIS_CACHE_ENABLED=true
 3. Create `config/redisConfig.js` with singleton client creation, connection verification, graceful disable, and close handling.
 4. Create `functions/cacheUtils.js` with `get`, `set`, `del`, `invalidatePattern`, `invalidatePatterns`, `clearAll`, and `isAvailable`.
 5. Create `middleware/cacheMiddleware.js` that caches successful `GET` responses and invalidates patterns after successful mutations.
-6. Create `functions/modelCacheHooks.js` that attaches Sequelize lifecycle hooks for automatic invalidation.
+6. Only if the source project still uses model-hook invalidation (check its current files first — some have retired it): create `functions/modelCacheHooks.js` that attaches Sequelize lifecycle hooks for automatic invalidation.
 7. If queue workers are enabled, push invalidation jobs to a `CACHE_INVALIDATION` queue and process them asynchronously.
 8. Initialize Redis during server startup, but degrade gracefully if Redis is unavailable.
 
@@ -722,8 +807,6 @@ const createRedisClient = () => {
     return redisClient;
 };
 
-const getRedisClient = () => redisClient;
-
 const verifyRedisConnection = async () => {
     const client = createRedisClient();
     if (!client) return false;
@@ -736,6 +819,8 @@ const verifyRedisConnection = async () => {
         return false;
     }
 };
+
+const getRedisClient = () => (redisDisabled ? null : createRedisClient());
 
 module.exports = { createRedisClient, getRedisClient, verifyRedisConnection };
 ```
@@ -764,13 +849,34 @@ class CacheManager {
         return true;
     }
 
+    // scanStream, not redis.keys(): KEYS is O(N) and blocks Redis as key count grows
     async invalidatePattern(pattern) {
         const redis = getRedisClient();
         if (!redis) return 0;
-        const keys = await redis.keys(pattern);
-        if (!keys.length) return 0;
-        await redis.del(...keys);
-        return keys.length;
+
+        let removed = 0;
+        const stream = redis.scanStream({ match: pattern, count: 200 });
+
+        for await (const keys of stream) {
+            if (keys.length) {
+                await redis.del(...keys);
+                removed += keys.length;
+            }
+        }
+
+        return removed;
+    }
+
+    async invalidatePatterns(patterns = []) {
+        let removed = 0;
+        for (const pattern of patterns) {
+            removed += await this.invalidatePattern(pattern);
+        }
+        return removed;
+    }
+
+    isAvailable() {
+        return Boolean(getRedisClient());
     }
 }
 
@@ -782,22 +888,37 @@ module.exports = new CacheManager();
 ```js
 const cacheManager = require("../functions/cacheUtils");
 
+// Cache keys MUST include tenant scope AND the query string. A tenant-blind key
+// serves company A's cached response to company B, and ignoring the query string
+// returns cached page 1 for ?page=2.
+const buildCacheKey = (req) => {
+    const companyId = req.user?.company_id ?? "public";
+    const locationId = req.user?.location_id ?? "-";
+    const query = new URLSearchParams(req.query).toString();
+    return [req.baseUrl, req.path, companyId, locationId, query].join(":");
+};
+
+const tenantScope = (req) =>
+    `${req.baseUrl}*:${req.user?.company_id ?? "public"}:*`;
+
 const autoCacheMiddleware =
     (ttl = 300) =>
     async (req, res, next) => {
         if (req.method !== "GET") {
             const originalJson = res.json.bind(res);
-            res.json = async (payload) => {
+            res.json = (payload) => {
                 if (res.statusCode >= 200 && res.statusCode < 300) {
-                    const patterns = res.locals.cacheInvalidationPatterns || [];
-                    await cacheManager.invalidatePatterns?.(patterns);
+                    const patterns = res.locals.cacheInvalidationPatterns || [
+                        tenantScope(req),
+                    ];
+                    cacheManager.invalidatePatterns(patterns).catch(() => {});
                 }
                 return originalJson(payload);
             };
             return next();
         }
 
-        const cacheKey = `${req.baseUrl}:${req.path}`;
+        const cacheKey = buildCacheKey(req);
         const cached = await cacheManager.get(cacheKey);
         if (cached) {
             return res.status(200).json(cached);
@@ -817,9 +938,11 @@ const autoCacheMiddleware =
 module.exports = { autoCacheMiddleware };
 ```
 
-`functions/modelCacheHooks.js`
+`functions/modelCacheHooks.js` (legacy — scaffold only if the source project still uses model-hook invalidation)
 
 ```js
+const cacheManager = require("./cacheUtils");
+
 const setupAutoCacheInvalidation = (db) => {
     Object.values(db).forEach((model) => {
         if (!model?.addHook || !model?.rawAttributes) {
@@ -827,7 +950,9 @@ const setupAutoCacheInvalidation = (db) => {
         }
 
         const invalidate = async () => {
-            console.log(`Invalidate cache for ${model.name}`);
+            await cacheManager
+                .invalidatePattern(`*${model.tableName || model.name}*`)
+                .catch(() => {});
         };
 
         model.addHook("afterCreate", invalidate);
@@ -842,7 +967,7 @@ const setupAutoCacheInvalidation = (db) => {
 module.exports = { setupAutoCacheInvalidation };
 ```
 
-Server bootstrap snippet:
+Server bootstrap snippet (the `modelCacheHooks` lines apply only if you scaffolded that legacy file — otherwise omit them and invalidate explicitly in mutation paths):
 
 ```js
 const {
@@ -882,17 +1007,16 @@ For full frontend live data, also create:
 
 ### Live Data Variables
 
-- `SOCKET_PORT`
-- `NEXT_PUBLIC_WEBSOCKET`
-- `AUTH0_DOMAIN`
-- `AUTH0_AUDIENCE`
+- `NEXT_PUBLIC_WEBSOCKET` — the `NEXT_PUBLIC_` prefix reaches the client bundle only in Next.js; on another frontend framework use its public-env convention (e.g. `VITE_WEBSOCKET`)
+- `AUTH0_DOMAIN` / `AUTH0_AUDIENCE` — Auth0-specific; with a different JWT issuer, substitute its issuer/audience/JWKS config (the `jwt.verify` pattern below is unchanged)
 
-Recommended defaults:
+The websocket shares the HTTP server's port via `server.on("upgrade", ...)` (the server snippet below) — there is no separate socket listener. Point `NEXT_PUBLIC_WEBSOCKET` at the backend HTTP port:
 
 ```env
-SOCKET_PORT=3001
-NEXT_PUBLIC_WEBSOCKET=ws://localhost:3001
+NEXT_PUBLIC_WEBSOCKET=ws://localhost:<backend HTTP port>
 ```
+
+Add a `SOCKET_PORT` and a standalone listener only if the user explicitly asks for a separate socket server — never scaffold both patterns.
 
 ### Live Data Implementation Steps
 
@@ -904,7 +1028,10 @@ NEXT_PUBLIC_WEBSOCKET=ws://localhost:3001
 6. Verify the JWT, load the user record, and store `socket.user`, `socket.company_id`, and `socket.isAuthenticated`.
 7. Broadcast tenant-scoped updates using `company_id` filtering.
 8. Send explicit `session-expired` or `invalid-token` messages before closing sockets on auth failure.
-9. If frontend support is requested, create a websocket manager with reconnect backoff and a provider that reconnects on login.
+9. If frontend support is requested, create a websocket manager with capped reconnect backoff, a `disconnect()` called in effect cleanup, and a provider that reconnects on login.
+10. When live data is enabled, EVERY create/update/delete endpoint emits a tenant-filtered `notifyClients` event as the default controller pattern — a scaffolded mutation with no broadcast is incomplete.
+11. The frontend reconciles state from received events (patch the affected record/list in place) — never scaffold fetch-once views that require refresh.
+12. Verify with two clients: mutate from one, observe the other receive the event and update without refresh.
 
 ### Crucial Live Data Code
 
@@ -940,12 +1067,26 @@ const notifyClients = async (messageType, data, filters = {}) => {
 module.exports = { setWebSocketServer, notifyClients };
 ```
 
-Backend server snippet:
+Backend server snippet (auth uses `jwt.verify` with JWKS — NEVER `jwt.decode`, which performs no signature check and lets any client forge any identity):
 
 ```js
 const WebSocket = require("ws");
 const jwt = require("jsonwebtoken");
+const jwksClient = require("jwks-rsa");
+const { promisify } = require("util");
 const { setWebSocketServer } = require("./functions/webSocketUtils");
+
+const jwks = jwksClient({
+    jwksUri: `https://${process.env.AUTH0_DOMAIN}/.well-known/jwks.json`,
+});
+
+const getKey = (header, callback) => {
+    jwks.getSigningKey(header.kid, (err, key) => {
+        callback(err, key?.getPublicKey());
+    });
+};
+
+const verifyAsync = promisify(jwt.verify);
 
 const wss = new WebSocket.Server({ noServer: true });
 setWebSocketServer(wss);
@@ -960,8 +1101,25 @@ wss.on("connection", (socket) => {
             return;
         }
 
-        const decoded = jwt.verify(message.token, process.env.JWT_SECRET);
-        const user = await db.User.findByPk(decoded.sub);
+        let decoded;
+        try {
+            decoded = await verifyAsync(message.token, getKey, {
+                audience: process.env.AUTH0_AUDIENCE,
+                issuer: `https://${process.env.AUTH0_DOMAIN}/`,
+                algorithms: ["RS256"],
+            });
+        } catch (error) {
+            socket.send(JSON.stringify({ type: "invalid-token" }));
+            socket.close();
+            return;
+        }
+
+        const user = await db.User.findOne({ where: { auth_id: decoded.sub } });
+        if (!user) {
+            socket.send(JSON.stringify({ type: "invalid-token" }));
+            socket.close();
+            return;
+        }
 
         socket.user = user.toJSON();
         socket.company_id = user.company_id;
@@ -988,8 +1146,9 @@ Controller emission example:
 ```js
 const { notifyClients } = require("../functions/webSocketUtils");
 
-await notifyClients("trip-updated", trip.toJSON(), {
-    company_id: trip.company_id,
+// event naming: <model>-created|updated|deleted for YOUR models (e.g. order-updated)
+await notifyClients("order-updated", order.toJSON(), {
+    company_id: order.company_id,
 });
 ```
 
@@ -1001,13 +1160,19 @@ export class WebSocketManager {
         this.url = url;
         this.ws = null;
         this.listeners = new Set();
-        this.reconnectDelay = 2000;
+        this.baseDelay = 1000;
+        this.maxDelay = 30000;
+        this.attempts = 0;
+        this.closedByClient = false;
+        this.reconnectTimer = null;
     }
 
     connect(token) {
+        this.closedByClient = false;
         this.ws = new WebSocket(this.url);
 
         this.ws.onopen = () => {
+            this.attempts = 0;
             this.ws.send(JSON.stringify({ type: "authenticate", token }));
         };
 
@@ -1016,9 +1181,23 @@ export class WebSocketManager {
             this.listeners.forEach((listener) => listener(message));
         };
 
+        // capped exponential backoff; never reconnect after a deliberate disconnect
         this.ws.onclose = () => {
-            setTimeout(() => this.connect(token), this.reconnectDelay);
+            if (this.closedByClient) return;
+            const delay = Math.min(
+                this.baseDelay * 2 ** this.attempts,
+                this.maxDelay,
+            );
+            this.attempts += 1;
+            this.reconnectTimer = setTimeout(() => this.connect(token), delay);
         };
+    }
+
+    disconnect() {
+        this.closedByClient = true;
+        clearTimeout(this.reconnectTimer);
+        this.ws?.close();
+        this.ws = null;
     }
 
     subscribe(listener) {
@@ -1026,10 +1205,6 @@ export class WebSocketManager {
         return () => this.listeners.delete(listener);
     }
 }
-
-export const wsManager = new WebSocketManager(
-    process.env.NEXT_PUBLIC_WEBSOCKET || "ws://localhost:3001",
-);
 ```
 
 `frontend/src/contexts/WebSocketContext.jsx`
@@ -1055,7 +1230,10 @@ export const WebSocketProvider = ({ token, children }) => {
             }
         });
 
-        return () => unsubscribe();
+        return () => {
+            unsubscribe();
+            wsManager.disconnect();
+        };
     }, [token]);
 
     return (
@@ -1076,28 +1254,22 @@ Use this sequence when building a brand new project:
 2. Install `sequelize`, `sequelize-cli`, `pg`, and `pg-hstore`.
 3. Create `config/config.js`, `models/index.js`, the initial Sequelize models and associations, `functions/logger.js`, `config/dependencyOrder.js`, and `migrations/`.
 4. Copy in `scripts/database-manager.js` and `scripts/generate-migrations.js`.
-5. Add migration scripts and startup wiring.
+5. Add migration scripts and startup wiring, including `middleware/authMiddleware.js` + `middleware/permissionMiddleware.js` mounted before any route (see "Wire Startup In The Correct Order").
 6. Add `.env` values for PostgreSQL and migration behavior.
 7. Run `node scripts/database-manager.js` with safe diff settings enabled.
 8. If the user wants Redis, add the Redis branch and verify graceful degradation.
 9. If the user wants live data, add the `ws` branch and verify authentication and company scoping.
-10. If the user wants multi-language support, add the locale files, provider wiring, user setting persistence, and translation-aware response flow.
-11. Only after successful verification should you enable destructive flags such as dropping extra columns or tables.
+10. If the user wants multi-language support, add the locale files, locale check scripts, provider wiring, user setting persistence, and translation-aware response flow.
+11. Scaffold the root `CLAUDE.md` project contracts file and the root `plan.md` (per project-plan-maintenance) with the new project's concrete names and the recorded decisions.
+12. Run the End-of-Scaffold Boot Checklist. Only after it passes should you enable destructive flags such as dropping extra columns or tables.
 
 ## Output Expectations
 
 Good outcomes from this skill look like:
 
-- a new project that can accept copied migration files immediately
-- a PostgreSQL + Sequelize setup that matches `database-manager` expectations
-- a database backend implemented primarily through Sequelize models and ORM access patterns rather than hardcoded SQL
-- a minimal logger and startup flow compatible with the copied scripts
-- optional Redis support added only when the user confirms it
-- optional `ws` live data added only when the user confirms it
-- optional multi-language support added only when the user confirms it
+- a new project that accepts the copied migration files immediately: a PostgreSQL + Sequelize setup matching `database-manager` expectations, data access through Sequelize models and ORM patterns rather than hardcoded SQL, and a minimal logger + startup flow compatible with the copied scripts
+- optional Redis, `ws` live data, and multi-language layers added ONLY when the user confirmed them — no parallel migration, cache, realtime, or i18n architecture introduced unnecessarily
 - short, concrete code snippets that remove ambiguity for the implementing agent
-- no parallel migration, cache, or realtime architecture introduced unnecessarily
-- no parallel i18n stack introduced unnecessarily
 
 ## Anti-Patterns
 
@@ -1108,15 +1280,16 @@ Avoid these mistakes:
 - manually writing schema migrations when the manager should generate them
 - embedding hardcoded SQL queries throughout controllers, services, or routes when Sequelize models would handle the job cleanly
 - bypassing model associations and ORM methods for ordinary CRUD flows
-- adding Redis without asking the user first
-- adding live data without asking the user first
-- adding multi-language support without asking the user first
+- adding Redis, live data, or multi-language support without asking the user first (gates 8–10)
 - teaching Socket.IO as if it were the current implementation
 - replacing `react-intl` and user-language persistence with a different i18n approach without user direction
 - storing only translated text without preserving the original source text for dynamic content
 - enabling destructive database flags before validation passes
 - omitting `initializeBackendLogging()` support when the scripts require it
 - forgetting company-scoped websocket filtering in a multi-tenant app
+- any of the STOP-list red flags above (jwt.decode auth, tenant-blind cache keys, unbounded `findAll`, float money / name-string joins)
+- shipping snippets whose imports don't resolve or whose invalidation is a console.log stub
+- skipping the CLAUDE.md or plan.md contracts scaffold
 
 ## Final Rule
 
