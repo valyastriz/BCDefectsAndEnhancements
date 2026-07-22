@@ -144,6 +144,27 @@ function defineModels(sequelize) {
     ],
   });
 
+  // One vector per (submission, scope) for AI semantic search. Vectors are
+  // stored as a JSON float array in a TEXT column so this works identically on
+  // SQLite (local) and Postgres (prod) with no pgvector dependency. content_hash
+  // lets the indexer skip re-embedding when the source text is unchanged.
+  const SubmissionEmbedding = sequelize.define('SubmissionEmbedding', {
+    id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
+    submission_id: { type: DataTypes.INTEGER, allowNull: false },
+    scope: { type: DataTypes.TEXT, allowNull: false }, // 'admin' | 'public'
+    model: { type: DataTypes.TEXT, allowNull: false },
+    content_hash: { type: DataTypes.TEXT, allowNull: false },
+    vector: { type: DataTypes.TEXT, allowNull: false }, // JSON: array of floats
+    updated_at: { type: DataTypes.TEXT, allowNull: false },
+  }, {
+    tableName: 'submission_embeddings',
+    timestamps: false,
+    indexes: [
+      { name: 'idx_submission_embeddings_unique', unique: true, fields: ['submission_id', 'scope'] },
+      { name: 'idx_submission_embeddings_scope', fields: ['scope'] },
+    ],
+  });
+
   const ExcelImportRun = sequelize.define('ExcelImportRun', {
     id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
     created_at: { type: DataTypes.TEXT, allowNull: false },
@@ -236,6 +257,7 @@ function defineModels(sequelize) {
     Submission,
     Attachment,
     SubmissionStatusEvent,
+    SubmissionEmbedding,
     ExcelImportRun,
     DefectEnhancementStatus,
     SubmissionType,

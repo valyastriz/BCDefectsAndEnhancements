@@ -30,6 +30,7 @@ const {
 const { IMPORT_COLUMN_TARGETS } = require('../constants');
 const { SUBMISSION_INSERT_COLUMNS, buildInsertPayload } = require('../helpers/submissionInsert');
 const { logStatusChange } = require('../services/submissionService');
+const { scheduleBatchEmbeddingRefresh } = require('../services/embeddingIndexService');
 const { tempUpload } = require('../middleware/upload');
 const { emitAdminNotification } = require('../socket');
 
@@ -454,6 +455,7 @@ router.post('/api/admin/submissions/import-xlsx', ensureAdmin, tempUpload.single
       const ExcelImportRun = dbModels.ExcelImportRun;
       const changedBy = req.session?.user?.username || 'admin';
       let insertedRows = 0;
+      const insertedIds = [];
       const insertionErrors = [];
 
       if (!dryRun && preparedRows.length > 0) {
@@ -552,6 +554,7 @@ router.post('/api/admin/submissions/import-xlsx', ensureAdmin, tempUpload.single
             }
 
             insertedRows += 1;
+            insertedIds.push(submissionId);
           } catch (rowError) {
             const rawMessage = String(rowError?.message || 'Unable to import this row.');
             const normalizedMessage = rawMessage.toLowerCase();
@@ -573,6 +576,9 @@ router.post('/api/admin/submissions/import-xlsx', ensureAdmin, tempUpload.single
           insertedRows,
           totalRows: rawRows.length,
         });
+        // Index the imported tickets for AI search in the background (batched,
+        // non-blocking). No-op when AI search isn't configured.
+        scheduleBatchEmbeddingRefresh(insertedIds);
       }
 
       const combinedErrors = [...responseBase.errors, ...insertionErrors].slice(0, 100);

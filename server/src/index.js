@@ -20,6 +20,7 @@ const adminViewPreferenceRoutes = require('./routes/adminViewPreferenceRoutes');
 const attachmentRoutes = require('./routes/attachmentRoutes');
 const importRoutes = require('./routes/importRoutes');
 const easyvistaRoutes = require('./routes/easyvistaRoutes');
+const aiSearchRoutes = require('./routes/aiSearchRoutes');
 
 // ── App & server ─────────────────────────────────────────────────────────────
 const app = express();
@@ -63,6 +64,7 @@ app.use(adminViewPreferenceRoutes);
 app.use(attachmentRoutes);
 app.use(importRoutes);
 app.use(easyvistaRoutes);
+app.use(aiSearchRoutes);
 
 // ── Health check (used by external ping services to keep the server alive) ───
 app.get('/health', (_req, res) => res.json({ status: 'ok', ts: new Date().toISOString() }));

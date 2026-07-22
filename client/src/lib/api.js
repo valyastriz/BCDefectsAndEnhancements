@@ -284,4 +284,23 @@ export const api = {
         }
         : {}),
     }),
+  // ── AI semantic search ──────────────────────────────────────────────────────
+  // Both endpoints return { enabled, summary, matches, window, meta }. A 503
+  // (enabled:false) means the feature isn't configured — callers hide the panel.
+  getAiSearchStatus: () => request('/api/ai-search/status', { allowStatuses: [503] }),
+  getAdminAiSearchStatus: () => request('/api/admin/ai-search/status', { allowStatuses: [401, 503] }),
+  aiSearch: (params) =>
+    request('/api/ai-search', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params || {}),
+      allowStatuses: [503],
+    }),
+  adminAiSearch: (params) =>
+    request('/api/admin/submissions/ai-search', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params || {}),
+      allowStatuses: [503],
+    }),
 };

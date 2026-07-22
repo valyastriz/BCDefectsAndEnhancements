@@ -29,6 +29,7 @@ const {
 const { SUBMISSION_INSERT_COLUMNS, buildInsertPayload } = require('../helpers/submissionInsert');
 const { mapSubmission, mapPublicSubmission } = require('../helpers/mappers');
 const { emitAdminNotification, emitPublicUpdate } = require('../socket');
+const { scheduleEmbeddingRefresh } = require('./embeddingIndexService');
 const { submitToEasyVista } = require('../easyvista');
 
 const SUBMISSION_LOOKUP_JOINS = `
@@ -620,6 +621,7 @@ async function createAdminSubmission(db, { body, username }) {
 
   const created = await getSubmissionByIdWithLookups(db, subId);
   emitAdminNotification('submission:new', mapSubmission(created));
+  scheduleEmbeddingRefresh(subId);
   return { status: 201, body: mapSubmission(created) };
 }
 
@@ -1039,6 +1041,7 @@ async function updateAdminSubmission(db, { id, body, username }) {
     emitPublicUpdate(mapPublicSubmission(saved));
   }
 
+  scheduleEmbeddingRefresh(Number(id));
   return { status: 200, body: mapSubmission(saved) };
 }
 
@@ -1241,6 +1244,7 @@ async function submitSubmissionToEasyVista(db, { id, body, username }) {
 
     const updated = await getSubmissionByIdWithLookups(db, submission.id);
     emitAdminNotification('submission:submitted-easyvista', mapSubmission(updated));
+    scheduleEmbeddingRefresh(Number(submission.id));
 
     return {
       status: 200,
@@ -1410,6 +1414,8 @@ async function submitSubmissionToEasyVista(db, { id, body, username }) {
     original_submission: mapSubmission(updatedOriginal),
     resubmission: mapSubmission(newSubmission),
   });
+  scheduleEmbeddingRefresh(Number(resubmissionId));
+  scheduleEmbeddingRefresh(Number(submission.id));
 
   return {
     status: 200,

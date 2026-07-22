@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../lib/api';
 import { Button, Card, Input, Modal, Notice, Select, Textarea } from '../components/bite-size/BitsizeUI';
+import { AiSearchPanel } from '../components/common/AiSearchPanel';
+import { PublicItemCard } from '../components/public/PublicItemCard';
 
 const initialForm = {
   created_by: '',
@@ -163,6 +165,20 @@ export function RepSubmitPage() {
         <h2>Submit a Request</h2>
         <p>Use this form to report a defect or request an enhancement in Billing Center.</p>
       </div>
+
+      <AiSearchPanel
+        scope="public"
+        title="Check if this was already reported"
+        subtitle="Before you submit, describe your issue to see if it has already been reported — and what happened to it."
+        placeholder="e.g. customer was double-charged on a renewal invoice"
+        renderResults={(matches) => (
+          <div className="public-list">
+            {matches.map((item) => (
+              <PublicItemCard key={item.id} item={item} />
+            ))}
+          </div>
+        )}
+      />
 
       <Card>
         <form ref={formRef} className="bs-form" onSubmit={onSubmit}>

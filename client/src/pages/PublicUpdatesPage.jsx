@@ -8,6 +8,7 @@ import { areAllPublicStatusesSelected, readSavedPublicFilters } from '../utils/p
 import { PublicFiltersBar } from '../components/public/PublicFiltersBar';
 import { PublicItemCard } from '../components/public/PublicItemCard';
 import { PaginationControls } from '../components/common/PaginationControls';
+import { AiSearchPanel } from '../components/common/AiSearchPanel';
 
 export function PublicUpdatesPage() {
   const savedFilters = useMemo(() => readSavedPublicFilters(), []);
@@ -100,6 +101,10 @@ export function PublicUpdatesPage() {
 
   // ── Derived values ────────────────────────────────────────────────────────
   const hasItems = useMemo(() => items.length > 0, [items]);
+  const publicApplications = useMemo(
+    () => [...new Set(items.map((item) => item.application_name).filter(Boolean))].sort(),
+    [items],
+  );
 
   const visibleItems = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -156,6 +161,20 @@ export function PublicUpdatesPage() {
       </div>
 
       <Notice text={error} />
+
+      <AiSearchPanel
+        scope="public"
+        applications={publicApplications}
+        defaultApplication="all"
+        subtitle="Search the public status board in plain language to see if an issue has already been reported and what happened to it."
+        renderResults={(matches) => (
+          <div className="public-list">
+            {matches.map((item) => (
+              <PublicItemCard key={item.id} item={item} />
+            ))}
+          </div>
+        )}
+      />
 
       <PublicFiltersBar
         search={search}

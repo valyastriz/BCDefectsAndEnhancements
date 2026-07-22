@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
 import { resetSocket } from '../lib/socket';
-import { Card, Notice } from '../components/bite-size/BitsizeUI';
+import { Card, Notice, Badge } from '../components/bite-size/BitsizeUI';
+import { AiSearchPanel } from '../components/common/AiSearchPanel';
 
 // ── Constants & utilities ───────────────────────────────────────────────────
 import {
@@ -450,6 +451,40 @@ export function AdminDashboardPage({ user, onLogout }) {
 
       {!isAnyAdminModalOpen && error && <Notice text={error} />}
       {!isAnyAdminModalOpen && notice && <Notice text={notice} kind="success" />}
+
+      <AiSearchPanel
+        scope="admin"
+        applications={dynamicApplications}
+        defaultApplication="all"
+        subtitle="Ask in plain language whether an issue has been reported before, and what happened to it. Searches all tickets, including internal notes."
+        renderResults={(matches) => (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {matches.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => openDetail(item.id)}
+                style={{ textAlign: 'left', cursor: 'pointer', border: '1px solid var(--bs-border, #e2e6ee)', borderRadius: 8, padding: '10px 12px', background: '#fff', display: 'flex', flexDirection: 'column', gap: 4 }}
+              >
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <strong style={{ fontSize: 14 }}>{item.summary_of_issue || '(no summary)'}</strong>
+                  {item.type && <Badge value={item.type} />}
+                  {item.status && <Badge value={item.status} />}
+                  {item.ai?.relevance && (
+                    <Badge tone={item.ai.relevance === 'high' ? 'success' : item.ai.relevance === 'medium' ? 'info' : undefined}>
+                      {item.ai.relevance}
+                    </Badge>
+                  )}
+                </div>
+                <div className="muted" style={{ fontSize: 12 }}>
+                  #{item.id} · {item.application_name || '-'} · {item.easyvista_ticket_id || 'no EV ticket'}
+                </div>
+                {item.ai?.why && <div style={{ fontSize: 13 }}>{item.ai.why}</div>}
+              </button>
+            ))}
+          </div>
+        )}
+      />
 
       <Card>
         <FiltersBar

@@ -8,13 +8,16 @@
     "test": "node --test --test-force-exit test/*.test.js",
     "migrate": "node scripts/migrate.js",
     "seed:admin": "node src/seedAdmin.js",
-    "seed:sample": "node src/seedSampleData.js"
+    "seed:sample": "node src/seedSampleData.js",
+    "backfill:embeddings": "node scripts/backfillEmbeddings.js"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.112.4",
+    "@huggingface/transformers": "^4.2.0",
     "bcrypt": "^6.0.0",
     "cors": "^2.8.6",
     "dotenv": "^17.3.1",
