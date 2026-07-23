@@ -34,6 +34,15 @@ Monorepo with two apps:
   `server/src/helpers/submissionInsert.js`. Public API responses are
   field-allow-listed via `mapPublicSubmission` — never leak internal fields
   (email, reviewer, decision/impact notes, fingerprint) on public endpoints.
+- **AI semantic search** (`server/docs/ai-search.md`): optional, self-disabling
+  when no key is set. Provider is a master switch `AI_PROVIDER` (`openai` = all
+  OpenAI; `anthropic` = Claude summary + self-hosted local embeddings). Modules:
+  `src/embeddings.js`, `src/aiSummary.js`, `src/services/{aiSearchService,
+  embeddingIndexService}.js`, `src/routes/aiSearchRoutes.js`; new
+  `submission_embeddings` table; `npm run backfill:embeddings` to index existing
+  tickets. Public search reuses `mapPublicSubmission` + `is_public` gating and is
+  rate-limited — keep both when touching it. Never send internal fields to the
+  public summary call.
 
 ## Coding conventions — apply these skills by default
 

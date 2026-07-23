@@ -132,7 +132,7 @@ that (or at hundreds of thousands), replace the in-JS ranking with **pgvector**
 
 ## Files
 
-- `src/embeddings.js` — provider-agnostic embeddings (Voyage/OpenAI via `fetch`).
+- `src/embeddings.js` — provider-agnostic embeddings (local self-hosted / OpenAI / Voyage).
 - `src/aiSummary.js` — Claude Haiku structured summary (fails safe to empty).
 - `src/services/embeddingIndexService.js` — search docs, `ensureEmbeddings`, cosine.
 - `src/services/aiSearchService.js` — retrieve → rank → summarize orchestration.

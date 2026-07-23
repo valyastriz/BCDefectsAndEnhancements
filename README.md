@@ -36,6 +36,7 @@ A full-stack internal operations tool for the **Product Owners team** to track, 
   - [Collaborative Editing & Conflict Safety](#collaborative-editing--conflict-safety)
   - [File Attachments](#file-attachments)
   - [Data Provenance & Auditing](#data-provenance--auditing)
+  - [AI Semantic Search](#ai-semantic-search)
 - [Admin Dashboard Deep Dive](#admin-dashboard-deep-dive)
   - [New Submissions Alert](#new-submissions-alert)
   - [Customize View](#customize-view-per-admin-columns--filters)
@@ -77,9 +78,11 @@ This application solves all of these problems with a purpose-built workflow that
 - Submit defect reports with structured fields (affected policy, account, screen title, steps to reproduce, screenshots)
 - Submit enhancement requests with impact details and justification
 - View a live public status board showing which requests have been acknowledged and their current status
+- **Check if an issue was already reported** before submitting — an AI-powered "has this been reported before?" search over public tickets
 
 ### For Product Owners (Admins)
 - Review incoming submissions from a filterable, sortable queue
+- **AI semantic search** — describe an issue in plain language to see if it's been reported before and what happened to it (an AI summary on top, the matching real tickets below)
 - Triage requests: assign status, mark type, flag duplicates, add decision notes
 - Track cleanup tasks alongside defects and enhancements
 - Escalate to Tier 2 GTS by submitting tickets to EasyVista directly from the app
@@ -135,6 +138,8 @@ This application solves all of these problems with a purpose-built workflow that
 | **Auth** | express-session + bcrypt | 1.19.0 / 6.0.0 |
 | **File Upload** | multer | 2.0.2 |
 | **Excel I/O** | xlsx (SheetJS) | 0.18.5 |
+| **AI Summary** | Anthropic Claude **or** OpenAI (switchable) | @anthropic-ai/sdk 0.112 |
+| **AI Embeddings** | Self-hosted (transformers.js) / OpenAI / Voyage | @huggingface/transformers 4.2 |
 | **UI Components** | BitsizeUI (custom) | — |
 | **Styling** | Vanilla CSS design system | — |
 | **Client Hosting** | Vercel | — |
@@ -169,6 +174,9 @@ BCDefectsAndEnhancements/
 │   │   │   ├── public/              # Public page components
 │   │   │   │   ├── PublicFiltersBar.jsx
 │   │   │   │   └── PublicItemCard.jsx
+│   │   │   ├── common/              # Shared components
+│   │   │   │   ├── AiSearchPanel.jsx   # AI search box + summary + results
+│   │   │   │   └── PaginationControls.jsx
 │   │   │   └── bite-size/           # BitsizeUI component library
 │   │   │       ├── BitsizeUI.jsx
 │   │   │       └── Layout.jsx
@@ -216,15 +224,20 @@ BCDefectsAndEnhancements/
 │   │   ├── postgres.js              # Raw pg.Pool adapter
 │   │   ├── sqljs.js                 # Raw sql.js adapter
 │   │   └── models/
-│   │       └── index.js             # 14 Sequelize models + lookup seeding
+│   │       └── index.js             # 15 Sequelize models + lookup seeding
 │   ├── scripts/
-│   │   └── migrate.js               # DB sync + seed script
+│   │   ├── migrate.js               # DB sync + seed script
+│   │   └── backfillEmbeddings.js    # One-time AI-search embedding backfill
+│   ├── docs/
+│   │   └── ai-search.md             # AI search setup, providers, cost, tuning
 │   ├── src/
 │   │   ├── index.js                 # Server entry point
 │   │   ├── auth.js                  # Session auth middleware
 │   │   ├── config.js                # Environment config loader
 │   │   ├── constants.js             # Server-side constants
 │   │   ├── easyvista.js             # EasyVista API client
+│   │   ├── embeddings.js            # Embeddings provider (local / OpenAI / Voyage)
+│   │   ├── aiSummary.js             # AI summary (Claude or OpenAI, switchable)
 │   │   ├── seedAdmin.js             # Admin user seeder
 │   │   ├── seedSampleData.js        # Sample data seeder
 │   │   ├── socket.js                # Socket.IO setup & event emitters
@@ -246,13 +259,16 @@ BCDefectsAndEnhancements/
 │   │   │   ├── adminSubmissionRoutes.js
 │   │   │   ├── attachmentRoutes.js
 │   │   │   ├── authRoutes.js
+│   │   │   ├── aiSearchRoutes.js    # AI semantic search (admin + public)
 │   │   │   ├── easyvistaRoutes.js
 │   │   │   ├── importRoutes.js
 │   │   │   ├── metaRoutes.js
 │   │   │   ├── publicRoutes.js
 │   │   │   └── submissionRoutes.js
 │   │   └── services/
-│   │       └── submissionService.js  # Query builder + business logic
+│   │       ├── submissionService.js       # Query builder + business logic
+│   │       ├── aiSearchService.js          # AI search: retrieve → rank → summarize
+│   │       └── embeddingIndexService.js    # Embedding index + cosine/recency ranking
 │   ├── uploads/                      # Local file storage root
 │   ├── data/                         # SQLite database files
 │   └── package.json
@@ -318,6 +334,9 @@ npm run seed:admin
 
 # (Optional) Insert sample submissions for testing
 npm run seed:sample
+
+# (Optional) If AI search is configured, index existing tickets once
+npm run backfill:embeddings
 ```
 
 > **Production note:** when `NODE_ENV=production`, the server also runs this
@@ -657,6 +676,46 @@ Every submission is tagged with `created_via` to identify its origin:
 
 Admins can filter the queue by `Created Via` to audit import batches, distinguish rep-submitted items from backfilled records, and trace resubmission chains.
 
+### AI Semantic Search
+
+Ask *"has this issue been reported before, and what happened to it?"* in plain
+language. An **AI summary** appears on top (e.g. *"Reported twice in the last 90
+days; the most recent, EV‑1234, was **Deployed**"*), with the **matching real
+tickets** listed below it. Available on three surfaces:
+
+- **Admin dashboard** — searches all tickets, including internal notes (best for triage & dedup)
+- **Rep submission form** — a "check if this was already reported" helper (public tickets only)
+- **Public status board** — semantic search over public tickets
+
+**How it works (retrieve → rank → summarize):** every ticket is turned into an
+embedding vector once (cached, re-embedded only when its text changes). A search
+embeds just the query, filters candidates (application, time window, `is_public`),
+ranks them by a **blended match + recency** score, and sends only the **top 20**
+to the chat model to write the grounded summary. So per-search AI cost is flat
+regardless of how many tickets exist, and the results shown are always the real
+DB rows — the model never invents a ticket, status, or date.
+
+**Provider master switch (`AI_PROVIDER`)** — one line per environment, never a mix:
+
+| `AI_PROVIDER` | Summary | Embeddings | Keys |
+|---|---|---|---|
+| `openai` | OpenAI (`gpt-4o-mini`) | OpenAI | `OPENAI_API_KEY` |
+| `anthropic` | Claude (`claude-haiku-4-5`) | **Self-hosted, in-app** (no vendor) | `ANTHROPIC_API_KEY` |
+
+Claude has no embeddings API, so the all-Claude setup pairs Claude with a small
+**self-hosted** embedding model (`@huggingface/transformers`) that runs inside the
+app — no third-party vendor, no key, no per-call cost, and ticket text never
+leaves the server. (OpenAI or Voyage embeddings are also selectable.)
+
+**Filters:** scope by application ("All systems" or one), and a time window
+("reported/resolved in the last 30/90/365 days").
+
+**Safety & cost:** the feature is **fully optional** — with no key set the panel
+is hidden everywhere and the app is unchanged. Public search is locked to public
+tickets + the `mapPublicSubmission` allow-list (no internal-field leakage) and is
+per-IP rate-limited. Full setup, tuning, and the pgvector scale path:
+[`server/docs/ai-search.md`](server/docs/ai-search.md).
+
 ---
 
 ## Admin Dashboard Deep Dive
@@ -980,6 +1039,17 @@ Identity comes from the session (`req.session.user.id`), never the request body.
 |--------|----------|------|-------------|
 | `POST` | `/api/admin/submissions/:id/submit-easyvista` | Admin | Submit or resubmit to EasyVista |
 
+### AI Search
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| `POST` | `/api/admin/submissions/ai-search` | Admin | Semantic search over all tickets (full data) |
+| `GET` | `/api/admin/ai-search/status` | Admin | Whether AI search is configured (`{ enabled, summaryEnabled }`) |
+| `POST` | `/api/ai-search` | Public | Semantic search over public tickets (rate-limited) |
+| `GET` | `/api/ai-search/status` | Public | Whether public AI search is configured |
+
+Body: `{ query, applicationName?, reportedWithinDays?, resolvedWithinDays? }`. Both search endpoints return `{ enabled, summary, matches, window, meta }`. When AI isn't configured they return `503` with `{ enabled: false }` so the UI hides the panel.
+
 ### Health
 
 | Method | Endpoint | Auth | Description |
@@ -1000,6 +1070,7 @@ Identity comes from the session (`req.session.user.id`), never the request body.
 | `attachments` | File references | `id`, `submission_id`, `filename`, `mime_type`, `file_path`, `uploaded_by_role` |
 | `submission_status_events` | Status audit trail | `id`, `submission_id`, `status`, `changed_at`, `changed_by` |
 | `excel_import_runs` | Import history log | `id`, `file_name`, `import_mode`, `total_rows`, `inserted_rows`, `status`, `errors_json` |
+| `submission_embeddings` | AI-search vectors (one per ticket per scope; JSON-in-TEXT, portable, no pgvector) | `id`, `submission_id`, `scope` (admin/public), `model`, `content_hash`, `vector`, `updated_at` |
 
 ### Lookup Tables
 
@@ -1104,6 +1175,26 @@ All environment variables for `server/.env`:
 | `SEED_ADMIN_PASSWORD` | No | `admin123` | Password for seeded admin accounts |
 | `EASYVISTA_BASE_URL` | No | — | EasyVista API URL (blank = stub mode) |
 | `EASYVISTA_API_KEY` | No | — | EasyVista API bearer token |
+
+### AI Semantic Search (all optional — blank keys keep the feature hidden)
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `AI_PROVIDER` | No | — | Master switch: `openai` or `anthropic` (drives summary + embeddings) |
+| `ANTHROPIC_API_KEY` | If Claude | — | Claude key (when the summary is Anthropic) |
+| `OPENAI_API_KEY` | If OpenAI | — | OpenAI key (summary and/or embeddings) |
+| `VOYAGE_API_KEY` | No | — | Voyage key (only if `EMBEDDINGS_PROVIDER=voyage`) |
+| `AI_MODEL` | No | `claude-haiku-4-5` | Anthropic summary model |
+| `OPENAI_SUMMARY_MODEL` | No | `gpt-4o-mini` | OpenAI summary model |
+| `EMBEDDINGS_PROVIDER` | No | from `AI_PROVIDER` | `local` (self-hosted) / `openai` / `voyage` |
+| `AI_SUMMARY_PROVIDER` | No | from `AI_PROVIDER` | `anthropic` / `openai` (granular override) |
+| `AI_SEARCH_TOP_K` | No | `20` | Candidate tickets sent to the summary model |
+| `AI_SEARCH_RECENCY_WEIGHT` | No | `0.15` | Recency boost in ranking (`0` = pure match) |
+| `AI_SEARCH_RECENCY_HALFLIFE_DAYS` | No | `180` | How fast the recency boost decays |
+| `AI_SEARCH_PUBLIC_ENABLED` | No | `true` | Toggle the public/rep-form surfaces |
+| `AI_SEARCH_ENABLED` | No | `true` | Master on/off for the whole feature |
+
+See [`server/docs/ai-search.md`](server/docs/ai-search.md) for presets, cost, tuning, and the full variable list (rate-limit knobs, inline-embed cap, etc.).
 
 ---
 
