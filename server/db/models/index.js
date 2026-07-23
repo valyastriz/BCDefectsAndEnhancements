@@ -159,8 +159,17 @@ function defineModels(sequelize) {
   }, {
     tableName: 'submission_embeddings',
     timestamps: false,
+    // The (submission_id, scope) uniqueness is intentionally NOT a model
+    // `unique: true` index. On SQLite, sync({ alter: true }) rebuilds this table
+    // on every run and, reading a composite unique index back via describeTable,
+    // mis-derives it into spurious standalone UNIQUE constraints on the
+    // individual columns (submission_id AND scope) — which rejects the intended
+    // second scope row and breaks the two-rows-per-ticket design. So this table
+    // is synced WITHOUT alter (see migrateWithModels) and its composite
+    // uniqueness is created with a raw, dialect-portable CREATE UNIQUE INDEX IF
+    // NOT EXISTS (see ensureEmbeddingUniqueIndex). Keep the non-unique scope
+    // index here.
     indexes: [
-      { name: 'idx_submission_embeddings_unique', unique: true, fields: ['submission_id', 'scope'] },
       { name: 'idx_submission_embeddings_scope', fields: ['scope'] },
     ],
   });
@@ -288,9 +297,39 @@ async function seedLookup(model, values, { retiredValue = null } = {}) {
   }
 }
 
+// Composite unique index for submission_embeddings, created dialect-safely.
+// It is created here with a raw CREATE UNIQUE INDEX IF NOT EXISTS rather than as
+// a model `unique: true` index because sync({ alter: true }) mis-derives a
+// composite unique index into standalone per-column UNIQUE constraints on SQLite
+// (see the SubmissionEmbedding model comment). This statement is idempotent and
+// valid on both SQLite and Postgres. Called after the schema sync on
+// migrate/app boot and after the backfill's plain SubmissionEmbedding.sync(),
+// so the constraint the upsert relies on is always present regardless of which
+// path created the table.
+async function ensureEmbeddingUniqueIndex(sequelize) {
+  await sequelize.query(
+    'CREATE UNIQUE INDEX IF NOT EXISTS "idx_submission_embeddings_unique" '
+    + 'ON "submission_embeddings" ("submission_id", "scope")',
+  );
+}
+
 async function migrateWithModels(sequelize, models) {
   await sequelize.authenticate();
-  await sequelize.sync({ alter: true });
+
+  // Sync every model with alter:true EXCEPT submission_embeddings. That table's
+  // composite (submission_id, scope) uniqueness is corrupted by SQLite's
+  // alter-rebuild (see the SubmissionEmbedding model comment), so it gets a
+  // plain sync (CREATE TABLE IF NOT EXISTS, never a rebuild) and its unique
+  // index is created separately below. There are no model associations, so
+  // per-model sync is equivalent to a single sequelize.sync() here.
+  for (const model of Object.values(models)) {
+    if (model === models.SubmissionEmbedding) {
+      await model.sync();
+    } else {
+      await model.sync({ alter: true });
+    }
+  }
+  await ensureEmbeddingUniqueIndex(sequelize);
 
   await seedLookup(models.DefectEnhancementStatus, DEFAULT_DEFECT_ENHANCEMENT_STATUSES, { retiredValue: 'Retired' });
   await seedLookup(models.SubmissionType, DEFAULT_SUBMISSION_TYPES);
@@ -315,4 +354,5 @@ async function migrateWithModels(sequelize, models) {
 module.exports = {
   defineModels,
   migrateWithModels,
+  ensureEmbeddingUniqueIndex,
 };

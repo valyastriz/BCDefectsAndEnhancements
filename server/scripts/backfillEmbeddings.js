@@ -4,20 +4,22 @@
 //
 // Embeds every existing ticket (admin scope always; public scope for is_public
 // tickets). Safe to re-run: the content_hash guard skips tickets whose text is
-// already indexed with the current model. Requires an embeddings provider key
-// (VOYAGE_API_KEY or OPENAI_API_KEY) — see .env.example.
+// already indexed with the current model. The default `local` embeddings
+// provider needs no key; only EMBEDDINGS_PROVIDER=openai/voyage require their
+// respective key (OPENAI_API_KEY / VOYAGE_API_KEY) — see .env.example.
 
 const dotenv = require('dotenv');
 
 dotenv.config();
 
 const dbApi = require('../db');
+const { ensureEmbeddingUniqueIndex } = require('../db/models');
 const { isEmbeddingConfigured, getEmbeddingModelId } = require('../src/embeddings');
 const { hydrateRows, ensureEmbeddingsForHydratedRows } = require('../src/services/embeddingIndexService');
 
 async function backfill() {
   if (!isEmbeddingConfigured()) {
-    console.error('Embeddings provider is not configured. Set VOYAGE_API_KEY (or OPENAI_API_KEY) and EMBEDDINGS_PROVIDER, then retry.');
+    console.error('Embeddings provider is not configured. The default `local` provider needs no key; if EMBEDDINGS_PROVIDER=openai or voyage, set OPENAI_API_KEY or VOYAGE_API_KEY respectively, then retry.');
     process.exit(1);
   }
 
@@ -28,8 +30,11 @@ async function backfill() {
     process.exit(1);
   }
 
-  // Ensure the embeddings table exists without altering the rest of the schema.
+  // Ensure the embeddings table exists without altering the rest of the schema,
+  // then guarantee the composite unique index the upsert relies on is present
+  // even when this script runs before `npm run migrate` on a fresh DB.
   await SubmissionEmbedding.sync();
+  await ensureEmbeddingUniqueIndex(SubmissionEmbedding.sequelize);
 
   const raw = await Submission.findAll({ order: [['id', 'ASC']], raw: true });
   console.log(`Embedding provider/model: ${getEmbeddingModelId()}`);
