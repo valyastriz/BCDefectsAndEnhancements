@@ -32,7 +32,15 @@ export function SubmissionsTable({
   runtimeCleanupInlineStatuses,
   cleanupOnlyStatus,
   statusToCleanup,
+  selectedIds,
+  onToggleRow,
+  onToggleAll,
 }) {
+  // Selection state for the leading checkbox column. The master checkbox acts on
+  // the full filtered `rows` (every page), not just the visible `pagedRows`.
+  const allRowsSelected = rows.length > 0 && rows.every((row) => selectedIds.has(row.id));
+  const someRowsSelected = selectedIds.size > 0 && !allRowsSelected;
+
   // Shared context handed to each column's cell renderer (see submissionColumns).
   const cellCtx = {
     updateStatusQuick,
@@ -107,6 +115,16 @@ export function SubmissionsTable({
         <table className="admin-submissions-table">
           <thead>
             <tr>
+              {/* Leading selection column — outside the registry-driven columns. */}
+              <th style={{ width: 40, minWidth: 40 }}>
+                <input
+                  type="checkbox"
+                  aria-label="Select all filtered tickets"
+                  checked={allRowsSelected}
+                  ref={(el) => { if (el) el.indeterminate = someRowsSelected; }}
+                  onChange={onToggleAll}
+                />
+              </th>
               {orderedVisibleColumns.map((col) => {
                 const headerStyle = COLUMN_DEFS[col.key]?.headerStyle;
                 return col.sortKey
@@ -117,7 +135,7 @@ export function SubmissionsTable({
           </thead>
           <tbody>
             {rows.length === 0 && !loading && (
-              <tr><td colSpan={orderedVisibleColumns.length} style={{ textAlign: 'center', color: 'var(--color-muted)', padding: '28px 12px' }}>No submissions match the current filters.</td></tr>
+              <tr><td colSpan={orderedVisibleColumns.length + 1} style={{ textAlign: 'center', color: 'var(--color-muted)', padding: '28px 12px' }}>No submissions match the current filters.</td></tr>
             )}
             {pagedRows.map((row) => (
               <tr
@@ -130,6 +148,15 @@ export function SubmissionsTable({
                 }}
                 className="clickable"
               >
+                {/* Leading selection cell — the onClick guard above ignores clicks on this input. */}
+                <td data-label="Select" style={{ width: 40, minWidth: 40 }}>
+                  <input
+                    type="checkbox"
+                    aria-label={`Select ticket #${row.id}`}
+                    checked={selectedIds.has(row.id)}
+                    onChange={() => onToggleRow(row.id)}
+                  />
+                </td>
                 {orderedVisibleColumns.map((col) => {
                   const cell = COLUMN_DEFS[col.key]?.renderCell(row, cellCtx);
                   return cell ? cloneElement(cell, { key: col.key }) : null;

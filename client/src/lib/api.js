@@ -232,6 +232,14 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
     }),
+  // Bulk change of public visibility for many tickets in one request.
+  // Returns { ok, is_public, requested, updated, failed } (failed = ids that errored).
+  bulkUpdateVisibility: (ids, isPublic) =>
+    request('/api/admin/submissions/bulk-visibility', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids, is_public: isPublic }),
+    }),
   createAdminSubmission: (data) =>
     request('/api/admin/submissions', {
       method: 'POST',

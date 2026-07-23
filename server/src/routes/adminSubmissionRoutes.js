@@ -12,6 +12,7 @@ const {
   getSubmissionByIdWithLookups,
   createAdminSubmission,
   updateAdminSubmission,
+  bulkUpdateVisibility,
 } = require('../services/submissionService');
 
 const router = express.Router();
@@ -113,6 +114,24 @@ router.post('/api/admin/submissions', ensureAdmin, async (req, res) => {
 
   return withDb(async (db) => {
     const result = await createAdminSubmission(db, {
+      body,
+      username: req.session?.user?.username,
+    });
+    if (result.error) {
+      return res.status(result.status).json({ error: result.error });
+    }
+    return res.status(result.status).json(result.body);
+  });
+});
+
+// Static path — registered before the PUT `/:id` param route (different method, so
+// it can't be captured either way) so an admin can toggle visibility on many
+// tickets at once. Reuses the per-row update path for socket + embedding parity.
+router.post('/api/admin/submissions/bulk-visibility', ensureAdmin, async (req, res) => {
+  const body = req.body || {};
+
+  return withDb(async (db) => {
+    const result = await bulkUpdateVisibility(db, {
       body,
       username: req.session?.user?.username,
     });

@@ -1045,6 +1045,78 @@ async function updateAdminSubmission(db, { id, body, username }) {
   return { status: 200, body: mapSubmission(saved) };
 }
 
+// Upper bound on ids per bulk-visibility request. Guards the live Supabase prod
+// data from an accidental mass mutation and bounds the per-row loop below.
+const MAX_BULK_VISIBILITY_IDS = 1000;
+
+// Boundary validation for the bulk-visibility request body. Pure (no DB) so it
+// can be unit-tested directly. Returns { error } on a 400-worthy violation, or
+// { ids, isPublic } with ids coerced to positive integers on success.
+function validateBulkVisibilityInput(body) {
+  const source = body || {};
+  if (!Array.isArray(source.ids)) {
+    return { error: 'ids must be an array' };
+  }
+  if (source.ids.length === 0) {
+    return { error: 'ids must not be empty' };
+  }
+  if (source.ids.length > MAX_BULK_VISIBILITY_IDS) {
+    return { error: `ids must contain at most ${MAX_BULK_VISIBILITY_IDS} items` };
+  }
+  if (typeof source.is_public !== 'boolean') {
+    return { error: 'is_public must be a boolean' };
+  }
+  const ids = [];
+  for (const raw of source.ids) {
+    // Accept integers and integer-valued numeric strings; reject everything else.
+    const value =
+      typeof raw === 'number'
+        ? raw
+        : typeof raw === 'string' && raw.trim() !== ''
+          ? Number(raw)
+          : NaN;
+    if (!Number.isInteger(value) || value <= 0) {
+      return { error: 'ids must contain only positive integers' };
+    }
+    ids.push(value);
+  }
+  return { ids, isPublic: source.is_public };
+}
+
+// Bulk visibility toggle. Validates the request body, then loops the existing
+// per-row updateAdminSubmission so socket emits and embedding scheduling match
+// the single-ticket toggle exactly. A single failing id is collected in `failed`
+// and never aborts the batch. Returns { error, status } on validation failure or
+// { status: 200, body } on success, mirroring updateAdminSubmission's shape.
+// `updateOne` is injectable so the loop can be unit-tested without a DB.
+async function bulkUpdateVisibility(db, { body, username, updateOne = updateAdminSubmission } = {}) {
+  const validation = validateBulkVisibilityInput(body);
+  if (validation.error) {
+    return { error: validation.error, status: 400 };
+  }
+  const { ids, isPublic } = validation;
+
+  const failed = [];
+  let updated = 0;
+  for (const id of ids) {
+    try {
+      const result = await updateOne(db, { id, body: { is_public: isPublic }, username });
+      if (result && result.error) {
+        failed.push(id);
+      } else {
+        updated += 1;
+      }
+    } catch (err) {
+      failed.push(id);
+    }
+  }
+
+  return {
+    status: 200,
+    body: { ok: true, is_public: isPublic, requested: ids.length, updated, failed },
+  };
+}
+
 // Submit (or resubmit) a submission to EasyVista.
 // Returns { error, status } for a failure response, or { status: 200, body }
 // on success. Moved verbatim from the easyvista route handler; the order of
@@ -1437,5 +1509,7 @@ module.exports = {
   logStatusChange,
   createAdminSubmission,
   updateAdminSubmission,
+  validateBulkVisibilityInput,
+  bulkUpdateVisibility,
   submitSubmissionToEasyVista,
 };

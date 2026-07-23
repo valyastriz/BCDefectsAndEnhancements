@@ -2,8 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
 import { resetSocket } from '../lib/socket';
-import { Card, Notice, Badge } from '../components/bite-size/BitsizeUI';
+import { Card, Notice, Badge, Modal, Button } from '../components/bite-size/BitsizeUI';
 import { AiSearchPanel } from '../components/common/AiSearchPanel';
+import { BulkActionBar } from '../components/admin/BulkActionBar';
 
 // ── Constants & utilities ───────────────────────────────────────────────────
 import {
@@ -74,6 +75,14 @@ export function AdminDashboardPage({ user, onLogout }) {
   const [newFormSubmissionsCount, setNewFormSubmissionsCount] = useState(0);
   // Totals for the top stat row — always all non-retired items, independent of UI filters.
   const [baselineCounts, setBaselineCounts] = useState({ total: 0, statuses: {} });
+  // ── Bulk selection (single source of truth; page owns the full filtered `rows`) ──
+  // A Set of selected row ids. `bulkConfirm` is null when closed, else
+  // { isPublic, ids } — `ids` snapshots the confirmed selection at the moment the
+  // modal opens so a background reload can't empty it before the admin confirms.
+  // `applying` gates the in-flight bulk request (in-flight guard).
+  const [selectedIds, setSelectedIds] = useState(() => new Set());
+  const [bulkConfirm, setBulkConfirm] = useState(null);
+  const [applying, setApplying] = useState(false);
 
   // ── Independent totals of all non-retired submissions (never depend on UI filters) ──
   // All non-retired items regardless of status (no status whitelist), matching what
@@ -212,7 +221,8 @@ export function AdminDashboardPage({ user, onLogout }) {
   const { exportModalOpen, exportWorking, openExportModal } = exportModal;
 
   // ── Composite flags ───────────────────────────────────────────────────────
-  const isAnyAdminModalOpen = isDetailModalOpen || backdatedOpen || cleanupOpen || importModalOpen || exportModalOpen || customizeOpen;
+  const bulkConfirmOpen = bulkConfirm !== null;
+  const isAnyAdminModalOpen = isDetailModalOpen || backdatedOpen || cleanupOpen || importModalOpen || exportModalOpen || customizeOpen || bulkConfirmOpen;
 
   // ── Notifications (depends on isAnyAdminModalOpen) ────────────────────────
   const { submissionToasts, setSubmissionToasts } = useAdminNotifications({
@@ -266,6 +276,17 @@ export function AdminDashboardPage({ user, onLogout }) {
   }, [rows]);
 
   useEffect(() => { setPage(1); }, [rows]);
+
+  // Clear an active bulk selection when the admin changes filters/search — a
+  // selection must never straddle two different filtered sets. Keyed on
+  // `filters` (mirroring the loadRows filter effect above), NOT on `rows`, so
+  // benign live refreshes (socket updates, single-row quick edits, post-mutation
+  // refetches) reuse the same filters and leave the selection intact. The
+  // apply-time re-intersection with the current `rows` remains the hard
+  // guarantee that a bulk change never touches a ticket outside the current view.
+  useEffect(() => {
+    setSelectedIds((prev) => (prev.size === 0 ? prev : new Set()));
+  }, [filters]);
 
   const totalPages = pageSize === 0 ? 1 : Math.max(1, Math.ceil(rows.length / pageSize));
   const pagedRows = useMemo(
@@ -381,6 +402,73 @@ export function AdminDashboardPage({ user, onLogout }) {
       setNotice(`Public visibility updated to ${isPublic ? 'Yes' : 'No'}.`);
     } catch (updateError) {
       setError(updateError.message);
+    }
+  }
+
+  // ── Bulk visibility selection + apply ─────────────────────────────────────
+  function toggleRow(id) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  // Master checkbox: select/clear the ENTIRE filtered set (all pages), not just
+  // the visible page — the flow is "filter, then select all, then apply".
+  function toggleAllRows() {
+    setSelectedIds((prev) => {
+      const allSelected = rows.length > 0 && rows.every((row) => prev.has(row.id));
+      return allSelected ? new Set() : new Set(rows.map((row) => row.id));
+    });
+  }
+
+  // Open the confirmation modal with a SNAPSHOT of the confirmed ids taken at
+  // click time (only ids currently in view), so a background reload can't empty
+  // the selection between opening the modal and confirming.
+  function openBulkConfirm(isPublic) {
+    const ids = rows.filter((row) => selectedIds.has(row.id)).map((row) => Number(row.id));
+    if (ids.length === 0) return;
+    setBulkConfirm({ isPublic, ids });
+  }
+
+  async function applyBulkVisibility(snapshot) {
+    if (applying || !snapshot) return;
+    const { isPublic, ids: snapshotIds } = snapshot;
+    // Re-intersect the snapshot with the CURRENT rows — the hard guarantee that a
+    // bulk change never touches a ticket outside the current filtered view, even
+    // if a live refresh dropped some tickets out of view since the modal opened.
+    const visibleIds = new Set(rows.map((row) => Number(row.id)));
+    const ids = snapshotIds.filter((id) => visibleIds.has(id));
+    const label = isPublic ? 'Public' : 'Private';
+    if (ids.length === 0) {
+      setBulkConfirm(null);
+      setNotice('');
+      setError('Selection changed — nothing was applied, please re-select.');
+      return;
+    }
+    const skipped = snapshotIds.length - ids.length;
+    setApplying(true);
+    try {
+      setError('');
+      const result = await api.bulkUpdateVisibility(ids, isPublic);
+      const updated = result?.updated ?? ids.length;
+      const failedCount = result?.failed?.length ?? 0;
+      setSelectedIds(new Set());
+      await loadRows();
+      if (failedCount > 0) {
+        setNotice('');
+        setError(`Updated ${updated} of ${ids.length} ticket${ids.length === 1 ? '' : 's'} to ${label}; ${failedCount} could not be updated.`);
+      } else {
+        const skippedNote = skipped > 0 ? ` ${skipped} skipped — no longer in view.` : '';
+        setNotice(`Updated ${updated} ticket${updated === 1 ? '' : 's'} to ${label}.${skippedNote}`);
+      }
+    } catch (bulkError) {
+      setError(bulkError.message);
+    } finally {
+      setApplying(false);
+      setBulkConfirm(null);
     }
   }
 
@@ -500,6 +588,16 @@ export function AdminDashboardPage({ user, onLogout }) {
           onOpenCustomize={() => setCustomizeOpen(true)}
         />
 
+        {selectedIds.size > 0 && (
+          <BulkActionBar
+            count={selectedIds.size}
+            disabled={applying}
+            onMakePublic={() => openBulkConfirm(true)}
+            onMakePrivate={() => openBulkConfirm(false)}
+            onClear={() => setSelectedIds(new Set())}
+          />
+        )}
+
         <SubmissionsTable
           rows={rows}
           pagedRows={pagedRows}
@@ -521,6 +619,9 @@ export function AdminDashboardPage({ user, onLogout }) {
           runtimeCleanupInlineStatuses={runtimeCleanupInlineStatuses}
           cleanupOnlyStatus={cleanupOnlyStatus}
           statusToCleanup={statusToCleanup}
+          selectedIds={selectedIds}
+          onToggleRow={toggleRow}
+          onToggleAll={toggleAllRows}
         />
       </Card>
 
@@ -591,6 +692,28 @@ export function AdminDashboardPage({ user, onLogout }) {
           }}
         />
       )}
+
+      <Modal
+        open={bulkConfirmOpen}
+        onClose={() => { if (!applying) setBulkConfirm(null); }}
+        title={bulkConfirm?.isPublic ? 'Make tickets public' : 'Make tickets private'}
+      >
+        <div className="stack">
+          <p style={{ marginTop: 0 }}>
+            {bulkConfirm?.isPublic
+              ? `Make ${bulkConfirm?.ids.length} selected ticket${bulkConfirm?.ids.length === 1 ? '' : 's'} public? They will appear on the public status board.`
+              : `Make ${bulkConfirm?.ids.length} selected ticket${bulkConfirm?.ids.length === 1 ? '' : 's'} private? They will be hidden from the public status board.`}
+          </p>
+          <div className="bs-actions">
+            <Button type="button" disabled={applying} onClick={() => applyBulkVisibility(bulkConfirm)}>
+              {applying ? 'Applying…' : (bulkConfirm?.isPublic ? 'Make Public' : 'Make Private')}
+            </Button>
+            <Button type="button" kind="ghost" disabled={applying} onClick={() => setBulkConfirm(null)}>
+              Cancel
+            </Button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }

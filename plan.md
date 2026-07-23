@@ -3,6 +3,34 @@
 Living record of notable features/changes. See `CLAUDE.md` for architecture and
 per-app details.
 
+## Admin Bulk Ticket-Visibility Change — done (verified 2026-07-23)
+
+Admins can multi-select tickets in the admin dashboard and flip `is_public`
+true/false for the whole selection in one action, behind a confirmation Modal
+with Notice feedback.
+
+- **Selection model:** per-row checkboxes plus a master "select all filtered"
+  checkbox that covers the entire filtered set across pages (not just the
+  current page). Selection is snapshotted on confirm, re-intersected with the
+  current rows at apply time (safety against stale selections), guarded against
+  concurrent submits, and cleared when filters change.
+- **Endpoint:** `POST /api/admin/submissions/bulk-visibility` (`ensureAdmin` +
+  the global `/api/admin/*` CSRF). Body `{ ids: number[], is_public: boolean }`,
+  validated (≤1000 ids); response `{ ok, is_public, requested, updated,
+  failed }`. Handler in `server/src/routes/adminSubmissionRoutes.js`.
+- **Service:** `bulkUpdateVisibility` + `validateBulkVisibilityInput` in
+  `server/src/services/submissionService.js`. Invariant: it loops the existing
+  per-row `updateAdminSubmission` so socket emits (`admin:notification`,
+  `public:update` via `mapPublicSubmission`) and embedding scheduling match the
+  single-ticket toggle exactly; per-id failures are collected in `failed`
+  without aborting the batch.
+- **Frontend:** `bulkUpdateVisibility(ids, isPublic)` in `client/src/lib/api.js`;
+  orchestration/state in `client/src/pages/AdminDashboardPage.jsx`; new
+  `client/src/components/admin/BulkActionBar.jsx`; leading checkbox column in
+  `SubmissionsTable.jsx`.
+- **Verification:** `server/test/bulkVisibility.test.js` (9 cases); full server
+  suite 47/47 pass; client `npm run lint` clean.
+
 ## AI Semantic Ticket Search — implemented (needs keys to activate)
 
 Plain-language search that answers "has this issue been reported before, and
@@ -32,8 +60,16 @@ status board.
   (valid on both SQLite and Postgres). This avoids a SQLite `sync({ alter:true })`
   quirk that would otherwise mis-derive the composite index into spurious
   standalone `UNIQUE` constraints and reject the second scope row per ticket.
-- **Filters:** application scoping (default context app, "All systems" option)
-  and a time window ("reported/resolved in the last 30/90/365 days").
+- **Filters:** application scoping (defaults to "All systems") and a time window
+  ("reported/resolved in the last 30/90/365 days"), which **defaults to
+  "Reported: last 12 months"** (`reported:365`) on all three mounts (rep `/`,
+  public `/public`, admin `/admin`); the user can still override, including "Any
+  time". Panel: `client/src/components/common/AiSearchPanel.jsx`. A per-user
+  application default (auto-scoping to the user's most-submitted app) was
+  investigated and **deferred** — no user→ticket identity link yet (the session
+  holds only `{id, username, role}`, submitters are anonymous, and submissions
+  record the submitter only via free-text `created_by_email`), so it waits on
+  real per-user preferences or an identity link.
 - **Endpoints:** `POST /api/admin/submissions/ai-search`, `POST /api/ai-search`
   (public, rate-limited), plus `/status` endpoints for UI gating.
 - **Cost/abuse controls:** embeddings computed once (content-hash guard),
