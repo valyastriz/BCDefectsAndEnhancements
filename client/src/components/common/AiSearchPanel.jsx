@@ -56,7 +56,7 @@ export function AiSearchPanel({
   const [status, setStatus] = useState({ loading: true, enabled: false, summaryEnabled: false });
   const [query, setQuery] = useState('');
   const [appName, setAppName] = useState(defaultApplication || 'all');
-  const [when, setWhen] = useState('');
+  const [when, setWhen] = useState('reported:365');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [result, setResult] = useState(null);
