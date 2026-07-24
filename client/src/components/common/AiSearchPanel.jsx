@@ -77,6 +77,9 @@ export function AiSearchPanel({
   const [error, setError] = useState('');
   const [result, setResult] = useState(null);
   const [hasSearched, setHasSearched] = useState(false);
+  // Collapses the summary + results area so the page below (e.g. the submission
+  // form) stays reachable; a new search always re-expands.
+  const [resultsCollapsed, setResultsCollapsed] = useState(false);
   const reqIdRef = useRef(0);
 
   useEffect(() => { setAppName(defaultApplication || 'all'); }, [defaultApplication]);
@@ -110,6 +113,8 @@ export function AiSearchPanel({
     setLoading(true);
     setError('');
     setHasSearched(true);
+    setResultsCollapsed(false); // a new search always re-expands the results
+
     try {
       const res = await searchFn({
         query: q,
@@ -197,7 +202,22 @@ export function AiSearchPanel({
 
       {loading && <p className="muted" style={{ marginTop: 12 }}>Searching tickets…</p>}
 
-      {!loading && showSummary && (
+      {!loading && !error && hasSearched && (
+        <div style={{ marginTop: 12, display: 'flex', justifyContent: 'flex-end' }}>
+          <button
+            type="button"
+            onClick={() => setResultsCollapsed((v) => !v)}
+            aria-expanded={!resultsCollapsed}
+            style={linkButton}
+          >
+            {resultsCollapsed
+              ? `Show results${matches.length > 0 ? ` (${matches.length})` : ''}`
+              : 'Hide results'}
+          </button>
+        </div>
+      )}
+
+      {!loading && !resultsCollapsed && showSummary && (
         <div className="ai-summary" style={{ marginTop: 14, padding: 14, borderRadius: 8, background: 'var(--bs-info-bg, #eef4ff)', border: '1px solid var(--bs-info-border, #cfe0ff)' }}>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 6 }}>
             <strong>AI summary</strong>
@@ -215,7 +235,7 @@ export function AiSearchPanel({
         </div>
       )}
 
-      {!loading && !error && hasSearched && (
+      {!loading && !error && !resultsCollapsed && hasSearched && (
         <div style={{ marginTop: 14 }}>
           {matches.length === 0
             ? (windowExcluded > 0

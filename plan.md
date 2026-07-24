@@ -163,8 +163,11 @@ status board.
   The 24-month default replaced the earlier 12-month default after it silently
   hid a 29-month-old ticket that was the query's only true match. A failed
   search (error) no longer also renders the "not been reported yet" empty state
-  (empty state is gated behind `!error`). Panel:
-  `client/src/components/common/AiSearchPanel.jsx`. A per-user
+  (empty state is gated behind `!error`). The summary + results area is
+  collapsible ("Hide results" / "Show results (N)") so the page below — e.g.
+  the submission form — stays reachable; a new search always re-expands.
+  Panel: `client/src/components/common/AiSearchPanel.jsx` (shared by all three
+  mounts, so behaviors land on rep, public, and admin surfaces at once). A per-user
   application default (auto-scoping to the user's most-submitted app) was
   investigated and **deferred** — no user→ticket identity link yet (the session
   holds only `{id, username, role}`, submitters are anonymous, and submissions
