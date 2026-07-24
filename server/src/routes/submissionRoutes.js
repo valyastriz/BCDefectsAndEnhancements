@@ -8,10 +8,11 @@ const {
   formatMissingLookupError,
   getSubmissionTypes,
 } = require('../helpers/lookups');
-const { mapSubmission } = require('../helpers/mappers');
+const { mapSubmission, mapPublicSubmission } = require('../helpers/mappers');
 const { persistUploadedFiles } = require('../helpers/storage');
 const { getSubmissionByIdWithLookups, logStatusChange } = require('../services/submissionService');
-const { emitAdminNotification } = require('../socket');
+const { scheduleEmbeddingRefresh } = require('../services/embeddingIndexService');
+const { emitAdminNotification, emitPublicUpdate } = require('../socket');
 const { imageUpload } = require('../middleware/upload');
 
 const router = express.Router();
@@ -168,7 +169,10 @@ router.post('/api/submissions', imageUpload.array('attachments', 3), async (req,
       enhancement_request_type_id: null,
       priority_level_id: lookupIds.priority_level_id,
       jira_number: null,
-      is_public: 0,
+      // Rep-submitted defects/enhancements are public by default so they show on
+      // the public status board and in public AI search; an admin can switch an
+      // individual ticket to private. (Rep submissions are never cleanup tasks.)
+      is_public: 1,
     };
 
     const createdSubmission = await Submission.create(createPayload);
@@ -179,6 +183,12 @@ router.post('/api/submissions', imageUpload.array('attachments', 3), async (req,
 
     const created = await getSubmissionByIdWithLookups(db, submissionId);
     emitAdminNotification('submission:new', mapSubmission(created));
+    if (created.is_public) {
+      // Rep submissions are public by default, so the public status board should
+      // live-update. Only allow-listed fields go to the unauthenticated watchers.
+      emitPublicUpdate(mapPublicSubmission(created));
+    }
+    scheduleEmbeddingRefresh(submissionId);
 
     return res.status(201).json({
       id: submissionId,

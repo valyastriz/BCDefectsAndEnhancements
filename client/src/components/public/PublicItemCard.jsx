@@ -14,6 +14,14 @@ function statusDate(value) {
   return parsed.toLocaleString();
 }
 
+// The identifier the AI search cites for a ticket: the EasyVista incident
+// number when one exists, otherwise the internal reference id (#id). Kept in
+// sync with the server's `ref` in aiSearchService.buildCard so a rep can match
+// an AI result to its card in the collapsed list without expanding it.
+function ticketRef(item) {
+  return item.easyvista_ticket_id ? String(item.easyvista_ticket_id) : `#${item.id}`;
+}
+
 function descriptionForItem(item) {
   const name = String(item.created_by || 'Requester').trim();
   const defectDescription = String(item.what_happened_exact_details || '').trim();
@@ -31,6 +39,13 @@ export function PublicItemCard({ item }) {
     <article className="public-item">
       <div className="public-top" style={{ gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <span
+            className="public-ref"
+            title="Incident number — matches the reference the AI search cites"
+            style={{ fontFamily: 'var(--font-mono, ui-monospace, monospace)', fontWeight: 700, fontSize: 13, color: 'var(--color-primary)', whiteSpace: 'nowrap' }}
+          >
+            {ticketRef(item)}
+          </span>
           <h4 style={{ margin: 0 }}>{item.summary_of_issue || '-'}</h4>
           <span className="muted" style={{ fontSize: 12 }}>
             Reported: {submittedDate(item.created_at)}

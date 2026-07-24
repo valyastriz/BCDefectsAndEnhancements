@@ -240,6 +240,14 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ids, is_public: isPublic }),
     }),
+  // Bulk retire/unretire for many tickets in one request.
+  // Returns { ok, is_retired, requested, updated, failed } (failed = ids that errored).
+  bulkUpdateRetired: (ids, isRetired) =>
+    request('/api/admin/submissions/bulk-retire', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids, is_retired: isRetired }),
+    }),
   createAdminSubmission: (data) =>
     request('/api/admin/submissions', {
       method: 'POST',

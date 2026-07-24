@@ -12,8 +12,12 @@ search panel is hidden everywhere and the app runs exactly as before.
 
 1. Each ticket has a cached embedding vector (see `submission_embeddings`).
 2. A search embeds only the **query** (tiny), pre-filters candidates in SQL
-   (application, time window, `is_public` for public surfaces), ranks them by
-   cosine similarity in Node, and takes the **top 20** (`AI_SEARCH_TOP_K`).
+   (application, `is_public` for public surfaces), applies the reported/resolved
+   **time window** in Node (so the excluded count can be reported — see
+   [`windowExcluded`](#time-window--windowexcluded)), ranks the rest by cosine
+   similarity, drops anything under the **minimum-similarity floor**
+   (`AI_SEARCH_MIN_SIMILARITY`), and takes at most the **top 20**
+   (`AI_SEARCH_TOP_K`).
 3. Claude (Haiku) ranks/explains those ≤20 and writes the grounded summary.
 4. The response returns the summary + the **real hydrated ticket rows** in
    ranked order — Claude never invents a ticket, status, or date.
@@ -69,6 +73,47 @@ weak recent one — but among comparable matches the newer ticket wins. Set the
 weight to `0` for pure match, or higher to lean harder on recency. Each result
 carries `ai.match` (raw similarity) and `ai.score` (blended) for transparency.
 
+### Minimum-similarity floor
+
+Before the top-K slice, candidates whose **raw cosine similarity** (`ai.match`)
+falls below `AI_SEARCH_MIN_SIMILARITY` (default `0.25`) are dropped — so
+near-irrelevant tickets no longer pad the top 20 just because top-K had room.
+The floor is applied to the raw match, **never** the recency-blended `ai.score`:
+recency must not rescue an irrelevant ticket past the floor. Set it to `0` to
+disable. The `0.25` default is calibrated for OpenAI `text-embedding-3-small`;
+different embedding models produce different similarity scales, so re-tune it
+after changing `EMBEDDINGS_PROVIDER`/`EMBEDDINGS_MODEL`.
+
+## Time window & `windowExcluded`
+
+The request may carry `reportedWithinDays` / `resolvedWithinDays`. The server
+applies **no window unless one is sent**; the client UI defaults to **"Reported:
+last 24 months"** (`reportedWithinDays: 730`) on all three surfaces, with
+30/90/365/730-day options for both dimensions plus "Any time" (no filter).
+
+The window filter is never silent: every search response includes a top-level
+**`windowExcluded`** integer — the count of candidate tickets excluded *solely*
+by the time window (counted before ranking, independent of similarity; `0` when
+no window params are sent). It is present on both the admin and public responses
+(shared service). The panel uses it to tell the user older matches were outside
+the time frame and to offer a one-click "Search all time" re-run: an info notice
+plus button when there are zero matches, a muted footnote with a link-style
+widen affordance when there are matches.
+
+## Summary honesty & schema
+
+The summary prompt presents the candidates as raw similarity retrievals that
+**may all be irrelevant** — not as pre-vetted matches. It must describe what the
+most relevant ticket is actually *about* (one sentence drawn from its content,
+not just its status), and explicitly say when nothing on file addresses the
+query's topic, returning an empty `matches` list. The structured result includes
+an optional **`has_relevant_match`** boolean; clients must tolerate its absence
+(treat it as metadata, never require it).
+
+Note the summary is load-bearing: the final result set is the LLM-endorsed
+subset of the retrieval top-K, so when the model says nothing is relevant,
+`matches: []` is the correct outcome even though retrieval found candidates.
+
 ## Setup
 
 1. **Pick the provider** and add its keys to `server/.env` (see `.env.example`
@@ -106,6 +151,7 @@ if a large import happened while the provider key was temporarily missing.
 | `AI_SUMMARY_PROVIDER` | (from `AI_PROVIDER`) | `anthropic` \| `openai`. |
 | `AI_SEARCH_RECENCY_WEIGHT` | `0.15` | Recency boost in ranking (`0` = pure match). |
 | `AI_SEARCH_RECENCY_HALFLIFE_DAYS` | `180` | How fast the recency boost decays. |
+| `AI_SEARCH_MIN_SIMILARITY` | `0.25` | Floor on the **raw** cosine `ai.match` (never the blended score); below it a candidate is dropped. `0` disables. Calibrated for `text-embedding-3-small` — re-tune per embeddings model. |
 | `AI_SEARCH_ENABLED` | `true` | Master on/off. |
 | `AI_SEARCH_PUBLIC_ENABLED` | `true` | Toggle the public/rep-form surfaces independently. |
 | `AI_SEARCH_TOP_K` | `20` | Candidate tickets sent to Claude per search. |
@@ -120,6 +166,23 @@ if a large import happened while the provider key was temporarily missing.
 - `GET  /api/admin/ai-search/status`, `GET /api/ai-search/status` → `{ enabled, summaryEnabled }` (UI gating)
 
 Body: `{ query, applicationName?, applicationId?, reportedWithinDays?, resolvedWithinDays? }`.
+
+The search response includes a top-level `windowExcluded` integer (see
+[Time window & `windowExcluded`](#time-window--windowexcluded)) alongside
+`summary`, `matches`, `window`, and `meta`.
+
+## Troubleshooting
+
+- **Searches fail with a 500 (client shows an error toast)** — check the
+  summary/embeddings provider key first. An out-of-quota key (OpenAI
+  `429 insufficient_quota`) surfaces as a failed search; fund or rotate the key
+  in `server/.env`. Not a code issue. The client renders the error only — it
+  never shows the "not been reported yet" empty state alongside an error (they
+  are mutually exclusive).
+- **Slow searches / missing results** — confirm `npm run backfill:embeddings`
+  ran once after the feature was enabled. With an empty index, each search
+  degrades to slower inline embedding, bounded by `AI_SEARCH_MAX_INLINE_EMBED`
+  per request, so it can take several searches to cover a large backlog.
 
 ## Scaling / upgrade path
 

@@ -55,6 +55,39 @@ import {
 const cleanupOnlyStatus = CLEANUP_ONLY_STATUS;
 const statusToCleanup = STATUS_TO_CLEANUP;
 
+// Copy + API dispatch for each bulk action the BulkActionBar can launch, keyed
+// by the confirm snapshot's `action`. `message` receives the selected count.
+const BULK_ACTIONS = {
+  makePublic: {
+    title: 'Make tickets public',
+    confirmLabel: 'Make Public',
+    resultLabel: 'Public',
+    message: (n) => `Make ${n} selected ticket${n === 1 ? '' : 's'} public? They will appear on the public status board.`,
+    apply: (ids) => api.bulkUpdateVisibility(ids, true),
+  },
+  makePrivate: {
+    title: 'Make tickets private',
+    confirmLabel: 'Make Private',
+    resultLabel: 'Private',
+    message: (n) => `Make ${n} selected ticket${n === 1 ? '' : 's'} private? They will be hidden from the public status board.`,
+    apply: (ids) => api.bulkUpdateVisibility(ids, false),
+  },
+  retire: {
+    title: 'Retire tickets',
+    confirmLabel: 'Retire',
+    resultLabel: 'Retired',
+    message: (n) => `Retire ${n} selected ticket${n === 1 ? '' : 's'}? They will be hidden from the default non-retired views (the Retired filter still shows them).`,
+    apply: (ids) => api.bulkUpdateRetired(ids, true),
+  },
+  unretire: {
+    title: 'Unretire tickets',
+    confirmLabel: 'Unretire',
+    resultLabel: 'Unretired',
+    message: (n) => `Unretire ${n} selected ticket${n === 1 ? '' : 's'}? They will return to the active (non-retired) views.`,
+    apply: (ids) => api.bulkUpdateRetired(ids, false),
+  },
+};
+
 export function AdminDashboardPage({ user, onLogout }) {
   const navigate = useNavigate();
 
@@ -77,9 +110,10 @@ export function AdminDashboardPage({ user, onLogout }) {
   const [baselineCounts, setBaselineCounts] = useState({ total: 0, statuses: {} });
   // ── Bulk selection (single source of truth; page owns the full filtered `rows`) ──
   // A Set of selected row ids. `bulkConfirm` is null when closed, else
-  // { isPublic, ids } — `ids` snapshots the confirmed selection at the moment the
-  // modal opens so a background reload can't empty it before the admin confirms.
-  // `applying` gates the in-flight bulk request (in-flight guard).
+  // { action, ids } — `action` keys into BULK_ACTIONS and `ids` snapshots the
+  // confirmed selection at the moment the modal opens so a background reload
+  // can't empty it before the admin confirms. `applying` gates the in-flight
+  // bulk request (in-flight guard).
   const [selectedIds, setSelectedIds] = useState(() => new Set());
   const [bulkConfirm, setBulkConfirm] = useState(null);
   const [applying, setApplying] = useState(false);
@@ -405,7 +439,7 @@ export function AdminDashboardPage({ user, onLogout }) {
     }
   }
 
-  // ── Bulk visibility selection + apply ─────────────────────────────────────
+  // ── Bulk selection + apply (visibility and retire/unretire) ───────────────
   function toggleRow(id) {
     setSelectedIds((prev) => {
       const next = new Set(prev);
@@ -427,21 +461,21 @@ export function AdminDashboardPage({ user, onLogout }) {
   // Open the confirmation modal with a SNAPSHOT of the confirmed ids taken at
   // click time (only ids currently in view), so a background reload can't empty
   // the selection between opening the modal and confirming.
-  function openBulkConfirm(isPublic) {
+  function openBulkConfirm(action) {
     const ids = rows.filter((row) => selectedIds.has(row.id)).map((row) => Number(row.id));
     if (ids.length === 0) return;
-    setBulkConfirm({ isPublic, ids });
+    setBulkConfirm({ action, ids });
   }
 
-  async function applyBulkVisibility(snapshot) {
+  async function applyBulkAction(snapshot) {
     if (applying || !snapshot) return;
-    const { isPublic, ids: snapshotIds } = snapshot;
+    const { action, ids: snapshotIds } = snapshot;
     // Re-intersect the snapshot with the CURRENT rows — the hard guarantee that a
     // bulk change never touches a ticket outside the current filtered view, even
     // if a live refresh dropped some tickets out of view since the modal opened.
     const visibleIds = new Set(rows.map((row) => Number(row.id)));
     const ids = snapshotIds.filter((id) => visibleIds.has(id));
-    const label = isPublic ? 'Public' : 'Private';
+    const label = BULK_ACTIONS[action].resultLabel;
     if (ids.length === 0) {
       setBulkConfirm(null);
       setNotice('');
@@ -452,7 +486,7 @@ export function AdminDashboardPage({ user, onLogout }) {
     setApplying(true);
     try {
       setError('');
-      const result = await api.bulkUpdateVisibility(ids, isPublic);
+      const result = await BULK_ACTIONS[action].apply(ids);
       const updated = result?.updated ?? ids.length;
       const failedCount = result?.failed?.length ?? 0;
       setSelectedIds(new Set());
@@ -592,8 +626,10 @@ export function AdminDashboardPage({ user, onLogout }) {
           <BulkActionBar
             count={selectedIds.size}
             disabled={applying}
-            onMakePublic={() => openBulkConfirm(true)}
-            onMakePrivate={() => openBulkConfirm(false)}
+            onMakePublic={() => openBulkConfirm('makePublic')}
+            onMakePrivate={() => openBulkConfirm('makePrivate')}
+            onRetire={() => openBulkConfirm('retire')}
+            onUnretire={() => openBulkConfirm('unretire')}
             onClear={() => setSelectedIds(new Set())}
           />
         )}
@@ -696,17 +732,15 @@ export function AdminDashboardPage({ user, onLogout }) {
       <Modal
         open={bulkConfirmOpen}
         onClose={() => { if (!applying) setBulkConfirm(null); }}
-        title={bulkConfirm?.isPublic ? 'Make tickets public' : 'Make tickets private'}
+        title={bulkConfirm ? BULK_ACTIONS[bulkConfirm.action].title : ''}
       >
         <div className="stack">
           <p style={{ marginTop: 0 }}>
-            {bulkConfirm?.isPublic
-              ? `Make ${bulkConfirm?.ids.length} selected ticket${bulkConfirm?.ids.length === 1 ? '' : 's'} public? They will appear on the public status board.`
-              : `Make ${bulkConfirm?.ids.length} selected ticket${bulkConfirm?.ids.length === 1 ? '' : 's'} private? They will be hidden from the public status board.`}
+            {bulkConfirm ? BULK_ACTIONS[bulkConfirm.action].message(bulkConfirm.ids.length) : ''}
           </p>
           <div className="bs-actions">
-            <Button type="button" disabled={applying} onClick={() => applyBulkVisibility(bulkConfirm)}>
-              {applying ? 'Applying…' : (bulkConfirm?.isPublic ? 'Make Public' : 'Make Private')}
+            <Button type="button" disabled={applying} onClick={() => applyBulkAction(bulkConfirm)}>
+              {applying ? 'Applying…' : (bulkConfirm ? BULK_ACTIONS[bulkConfirm.action].confirmLabel : '')}
             </Button>
             <Button type="button" kind="ghost" disabled={applying} onClick={() => setBulkConfirm(null)}>
               Cancel

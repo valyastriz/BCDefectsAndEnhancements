@@ -143,3 +143,4 @@ vite.config.ts.timestamp-*
 # Local runtime artifacts
 server/data/
 server/uploads/
+server/scripts/*.last-run.json

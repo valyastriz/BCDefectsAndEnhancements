@@ -13,6 +13,7 @@ const {
   createAdminSubmission,
   updateAdminSubmission,
   bulkUpdateVisibility,
+  bulkUpdateRetired,
 } = require('../services/submissionService');
 
 const router = express.Router();
@@ -132,6 +133,25 @@ router.post('/api/admin/submissions/bulk-visibility', ensureAdmin, async (req, r
 
   return withDb(async (db) => {
     const result = await bulkUpdateVisibility(db, {
+      body,
+      username: req.session?.user?.username,
+    });
+    if (result.error) {
+      return res.status(result.status).json({ error: result.error });
+    }
+    return res.status(result.status).json(result.body);
+  });
+});
+
+// Same registration story as bulk-visibility above. Retires or unretires many
+// tickets at once via the per-row update path, so status-history logging
+// ("Retired"/"Unretired"), socket emits, and embedding scheduling match the
+// single-ticket retire action exactly.
+router.post('/api/admin/submissions/bulk-retire', ensureAdmin, async (req, res) => {
+  const body = req.body || {};
+
+  return withDb(async (db) => {
+    const result = await bulkUpdateRetired(db, {
       body,
       username: req.session?.user?.username,
     });

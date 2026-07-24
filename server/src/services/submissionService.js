@@ -415,6 +415,17 @@ async function logStatusChange(db, submissionId, status, changedBy, changedAt) {
   });
 }
 
+// Visibility default for a newly created submission (INTEGER column: 1/0).
+// Real defect/enhancement tickets are public by default so they surface on the
+// public status board and in public AI search; internal cleanup-only tasks stay
+// private unless an admin opts them in. An explicit boolean from the caller
+// always wins, so an admin can still create a private ticket on purpose. Pure
+// (no DB) so it can be unit-tested directly.
+function resolveCreateVisibility({ isCleanup = false, is_public } = {}) {
+  if (typeof is_public === 'boolean') return is_public ? 1 : 0;
+  return isCleanup ? 0 : 1;
+}
+
 // Create a submission from the admin "create" form.
 // Returns a tagged result: { error, status } for a failure response, or
 // { status: 201, body } on success. Pre-DB field validation (created_by /
@@ -531,7 +542,7 @@ async function createAdminSubmission(db, { body, username }) {
     lookupIds.cleanup_status_id,
     lookupIds.cleanup_tag_type_id,
     String(body.easyvista_submitted_by || '').trim() || 'Unknown',
-    toBooleanSql(body.is_public),
+    resolveCreateVisibility({ isCleanup, is_public: body.is_public }),
     0,
     toBooleanSql(body.logged_defect),
   ];
@@ -621,6 +632,11 @@ async function createAdminSubmission(db, { body, username }) {
 
   const created = await getSubmissionByIdWithLookups(db, subId);
   emitAdminNotification('submission:new', mapSubmission(created));
+  if (created.is_public) {
+    // Public by default now includes admin-created tickets — let the public
+    // status board live-update. Send only allow-listed fields (unauth watchers).
+    emitPublicUpdate(mapPublicSubmission(created));
+  }
   scheduleEmbeddingRefresh(subId);
   return { status: 201, body: mapSubmission(created) };
 }
@@ -1045,14 +1061,16 @@ async function updateAdminSubmission(db, { id, body, username }) {
   return { status: 200, body: mapSubmission(saved) };
 }
 
-// Upper bound on ids per bulk-visibility request. Guards the live Supabase prod
-// data from an accidental mass mutation and bounds the per-row loop below.
-const MAX_BULK_VISIBILITY_IDS = 1000;
+// Upper bound on ids per bulk request (visibility or retire). Guards the live
+// Supabase prod data from an accidental mass mutation and bounds the per-row
+// loop below.
+const MAX_BULK_IDS = 1000;
 
-// Boundary validation for the bulk-visibility request body. Pure (no DB) so it
-// can be unit-tested directly. Returns { error } on a 400-worthy violation, or
-// { ids, isPublic } with ids coerced to positive integers on success.
-function validateBulkVisibilityInput(body) {
+// Boundary validation shared by the bulk endpoints. Pure (no DB) so it can be
+// unit-tested directly. `flagKey` names the boolean field required on the body
+// ('is_public' or 'is_retired'). Returns { error } on a 400-worthy violation,
+// or { ids, value } with ids coerced to positive integers on success.
+function validateBulkFlagInput(body, flagKey) {
   const source = body || {};
   if (!Array.isArray(source.ids)) {
     return { error: 'ids must be an array' };
@@ -1060,11 +1078,11 @@ function validateBulkVisibilityInput(body) {
   if (source.ids.length === 0) {
     return { error: 'ids must not be empty' };
   }
-  if (source.ids.length > MAX_BULK_VISIBILITY_IDS) {
-    return { error: `ids must contain at most ${MAX_BULK_VISIBILITY_IDS} items` };
+  if (source.ids.length > MAX_BULK_IDS) {
+    return { error: `ids must contain at most ${MAX_BULK_IDS} items` };
   }
-  if (typeof source.is_public !== 'boolean') {
-    return { error: 'is_public must be a boolean' };
+  if (typeof source[flagKey] !== 'boolean') {
+    return { error: `${flagKey} must be a boolean` };
   }
   const ids = [];
   for (const raw of source.ids) {
@@ -1080,27 +1098,28 @@ function validateBulkVisibilityInput(body) {
     }
     ids.push(value);
   }
-  return { ids, isPublic: source.is_public };
+  return { ids, value: source[flagKey] };
 }
 
-// Bulk visibility toggle. Validates the request body, then loops the existing
-// per-row updateAdminSubmission so socket emits and embedding scheduling match
-// the single-ticket toggle exactly. A single failing id is collected in `failed`
-// and never aborts the batch. Returns { error, status } on validation failure or
+// Shared loop for bulk single-flag updates. Validates the request body, then
+// loops the existing per-row updateAdminSubmission so socket emits,
+// status-history logging, and embedding scheduling match the single-ticket
+// action exactly. A single failing id is collected in `failed` and never aborts
+// the batch. Returns { error, status } on validation failure or
 // { status: 200, body } on success, mirroring updateAdminSubmission's shape.
 // `updateOne` is injectable so the loop can be unit-tested without a DB.
-async function bulkUpdateVisibility(db, { body, username, updateOne = updateAdminSubmission } = {}) {
-  const validation = validateBulkVisibilityInput(body);
+async function bulkUpdateFlag(db, { body, username, flagKey, updateOne = updateAdminSubmission } = {}) {
+  const validation = validateBulkFlagInput(body, flagKey);
   if (validation.error) {
     return { error: validation.error, status: 400 };
   }
-  const { ids, isPublic } = validation;
+  const { ids, value } = validation;
 
   const failed = [];
   let updated = 0;
   for (const id of ids) {
     try {
-      const result = await updateOne(db, { id, body: { is_public: isPublic }, username });
+      const result = await updateOne(db, { id, body: { [flagKey]: value }, username });
       if (result && result.error) {
         failed.push(id);
       } else {
@@ -1113,8 +1132,31 @@ async function bulkUpdateVisibility(db, { body, username, updateOne = updateAdmi
 
   return {
     status: 200,
-    body: { ok: true, is_public: isPublic, requested: ids.length, updated, failed },
+    body: { ok: true, [flagKey]: value, requested: ids.length, updated, failed },
   };
+}
+
+// Bulk public-visibility toggle (POST bulk-visibility). Domain-named wrappers
+// over the shared flag helpers; request/response shapes are unchanged.
+function validateBulkVisibilityInput(body) {
+  const result = validateBulkFlagInput(body, 'is_public');
+  return result.error ? result : { ids: result.ids, isPublic: result.value };
+}
+
+async function bulkUpdateVisibility(db, opts = {}) {
+  return bulkUpdateFlag(db, { ...opts, flagKey: 'is_public' });
+}
+
+// Bulk retire/unretire (POST bulk-retire). Same per-row parity guarantees; the
+// per-row update logs "Retired"/"Unretired" into status history only when the
+// flag actually changes, so re-retiring an already-retired ticket is a no-op.
+function validateBulkRetiredInput(body) {
+  const result = validateBulkFlagInput(body, 'is_retired');
+  return result.error ? result : { ids: result.ids, isRetired: result.value };
+}
+
+async function bulkUpdateRetired(db, opts = {}) {
+  return bulkUpdateFlag(db, { ...opts, flagKey: 'is_retired' });
 }
 
 // Submit (or resubmit) a submission to EasyVista.
@@ -1509,7 +1551,10 @@ module.exports = {
   logStatusChange,
   createAdminSubmission,
   updateAdminSubmission,
+  resolveCreateVisibility,
   validateBulkVisibilityInput,
   bulkUpdateVisibility,
+  validateBulkRetiredInput,
+  bulkUpdateRetired,
   submitSubmissionToEasyVista,
 };

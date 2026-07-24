@@ -2,11 +2,12 @@ import { Button } from '../bite-size/BitsizeUI';
 
 /**
  * Bulk-action toolbar shown above the submissions table when ≥1 ticket is
- * selected. Lets the admin flip public visibility for the whole selection.
- * Rendered by AdminDashboardPage, which owns the selection state. `disabled`
- * is set while a bulk request is in flight so a second one can't be launched.
+ * selected. Lets the admin flip public visibility or retire/unretire the whole
+ * selection. Rendered by AdminDashboardPage, which owns the selection state.
+ * `disabled` is set while a bulk request is in flight so a second one can't be
+ * launched.
  */
-export function BulkActionBar({ count, onMakePublic, onMakePrivate, onClear, disabled = false }) {
+export function BulkActionBar({ count, onMakePublic, onMakePrivate, onRetire, onUnretire, onClear, disabled = false }) {
   return (
     <div
       className="bulk-action-bar"
@@ -26,6 +27,8 @@ export function BulkActionBar({ count, onMakePublic, onMakePrivate, onClear, dis
       <div className="bs-actions" style={{ marginLeft: 'auto' }}>
         <Button type="button" kind="secondary" disabled={disabled} onClick={onMakePublic}>Make Public</Button>
         <Button type="button" kind="secondary" disabled={disabled} onClick={onMakePrivate}>Make Private</Button>
+        <Button type="button" kind="secondary" disabled={disabled} onClick={onRetire}>Retire</Button>
+        <Button type="button" kind="secondary" disabled={disabled} onClick={onUnretire}>Unretire</Button>
         <Button type="button" kind="ghost" disabled={disabled} onClick={onClear}>Clear selection</Button>
       </div>
     </div>

@@ -10,10 +10,15 @@ const WHEN_OPTIONS = [
   { value: 'reported:30', label: 'Reported: last 30 days' },
   { value: 'reported:90', label: 'Reported: last 90 days' },
   { value: 'reported:365', label: 'Reported: last 12 months' },
+  { value: 'reported:730', label: 'Reported: last 24 months' },
   { value: 'resolved:30', label: 'Resolved/closed: last 30 days' },
   { value: 'resolved:90', label: 'Resolved/closed: last 90 days' },
   { value: 'resolved:365', label: 'Resolved/closed: last 12 months' },
+  { value: 'resolved:730', label: 'Resolved/closed: last 24 months' },
 ];
+
+// The "Any time" option — no reported/resolved window filter is sent.
+const ALL_TIME_WHEN = '';
 
 function parseWhen(value) {
   const [dimension, days] = String(value || '').split(':');
@@ -29,6 +34,17 @@ const controlsRow = {
   gap: 12,
   flexWrap: 'wrap',
   alignItems: 'flex-end',
+};
+
+// Low-key inline "widen the search" affordance styled as a link.
+const linkButton = {
+  background: 'none',
+  border: 'none',
+  padding: 0,
+  font: 'inherit',
+  color: 'var(--blue-600)',
+  textDecoration: 'underline',
+  cursor: 'pointer',
 };
 
 /**
@@ -56,7 +72,7 @@ export function AiSearchPanel({
   const [status, setStatus] = useState({ loading: true, enabled: false, summaryEnabled: false });
   const [query, setQuery] = useState('');
   const [appName, setAppName] = useState(defaultApplication || 'all');
-  const [when, setWhen] = useState('reported:365');
+  const [when, setWhen] = useState('reported:730');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [result, setResult] = useState(null);
@@ -82,11 +98,13 @@ export function AiSearchPanel({
     return opts;
   }, [applications]);
 
-  async function onSubmit(event) {
-    event?.preventDefault?.();
+  // `whenValue` is passed explicitly (not read from state) so callers like the
+  // "Search all time" widen action can set state AND search in one tick without
+  // racing React's async state update.
+  async function runSearch(whenValue) {
     const q = query.trim();
     if (!q || loading) return;
-    const { reportedWithinDays, resolvedWithinDays } = parseWhen(when);
+    const { reportedWithinDays, resolvedWithinDays } = parseWhen(whenValue);
     const reqId = reqIdRef.current + 1;
     reqIdRef.current = reqId;
     setLoading(true);
@@ -115,12 +133,26 @@ export function AiSearchPanel({
     }
   }
 
+  function onSubmit(event) {
+    event?.preventDefault?.();
+    runSearch(when);
+  }
+
+  // Re-run the same query without a time-frame filter (the "Any time" option).
+  function searchAllTime() {
+    setWhen(ALL_TIME_WHEN); // keep the select in sync with the widened search
+    runSearch(ALL_TIME_WHEN);
+  }
+
   // Hide entirely when the feature isn't configured (graceful degradation).
   if (status.loading || !status.enabled) return null;
 
   const matches = Array.isArray(result?.matches) ? result.matches : [];
   const summary = result?.summary;
   const showSummary = status.summaryEnabled && summary && summary.answer_summary;
+  // Candidates dropped solely by the time-window filter (absent → 0).
+  const windowExcludedRaw = Number(result?.windowExcluded);
+  const windowExcluded = Number.isFinite(windowExcludedRaw) && windowExcludedRaw > 0 ? windowExcludedRaw : 0;
 
   return (
     <Card title={title} subtitle={subtitle} className="ai-search-panel">
@@ -176,16 +208,34 @@ export function AiSearchPanel({
         </div>
       )}
 
-      {!loading && hasSearched && (
+      {!loading && !error && hasSearched && (
         <div style={{ marginTop: 14 }}>
           {matches.length === 0
-            ? <p className="muted">No similar tickets found. This looks like it may not have been reported yet.</p>
+            ? (windowExcluded > 0
+              ? (
+                <>
+                  <Notice
+                    kind="info"
+                    text={`No strong matches in the selected time frame — ${windowExcluded} older ticket${windowExcluded === 1 ? ' was' : 's were'} outside it.`}
+                  />
+                  <div style={{ marginTop: 8 }}>
+                    <Button type="button" kind="secondary" onClick={searchAllTime}>Search all time</Button>
+                  </div>
+                </>
+              )
+              : <p className="muted">No similar tickets found. This looks like it may not have been reported yet.</p>)
             : (
               <>
                 <p className="muted" style={{ marginBottom: 8, fontSize: 13 }}>
                   {matches.length} matching ticket{matches.length === 1 ? '' : 's'} (ranked by relevance)
                 </p>
                 {renderResults ? renderResults(matches) : null}
+                {windowExcluded > 0 && (
+                  <p className="muted" style={{ marginTop: 8, fontSize: 13 }}>
+                    {windowExcluded} older ticket{windowExcluded === 1 ? ' was' : 's were'} outside the selected time frame.{' '}
+                    <button type="button" onClick={searchAllTime} style={linkButton}>Search all time</button>
+                  </p>
+                )}
               </>
             )}
         </div>

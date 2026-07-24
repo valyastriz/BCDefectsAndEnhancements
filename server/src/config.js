@@ -73,6 +73,13 @@ const AI_SEARCH_RECENCY_WEIGHT = Number.isFinite(Number(process.env.AI_SEARCH_RE
   ? Number(process.env.AI_SEARCH_RECENCY_WEIGHT)
   : 0.15;
 const AI_SEARCH_RECENCY_HALFLIFE_DAYS = toPositiveInt(process.env.AI_SEARCH_RECENCY_HALFLIFE_DAYS, 180);
+// Minimum raw cosine similarity for a candidate to count as a match at all —
+// drops near-zero-relevance tickets instead of letting them fill top-K. Applied
+// to the raw match, never the recency-blended score. Calibrated for
+// text-embedding-3-small; tune per embeddings model. 0 disables the floor.
+const AI_SEARCH_MIN_SIMILARITY = Number.isFinite(Number(process.env.AI_SEARCH_MIN_SIMILARITY))
+  ? Number(process.env.AI_SEARCH_MIN_SIMILARITY)
+  : 0.25;
 
 // Embeddings vendor (Claude has none). Explicit override wins; else follow the
 // master switch — 'openai' uses OpenAI embeddings, anything else uses 'local'
@@ -124,6 +131,7 @@ module.exports = {
   AI_SEARCH_PUBLIC_RATE_WINDOW_MS,
   AI_SEARCH_RECENCY_WEIGHT,
   AI_SEARCH_RECENCY_HALFLIFE_DAYS,
+  AI_SEARCH_MIN_SIMILARITY,
   EMBEDDINGS_PROVIDER,
   EMBEDDINGS_MODEL,
   VOYAGE_API_KEY,

@@ -9,7 +9,8 @@
     "migrate": "node scripts/migrate.js",
     "seed:admin": "node src/seedAdmin.js",
     "seed:sample": "node src/seedSampleData.js",
-    "backfill:embeddings": "node scripts/backfillEmbeddings.js"
+    "backfill:embeddings": "node scripts/backfillEmbeddings.js",
+    "backfill:public-visibility": "node scripts/backfillPublicVisibility.js"
   },
   "keywords": [],
   "author": "",

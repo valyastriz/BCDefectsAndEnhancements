@@ -421,7 +421,10 @@ router.post('/api/admin/submissions/import-xlsx', ensureAdmin, tempUpload.single
         cleanup_status: finalCleanupStatus,
         cleanup_tag_type: finalCleanupTagType,
         easyvista_submitted_by: String(getMappedImportValue(row, 'easyvista_submitted_by', ['easyvista_submitted_by', 'submitted_by_easyvista'], normalizedColumnMappings, 'Unknown') || 'Unknown').trim() || 'Unknown',
-        is_public: parseImportBoolean(getMappedImportValue(row, 'is_public', ['is_public', 'public'], normalizedColumnMappings, false), false),
+        // Public by default (mirrors resolveCreateVisibility): honor an explicitly
+        // mapped is_public/public column, but when it is unmapped/blank default to
+        // public — unless the imported row is a cleanup-only task, which stays private.
+        is_public: parseImportBoolean(getMappedImportValue(row, 'is_public', ['is_public', 'public'], normalizedColumnMappings, null), !finalIsCleanup),
         is_retired: importedIsRetired,
         imported_status_label: importedStatus,
       });

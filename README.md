@@ -43,6 +43,7 @@ A full-stack internal operations tool for the **Product Owners team** to track, 
   - [Filtering](#filtering-16-controls)
   - [Sorting](#sorting)
   - [Inline Table Editing](#inline-table-editing)
+  - [Bulk Actions (Multi-Select)](#bulk-actions-multi-select)
   - [Detail Modal](#detail-modal)
   - [Stat Tiles](#stat-tiles)
   - [Toast Notifications](#toast-notifications)
@@ -92,7 +93,7 @@ This application solves all of these problems with a purpose-built workflow that
 - Manage all dropdown options (statuses, types, priority levels, etc.) from a metadata page
 - Personalize the queue — choose which table columns and filters appear (and reorder columns), saved per-admin so it follows you across devices
 - Receive real-time browser notifications when new submissions arrive
-- Control which submissions are publicly visible on the status board
+- Control public visibility — tickets are public by default; switch individual items to private as needed (per-row or in bulk)
 - Track financial impact (policy premium, direct dollar, policies affected)
 - Retire old submissions without deleting them
 
@@ -337,6 +338,12 @@ npm run seed:sample
 
 # (Optional) If AI search is configured, index existing tickets once
 npm run backfill:embeddings
+
+# (One-time migration, existing installs only) Make existing private,
+# non-cleanup tickets public to match the "public by default" rule.
+# Dry-run by default; append `-- --apply` to actually write the change.
+npm run backfill:public-visibility           # preview counts
+npm run backfill:public-visibility -- --apply # perform the update
 ```
 
 > **Production note:** when `NODE_ENV=production`, the server also runs this
@@ -444,6 +451,8 @@ When the user has filled in all required fields and clicks **"Submit Request"**:
 1. A confirmation card appears with a ✓ checkmark, the heading **"Request Submitted"**, and the text: *"Your request has been logged. Reference ID: #XX"*
 2. A **"Submit Another Request"** button allows the rep to return to a blank form and submit again
 
+Submitted requests are **public by default** — they appear on the [Status Board](#2-status-board-public) right away so reps can see what has been reported. A Product Owner can later switch an individual item to private.
+
 > **Important:** Submitting a request does **NOT** automatically submit it to EasyVista. The request appears in the Admin Queue as a new item awaiting review. Only after a Product Owner reviews the submission and clicks "Submit to EasyVista" will it actually be sent to EasyVista via the API.
 
 ---
@@ -452,13 +461,13 @@ When the user has filled in all required fields and clicks **"Submit Request"**:
 
 This page provides **transparency and visibility** to the reps on the items that have been submitted. All users can see this page — no login required.
 
-**What appears on this page:** Only submissions that a Product Owner has explicitly **marked as public** will appear here. Not all items show up — this is a curated view controlled from the admin dashboard.
+**What appears on this page:** Defect and enhancement tickets are **public by default**, so submitted items appear here automatically. A Product Owner can hide an individual item by switching it to **private** from the admin dashboard (per-row toggle or the Make Private bulk action). Internal **cleanup-only** tasks are private by default and appear only if an admin makes them public.
 
 **Default view:** The page defaults to showing **non-retired items only**. However, the user can change the filter to view Retired Only, Non-Retired Only, or All items.
 
 **Card layout:** The page displays a list of **collapsed item cards**. Each collapsed card shows:
 - Summary of the issue
-- Item ID
+- Incident number — the EasyVista ticket ID, or the internal `#ID` reference when none exists yet (matches the reference the AI search cites, so reps can identify a result without expanding it)
 - Type badge (`defect` or `enhancement`)
 - Status badge (e.g., New, Approved, Submitted, Deployed)
 - Retired badge (if applicable)
@@ -507,6 +516,7 @@ When a Product Owner signs in, they see the **Admin Queue** — a list of all ca
 **At a glance, the admin dashboard provides:**
 - Submissions table with 16+ filter controls and 12 sortable columns
 - Inline editing of status, cleanup status, public visibility, and JIRA card number directly in the table
+- Multi-select checkboxes with bulk actions: Make Public, Make Private, Retire, Unretire
 - Full detail modal with every submission field, status timeline, impact analysis, frequency tracking, and attachment management
 - "As Submitted to EasyVista" preview showing the exact payload sent to EasyVista
 - Clickable stat tiles showing non-retired status totals and filtered financial impact totals
@@ -574,6 +584,8 @@ Submissions can be flagged as cleanup tasks — work items that may not originat
 
 Cleanup tasks have their own independent status track (**Not Started → In Progress → Completed**) that operates alongside the defect/enhancement status.
 
+**Visibility:** cleanup-**only** tasks are **private by default** — they do not appear on the public Status Board unless a Product Owner marks them public. A defect or enhancement that also carries a cleanup tag follows the normal ticket default and is public.
+
 ### EasyVista Integration
 
 Product Owners escalate issues to **Tier 2 GTS** by submitting tickets to the EasyVista external ticketing system directly from the dashboard.
@@ -609,6 +621,7 @@ Bulk-import historical records from `.xlsx` / `.xls` files:
 - Date fields parsed flexibly across formats
 - Blank statuses default to "New"
 - Text fields auto-filled with `-` where required but absent
+- Public visibility follows the app default: an explicitly mapped `is_public`/`public` column is honored, but when it is unmapped or blank the row imports as **public** — unless it is a cleanup task, which stays private
 
 ### Excel Export
 
@@ -690,10 +703,18 @@ tickets** listed below it. Available on three surfaces:
 **How it works (retrieve → rank → summarize):** every ticket is turned into an
 embedding vector once (cached, re-embedded only when its text changes). A search
 embeds just the query, filters candidates (application, time window, `is_public`),
-ranks them by a **blended match + recency** score, and sends only the **top 20**
-to the chat model to write the grounded summary. So per-search AI cost is flat
-regardless of how many tickets exist, and the results shown are always the real
-DB rows — the model never invents a ticket, status, or date.
+ranks them by a **blended match + recency** score, drops anything below a
+minimum relevance bar, and sends at most the **top 20** to the chat model to
+write the grounded summary. So per-search AI cost is flat regardless of how many
+tickets exist, and the results shown are always the real DB rows — the model
+never invents a ticket, status, or date.
+
+**Honest answers, not filler:** tickets that barely resemble your query are
+dropped rather than padding the list (the relevance bar is tunable via
+`AI_SEARCH_MIN_SIMILARITY` — see [Configuration Reference](#configuration-reference)).
+The summary tells you what the most relevant ticket is actually *about* (one
+sentence drawn from its content, not just its status), and when nothing on file
+matches your topic it says so plainly instead of dressing up weak matches.
 
 **Provider master switch (`AI_PROVIDER`)** — one line per environment, never a mix:
 
@@ -707,14 +728,34 @@ Claude has no embeddings API, so the all-Claude setup pairs Claude with a small
 app — no third-party vendor, no key, no per-call cost, and ticket text never
 leaves the server. (OpenAI or Voyage embeddings are also selectable.)
 
-**Filters:** scope by application ("All systems" or one), and a time window
-("reported/resolved in the last 30/90/365 days").
+**Filters:** scope by application ("All systems" or one), and a time window —
+"Reported" or "Resolved/closed" in the last 30 days, 90 days, 12 months, or
+24 months, plus "Any time". The default on all three surfaces is **"Reported:
+last 24 months"**. The window is never a silent trap: when older tickets matched
+your search but fell outside the chosen time frame, the panel tells you. With
+zero results you get an info notice (*"No strong matches in the selected time
+frame — N older ticket(s) were outside it"*) plus a one-click **"Search all
+time"** button; with results you get a small footnote noting the excluded older
+tickets, with the same one-click way to widen the search.
 
 **Safety & cost:** the feature is **fully optional** — with no key set the panel
 is hidden everywhere and the app is unchanged. Public search is locked to public
 tickets + the `mapPublicSubmission` allow-list (no internal-field leakage) and is
 per-IP rate-limited. Full setup, tuning, and the pgvector scale path:
 [`server/docs/ai-search.md`](server/docs/ai-search.md).
+
+**Troubleshooting:**
+
+- **Every search fails with an error toast** — the most common cause is a
+  provider key that is out of quota or credits (e.g. OpenAI returns
+  `429 insufficient_quota`, which surfaces as a failed search). Fund or rotate
+  the key in `server/.env`; no code change is needed. A failed search shows only
+  the error — it never also shows the "hasn't been reported yet" message, so an
+  error is never mistaken for a genuine no-match result.
+- **Searches are slow or miss existing tickets** — make sure
+  `npm run backfill:embeddings` was run once after enabling the feature (see
+  [Database Setup & Seeding](#database-setup--seeding)). Without stored vectors,
+  each search falls back to slower inline embedding of a few tickets at a time.
 
 ---
 
@@ -798,6 +839,32 @@ Four fields are editable directly in the table row without opening the detail mo
 | Cleanup Status | Dropdown | Updates cleanup status |
 | Public | Dropdown (Yes/No) | Toggles public visibility, triggers a real-time refresh on the Status Board |
 | JIRA Card # | Text input | Saves on Enter or blur |
+
+### Bulk Actions (Multi-Select)
+
+Every table row has a leading checkbox, and the header has a master checkbox that selects the **entire filtered set across all pages** — not just the visible page. The intended flow is: filter the table down to the tickets you care about, select all, apply one action.
+
+As soon as at least one ticket is selected, a **bulk action bar** appears above the table showing the selection count and four actions:
+
+| Action | Effect on every selected ticket |
+|--------|--------------------------------|
+| **Make Public** | Sets public visibility on — the tickets appear on the public Status Board |
+| **Make Private** | Sets public visibility off — the tickets are hidden from the public Status Board |
+| **Retire** | Soft-archives the tickets — hides them from the default (non-retired) views; a "Retired" event is logged to each ticket's status timeline |
+| **Unretire** | Brings the tickets back into the active queue; an "Unretired" event is logged to each timeline |
+
+Each action opens a **confirmation modal** stating exactly how many tickets will change and what will happen, before anything is applied.
+
+**Safety behavior:**
+
+- The selection is snapshotted when the confirmation opens and re-checked against the current filtered view at apply time — a bulk action can never touch a ticket that has dropped out of the current filter (e.g. via a live refresh). Skipped tickets are reported in the result notice.
+- Changing filters or the search clears the selection, so a selection never straddles two different filtered sets.
+- While a bulk request is in flight, the buttons are disabled (no double-submits).
+- If some tickets fail to update, the rest still go through and the notice reports how many succeeded and how many failed.
+- Requests are capped at 1,000 tickets per action.
+- Each ticket goes through the same per-row update path as a single-ticket edit, so status-timeline logging, real-time socket refreshes, and AI-search re-indexing behave exactly as if you had edited each ticket by hand.
+
+Retiring a ticket that is already retired (or unretiring an active one) is a quiet no-op — no duplicate timeline entries are created.
 
 ### Detail Modal
 
@@ -916,7 +983,7 @@ Only shown for enhancement-type submissions:
 - **Desired Completion Date** — Target date for the enhancement
 
 #### 11. Public Visibility
-Toggle to control whether this item appears on the public Status Board, with explanation text.
+Toggle to control whether this item appears on the public Status Board, with explanation text. New tickets are **public by default** — switch this off to make an item private. (Cleanup-only tasks default to private.)
 
 #### 12. Attachments
 - Upload new files (up to 10 per submission, 10 MB each)
@@ -928,8 +995,8 @@ Toggle to control whether this item appears on the public Status Board, with exp
 | Button | Behavior |
 |--------|----------|
 | **Save Changes** | Only enabled when fields have been modified (change detection compares current state to loaded state) |
-| **Retire Item** | Soft-archives the submission — hides it from the default queue view. The item is NOT deleted. A "Retired" status event is logged to the timeline. When retired, the D/E Status dropdown becomes disabled. |
-| **Unretire Item** | Reverses a retire — brings the item back into the active queue. An "Unretired" status event is logged to the timeline. |
+| **Retire Item** | Soft-archives the submission — hides it from the default queue view. The item is NOT deleted. A "Retired" status event is logged to the timeline. When retired, the D/E Status dropdown becomes disabled. Also available for many tickets at once — see [Bulk Actions (Multi-Select)](#bulk-actions-multi-select). |
+| **Unretire Item** | Reverses a retire — brings the item back into the active queue. An "Unretired" status event is logged to the timeline. Also available in bulk. |
 | **Submit to EasyVista** | Validates required fields (type-specific), constructs the payload with requester name prefix, submits to EasyVista API, stores the returned ticket ID, updates status to "Submitted" |
 | **Re-submit to EasyVista** | Creates a new linked submission (in **Submitted** status), copies attachments, preserves the resubmission chain, and submits the updated version |
 
@@ -1005,6 +1072,8 @@ A **theme toggle button** is located in the application header bar (next to the 
 | `GET` | `/api/admin/submissions/:id` | Admin | Full detail with timeline + attachments |
 | `POST` | `/api/admin/submissions` | Admin | Create (backdated, manual, cleanup) |
 | `PUT` | `/api/admin/submissions/:id` | Admin | Update fields, log status changes |
+| `POST` | `/api/admin/submissions/bulk-visibility` | Admin | Bulk set `is_public` — body `{ ids (≤1000), is_public }`; returns `{ ok, is_public, requested, updated, failed }` |
+| `POST` | `/api/admin/submissions/bulk-retire` | Admin | Bulk set `is_retired` — body `{ ids (≤1000), is_retired }`; returns `{ ok, is_retired, requested, updated, failed }` |
 
 ### View Preferences
 
@@ -1191,6 +1260,7 @@ All environment variables for `server/.env`:
 | `AI_SEARCH_TOP_K` | No | `20` | Candidate tickets sent to the summary model |
 | `AI_SEARCH_RECENCY_WEIGHT` | No | `0.15` | Recency boost in ranking (`0` = pure match) |
 | `AI_SEARCH_RECENCY_HALFLIFE_DAYS` | No | `180` | How fast the recency boost decays |
+| `AI_SEARCH_MIN_SIMILARITY` | No | `0.25` | Minimum raw match (cosine similarity) for a ticket to count as a result; `0` disables the floor |
 | `AI_SEARCH_PUBLIC_ENABLED` | No | `true` | Toggle the public/rep-form surfaces |
 | `AI_SEARCH_ENABLED` | No | `true` | Master on/off for the whole feature |
 

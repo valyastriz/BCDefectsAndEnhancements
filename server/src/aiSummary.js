@@ -46,6 +46,8 @@ const RESULT_SCHEMA = {
     answer_summary: { type: 'string' },
     reported_in_window: { type: 'boolean' },
     resolved_in_window: { type: 'boolean' },
+    // Optional: true only when at least one candidate genuinely matches the query.
+    has_relevant_match: { type: 'boolean' },
     matches: {
       type: 'array',
       items: {
@@ -67,6 +69,7 @@ const EMPTY_RESULT = {
   answer_summary: '',
   reported_in_window: false,
   resolved_in_window: false,
+  has_relevant_match: false,
   matches: [],
 };
 
@@ -79,16 +82,17 @@ function describeWindow(window) {
 
 const SYSTEM_PROMPT = [
   'You help a Billing Center defect/enhancement portal answer: "Has this issue been reported before, and what happened to it?"',
-  'You are given the user\'s query and a list of candidate tickets already retrieved by semantic similarity.',
+  'You are given the user\'s query and candidate tickets retrieved by raw semantic similarity. Retrieval is not vetting: some or ALL candidates may be irrelevant to the query.',
   'Rules:',
   '- Only reference tickets from the provided list. Never invent a ticket, status, number, or date.',
   '- Use each ticket\'s given status and dates verbatim; do not guess.',
-  '- Write answer_summary as 2-4 plain sentences. Lead with the direct answer (whether it appears to have been reported before, and the most relevant ticket\'s current status). Cite tickets by their "ref" value.',
-  '- Only include tickets in "matches" that are genuinely relevant to the query; order them most-relevant first. If none are relevant, return an empty matches array and say so in answer_summary.',
+  '- Write answer_summary as 2-4 plain sentences. Lead with the direct answer (whether it appears to have been reported before, and the most relevant ticket\'s current status), then ONE sentence describing what that ticket is actually about, drawn from its provided summary/details. Cite tickets by their "ref" value.',
+  '- Judge every candidate against the query. Only include genuinely relevant tickets in "matches", most-relevant first. If none are relevant, return an empty matches array and state plainly that nothing about this topic was found — do not present a similar-sounding ticket as a match.',
+  '- Set has_relevant_match to true only if at least one candidate genuinely addresses the query\'s topic; otherwise false.',
   '- If a time window is specified, set reported_in_window / resolved_in_window based only on the provided dates; if no window is specified, set both to false.',
   '',
   'Respond ONLY with a JSON object of this exact shape (no prose outside the JSON):',
-  '{"answer_summary": string, "reported_in_window": boolean, "resolved_in_window": boolean, "matches": [{"submission_id": number, "relevance": "high"|"medium"|"low", "why": string}]}',
+  '{"answer_summary": string, "reported_in_window": boolean, "resolved_in_window": boolean, "has_relevant_match": boolean, "matches": [{"submission_id": number, "relevance": "high"|"medium"|"low", "why": string}]}',
 ].join('\n');
 
 function buildUserText({ query, tickets, windowText }) {
@@ -153,19 +157,22 @@ async function summarizeMatches({ query, tickets, window }) {
     if (!raw) return { ...EMPTY_RESULT };
 
     const parsed = JSON.parse(raw);
+    const matches = Array.isArray(parsed.matches)
+      ? parsed.matches
+        .filter((m) => m && Number.isFinite(Number(m.submission_id)))
+        .map((m) => ({
+          submission_id: Number(m.submission_id),
+          relevance: ['high', 'medium', 'low'].includes(m.relevance) ? m.relevance : 'low',
+          why: String(m.why || ''),
+        }))
+      : [];
     return {
       answer_summary: String(parsed.answer_summary || ''),
       reported_in_window: Boolean(parsed.reported_in_window),
       resolved_in_window: Boolean(parsed.resolved_in_window),
-      matches: Array.isArray(parsed.matches)
-        ? parsed.matches
-          .filter((m) => m && Number.isFinite(Number(m.submission_id)))
-          .map((m) => ({
-            submission_id: Number(m.submission_id),
-            relevance: ['high', 'medium', 'low'].includes(m.relevance) ? m.relevance : 'low',
-            why: String(m.why || ''),
-          }))
-        : [],
+      // Optional in the model schema — fall back to whether anything matched.
+      has_relevant_match: typeof parsed.has_relevant_match === 'boolean' ? parsed.has_relevant_match : matches.length > 0,
+      matches,
     };
   } catch (error) {
     // Never let a provider/parse failure break the search request. The route

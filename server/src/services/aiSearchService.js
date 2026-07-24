@@ -33,6 +33,7 @@ const {
   AI_SEARCH_PUBLIC_ENABLED,
   AI_SEARCH_RECENCY_WEIGHT,
   AI_SEARCH_RECENCY_HALFLIFE_DAYS,
+  AI_SEARCH_MIN_SIMILARITY,
 } = require('../config');
 
 const RECENCY_HALFLIFE_MS = AI_SEARCH_RECENCY_HALFLIFE_DAYS * 86400000;
@@ -79,6 +80,35 @@ function trim(text, max = 400) {
 function normalizeWindowDays(value) {
   const n = Number(value);
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : null;
+}
+
+// Reported/resolved time-window filter (JS-side, robust to legacy non-ISO date
+// strings). Returns the surviving rows plus how many candidates the window
+// alone excluded — independent of similarity (feeds the `windowExcluded` field).
+function applyTimeWindow(rows, { reportedDays = null, resolvedDays = null, resolvedMap = new Map(), now = Date.now() } = {}) {
+  const reportedCutoff = reportedDays ? now - reportedDays * 86400000 : null;
+  const resolvedCutoff = resolvedDays ? now - resolvedDays * 86400000 : null;
+  const kept = rows.filter((row) => {
+    if (reportedCutoff != null) {
+      const t = parseTime(row.created_at);
+      if (t == null || t < reportedCutoff) return false;
+    }
+    if (resolvedCutoff != null) {
+      const resolved = resolvedMap.get(Number(row.id));
+      if (!resolved || resolved.t < resolvedCutoff) return false;
+    }
+    return true;
+  });
+  return { kept, excluded: rows.length - kept.length };
+}
+
+// Drop candidates below the similarity floor using the RAW cosine `match`,
+// never the recency-blended `score` — recency must not rescue an irrelevant
+// ticket past the floor. A non-finite or <= 0 floor disables the check.
+function applySimilarityFloor(ranked, minSimilarity) {
+  const floor = Number(minSimilarity);
+  if (!Number.isFinite(floor) || floor <= 0) return ranked;
+  return ranked.filter((candidate) => candidate.match >= floor);
 }
 
 // Latest terminal-status change per submission, from the status-event timeline.
@@ -173,7 +203,7 @@ async function runAiSearch(db, {
 
   const cleanQuery = String(query || '').trim().slice(0, AI_SEARCH_MAX_QUERY_LENGTH);
   if (!cleanQuery) {
-    return { enabled: true, query: '', summary: emptySummary(), matches: [], window: {}, meta: emptyMeta() };
+    return { enabled: true, query: '', summary: emptySummary(), matches: [], window: {}, windowExcluded: 0, meta: emptyMeta() };
   }
 
   const reportedDays = normalizeWindowDays(reportedWithinDays);
@@ -191,7 +221,7 @@ async function runAiSearch(db, {
   // 1. Candidate pre-filter (DB) + hydrate.
   const rawCandidates = await loadCandidates({ scope: safeScope, applicationId: appId });
   if (!rawCandidates.length) {
-    return { enabled: true, query: cleanQuery, summary: emptySummary(), matches: [], window: { reportedWithinDays: reportedDays, resolvedWithinDays: resolvedDays }, meta: emptyMeta() };
+    return { enabled: true, query: cleanQuery, summary: emptySummary(), matches: [], window: { reportedWithinDays: reportedDays, resolvedWithinDays: resolvedDays }, windowExcluded: 0, meta: emptyMeta() };
   }
   const hydrated = await hydrateRows(rawCandidates);
 
@@ -201,23 +231,15 @@ async function runAiSearch(db, {
   const resolvedMap = buildResolvedAtMap(events);
   const lastChangeMap = buildLatestChangeMap(events);
 
-  // Apply time windows in JS (robust to legacy non-ISO date strings).
-  const now = Date.now();
-  const reportedCutoff = reportedDays ? now - reportedDays * 86400000 : null;
-  const resolvedCutoff = resolvedDays ? now - resolvedDays * 86400000 : null;
-  const filtered = hydrated.filter((row) => {
-    if (reportedCutoff != null) {
-      const t = parseTime(row.created_at);
-      if (t == null || t < reportedCutoff) return false;
-    }
-    if (resolvedCutoff != null) {
-      const resolved = resolvedMap.get(Number(row.id));
-      if (!resolved || resolved.t < resolvedCutoff) return false;
-    }
-    return true;
+  // Apply time windows in JS; windowExcluded counts candidates the window
+  // alone dropped (0 when no window params were sent).
+  const { kept: filtered, excluded: windowExcluded } = applyTimeWindow(hydrated, {
+    reportedDays,
+    resolvedDays,
+    resolvedMap,
   });
   if (!filtered.length) {
-    return { enabled: true, query: cleanQuery, summary: emptySummary(), matches: [], window: { reportedWithinDays: reportedDays, resolvedWithinDays: resolvedDays }, meta: { candidateCount: hydrated.length, rankedCount: 0, embeddedInline: 0, skippedEmbed: 0 } };
+    return { enabled: true, query: cleanQuery, summary: emptySummary(), matches: [], window: { reportedWithinDays: reportedDays, resolvedWithinDays: resolvedDays }, windowExcluded, meta: { candidateCount: hydrated.length, rankedCount: 0, embeddedInline: 0, skippedEmbed: 0 } };
   }
 
   // 2. Self-heal: ensure candidate embeddings exist (bounded per search).
@@ -231,7 +253,7 @@ async function runAiSearch(db, {
     .map((r) => ({ id: Number(r.id), vector: vectors.get(Number(r.id)), row: r }));
 
   if (!withVectors.length) {
-    return { enabled: true, query: cleanQuery, summary: emptySummary(), matches: [], window: { reportedWithinDays: reportedDays, resolvedWithinDays: resolvedDays }, meta: { candidateCount: filtered.length, rankedCount: 0, embeddedInline: ensureReport.embedded, skippedEmbed: ensureReport.skipped } };
+    return { enabled: true, query: cleanQuery, summary: emptySummary(), matches: [], window: { reportedWithinDays: reportedDays, resolvedWithinDays: resolvedDays }, windowExcluded, meta: { candidateCount: filtered.length, rankedCount: 0, embeddedInline: ensureReport.embedded, skippedEmbed: ensureReport.skipped } };
   }
 
   const queryVector = await embedText(cleanQuery, { inputType: 'query' });
@@ -247,7 +269,9 @@ async function runAiSearch(db, {
       return { id: Number(id), row, match, recency, score: match + AI_SEARCH_RECENCY_WEIGHT * recency };
     })
     .sort((a, b) => b.score - a.score);
-  const topK = ranked.slice(0, AI_SEARCH_TOP_K);
+  // Similarity floor first (on the raw match), then take the top-K, so
+  // near-zero-relevance tickets never pad out the result set.
+  const topK = applySimilarityFloor(ranked, AI_SEARCH_MIN_SIMILARITY).slice(0, AI_SEARCH_TOP_K);
 
   // 4. Summary over the top-K (Claude or OpenAI, best-effort).
   const cards = topK.map(({ row }) => buildCard(row, {
@@ -265,6 +289,8 @@ async function runAiSearch(db, {
       answer_summary: result.answer_summary,
       reported_in_window: result.reported_in_window,
       resolved_in_window: result.resolved_in_window,
+      // Optional (C4): clients must tolerate its absence.
+      ...(typeof result.has_relevant_match === 'boolean' ? { has_relevant_match: result.has_relevant_match } : {}),
     };
     aiMatches = Array.isArray(result.matches) ? result.matches : [];
   }
@@ -298,6 +324,7 @@ async function runAiSearch(db, {
     enabled: true,
     query: cleanQuery,
     window: { reportedWithinDays: reportedDays, resolvedWithinDays: resolvedDays },
+    windowExcluded,
     summary,
     matches,
     meta: {
@@ -319,6 +346,8 @@ function emptyMeta() {
 module.exports = {
   runAiSearch,
   isFeatureEnabled,
+  applyTimeWindow,
+  applySimilarityFloor,
   SCOPE_ADMIN,
   SCOPE_PUBLIC,
 };
