@@ -131,7 +131,11 @@ status board.
   retrievals that may all be irrelevant — it must describe what the most
   relevant ticket is actually about (one sentence from its content, not just
   status) and explicitly say when nothing matches the query's topic (returning
-  empty matches; optional `has_relevant_match` boolean in the result). A
+  empty matches). It must never open with a "Yes, this has been reported"
+  verdict (similarity ≠ sameness — the model cannot verify the user's issue is
+  the same one); it leads with the closest ticket's substance and status and
+  lets the reader judge sameness (optional
+  `has_relevant_match` boolean in the result). A
   server-side self-consistency guard forces `matches: []` whenever the model
   reports `has_relevant_match: false` (observed: gpt-4o-mini listed a ticket as
   relevance "high" while its own summary text said it wasn't relevant); OpenAI

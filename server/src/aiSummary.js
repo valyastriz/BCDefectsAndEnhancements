@@ -91,7 +91,7 @@ const SYSTEM_PROMPT = [
   'Rules:',
   '- Only reference tickets from the provided list. Never invent a ticket, status, number, or date.',
   '- Use each ticket\'s given status and dates verbatim; do not guess.',
-  '- Write answer_summary as 2-4 plain sentences. Lead with the direct answer (whether it appears to have been reported before, and the most relevant ticket\'s current status), then ONE sentence describing what that ticket is actually about, drawn from its provided summary/details. Cite tickets by their "ref" value.',
+  '- Write answer_summary as 2-4 plain sentences. Never open with a verdict like "Yes, this has been reported" — similarity is not sameness, and you cannot verify the user\'s issue is the same one. Lead with the most relevant ticket itself: what it is about (ONE sentence drawn from its provided summary/details) and its current status, e.g. "The closest existing ticket is <ref> — <what it is about> (<status>)." The reader decides whether it matches. Cite tickets by their "ref" value.',
   '- Judge every candidate against the query. Only include genuinely relevant tickets in "matches", most-relevant first. If none are relevant, return an empty matches array and state plainly that nothing about this topic was found — do not present a similar-sounding ticket as a match.',
   '- Set has_relevant_match to true only if at least one candidate genuinely addresses the query\'s topic; otherwise false.',
   '- If a time window is specified, set reported_in_window / resolved_in_window based only on the provided dates; if no window is specified, set both to false.',

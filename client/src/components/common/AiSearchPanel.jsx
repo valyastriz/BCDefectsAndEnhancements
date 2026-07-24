@@ -205,6 +205,13 @@ export function AiSearchPanel({
             {summary.resolved_in_window && <Badge tone="info">Resolved in window</Badge>}
           </div>
           <p style={{ margin: 0 }}>{summary.answer_summary}</p>
+          {matches.length > 0 && (
+            <p className="muted" style={{ margin: '8px 0 0', fontSize: 13 }}>
+              {matches.length === 1
+                ? 'The ticket it refers to is shown below.'
+                : `This and the other matching tickets (${matches.length}) are shown below for review.`}
+            </p>
+          )}
         </div>
       )}
 
