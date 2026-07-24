@@ -109,19 +109,35 @@ status board.
   key, no per-call cost, text never leaves the server), `openai`, or `voyage`.
   Summary via `@anthropic-ai/sdk` (Claude) or OpenAI Chat Completions (`fetch`).
   Feature hides itself until a summary key is set.
-- **Ranking:** blended match + recency (`similarity + weight × recency`, recency
-  halving every 180 days) → newer strong matches first; match stays primary.
-  A minimum-similarity floor (`AI_SEARCH_MIN_SIMILARITY`, env-tunable, default
-  0.25, applied to the raw cosine — not the blended score) drops
-  near-irrelevant candidates instead of letting them fill top-K; `0` disables.
-  May need re-tuning if `EMBEDDINGS_PROVIDER` changes (different models have
-  different similarity scales).
+- **Ranking:** top-K candidates are **selected by raw cosine similarity** (after
+  the `AI_SEARCH_MIN_SIMILARITY` floor, env-tunable, default 0.25, `0`
+  disables); the recency-blended score (`similarity + weight × recency`,
+  halving every 180 days) is only a display-order tiebreak and can never eject
+  a higher-similarity candidate from the K. Display order: LLM relevance tier
+  (high > medium > low), tie-broken by blended score, unendorsed keyword hits
+  last. Why: selection-by-blended-score buried the corpus's single best raw
+  match (a 2.5-year-old ticket, raw rank 1 of 76) at rank 27 behind recent
+  low-relevance tickets — the recency term's magnitude rivaled the whole
+  corpus's cosine spread. Floor may need re-tuning if `EMBEDDINGS_PROVIDER`
+  changes (different models have different similarity scales).
+- **Keyword safety net:** salient query terms (stopwords dropped; a
+  trailing-'s' variant so "invoices" matches "invoice") are matched against
+  window-surviving candidates' text; keyword hits are unioned into the LLM
+  candidate set (cap top-K + 10) and are **guaranteed to appear in results**
+  even if the LLM doesn't endorse them (appended after endorsed matches, total
+  ≤ top-K, additive `ai.keyword_match` flag). Public scope keyword-matches only
+  public-safe text of public candidates (fail-closed `is_public` re-check).
 - **Summary honesty:** the summary prompt treats candidates as raw similarity
   retrievals that may all be irrelevant — it must describe what the most
   relevant ticket is actually about (one sentence from its content, not just
   status) and explicitly say when nothing matches the query's topic (returning
-  empty matches; optional `has_relevant_match` boolean in the result). Note the
-  summary is load-bearing: final matches are the LLM-endorsed subset of top-K.
+  empty matches; optional `has_relevant_match` boolean in the result). A
+  server-side self-consistency guard forces `matches: []` whenever the model
+  reports `has_relevant_match: false` (observed: gpt-4o-mini listed a ticket as
+  relevance "high" while its own summary text said it wasn't relevant); OpenAI
+  summary calls use strict structured output (`json_schema`, strict), Claude
+  path unchanged. Note the summary is load-bearing for endorsement ordering:
+  final results are the LLM-endorsed matches plus guaranteed keyword hits.
 - **Data model:** new `submission_embeddings` table (JSON-in-TEXT vectors,
   portable across the SQLite/Postgres backends; no pgvector). Two scopes:
   `admin` (full text) and `public` (public-safe text, only for `is_public`
@@ -174,6 +190,18 @@ key). Production (2026-07-24): `backfill:embeddings` ran against the live DB
 with `openai:text-embedding-3-small` — all 81 submissions indexed (81 admin +
 26 public vectors, no dimension mismatch). A prior in-app 500 was root-caused
 to OpenAI `insufficient_quota` (fixed by the user swapping to a funded key),
-not a code defect. Not yet exercised live in the browser: the similarity
-floor, the `windowExcluded` notice + "Search all time" widen flow, and the
-revised summary prompt.
+not a code defect. Ranking rework (2026-07-24, second pass): a live browser
+repro ("anything on invoices") showed the true best match — ticket #22, raw
+cosine rank 1 of 76 — buried at blended rank 27 under recent junk test
+tickets and never shown even on "Search all time"; a read-only diagnostic
+script against prod embeddings measured and confirmed the cause (see Ranking
+bullet). Fixes verified by `server/test/aiSearch.test.js` (21 cases: floor,
+windowExcluded, raw-match selection, self-consistency guard, keyword net incl.
+public-scope isolation); full suite 60/60 pass; client lint clean. Not yet
+exercised live in the browser: the reworked ranking, keyword safety net, and
+strict-schema summary on a real search.
+
+**Known data caveats (surfaced, not yet acted on):** the public corpus is
+dominated by 2026 junk "test" tickets which degrade search quality (worth a
+cleanup/retire pass); `is_retired` tickets are not excluded from public AI
+search candidates; ticket #53 duplicates #22.

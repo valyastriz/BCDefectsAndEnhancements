@@ -9,12 +9,17 @@ const {
   contentHash,
 } = require('../src/services/embeddingIndexService');
 const { embedTexts } = require('../src/embeddings');
-const { summarizeMatches } = require('../src/aiSummary');
+const { summarizeMatches, normalizeSummaryResult } = require('../src/aiSummary');
 const {
   isFeatureEnabled,
   runAiSearch,
   applyTimeWindow,
   applySimilarityFloor,
+  selectTopK,
+  extractKeywordTerms,
+  findKeywordHits,
+  unionKeywordHits,
+  composeFinalResults,
 } = require('../src/services/aiSearchService');
 
 // ── Cosine ranking ───────────────────────────────────────────────────────────
@@ -175,6 +180,109 @@ test('runAiSearch reports disabled when the feature is not configured', async ()
   } else {
     assert.ok(true, 'AI search configured in this environment; disabled-path assertion skipped');
   }
+});
+
+// ── Round 2 (D5): top-K SELECTION is by raw match, never the blended score ────
+test('selectTopK: a high-blended/low-raw candidate cannot eject a high-raw one', () => {
+  const ranked = [
+    { id: 22, match: 0.44, score: 0.446 },  // old ticket: best raw, worst blended
+    { id: 101, match: 0.42, score: 0.55 },  // recent junk: best blended
+    { id: 102, match: 0.40, score: 0.52 },  // recent junk
+    { id: 103, match: 0.10, score: 0.90 },  // below floor: blended must not rescue it
+  ];
+  const top = selectTopK(ranked, { minSimilarity: 0.25, limit: 2 });
+  assert.deepEqual(top.map((c) => c.id), [22, 101]);
+});
+
+// ── Round 2 (D6): self-consistency guard on the summary ───────────────────────
+test('normalizeSummaryResult: has_relevant_match=false forces matches=[]', () => {
+  const out = normalizeSummaryResult({
+    answer_summary: 'Nothing about this topic was found.',
+    reported_in_window: false,
+    resolved_in_window: false,
+    has_relevant_match: false,
+    matches: [{ submission_id: 79, relevance: 'high', why: 'pattern-matched junk' }],
+  });
+  assert.deepEqual(out.matches, []);
+  assert.equal(out.has_relevant_match, false);
+});
+
+test('normalizeSummaryResult keeps matches when has_relevant_match is true or absent', () => {
+  const listed = [{ submission_id: 22, relevance: 'high', why: 'same topic' }];
+  const explicit = normalizeSummaryResult({ answer_summary: 'x', has_relevant_match: true, matches: listed });
+  assert.equal(explicit.matches.length, 1);
+  assert.equal(explicit.has_relevant_match, true);
+  const absent = normalizeSummaryResult({ answer_summary: 'x', matches: listed });
+  assert.equal(absent.matches.length, 1);
+  assert.equal(absent.has_relevant_match, true); // falls back to matches.length > 0
+});
+
+// ── Round 2 (D7): keyword safety net ──────────────────────────────────────────
+test('keyword hit outside the vector top-K still appears in final results', () => {
+  const topK = [
+    { id: 1, match: 0.9, score: 0.95 },
+    { id: 2, match: 0.8, score: 0.85 },
+  ];
+  const keywordHits = [{ id: 42, match: 0.2, score: 0.23 }]; // outside the K cut
+  const llmCandidates = unionKeywordHits(topK, keywordHits, 30);
+  assert.deepEqual(llmCandidates.map((c) => c.id), [1, 2, 42]); // rides along to the LLM
+  const aiMatches = [{ submission_id: 1, relevance: 'high', why: 'on topic' }];
+  const final = composeFinalResults({ candidates: llmCandidates, keywordHits, aiMatches, limit: 20 });
+  // Endorsed first, unendorsed keyword hit guaranteed after; unendorsed
+  // non-keyword candidate (id 2) is dropped.
+  assert.deepEqual(final.map((c) => c.id), [1, 42]);
+});
+
+test('composeFinalResults orders by relevance tier then blended score, capped at limit', () => {
+  const candidates = [
+    { id: 1, match: 0.5, score: 0.50 },
+    { id: 2, match: 0.6, score: 0.70 },
+    { id: 3, match: 0.7, score: 0.60 },
+  ];
+  const aiMatches = [
+    { submission_id: 1, relevance: 'high', why: '' },
+    { submission_id: 2, relevance: 'medium', why: '' },
+    { submission_id: 3, relevance: 'high', why: '' },
+  ];
+  const final = composeFinalResults({ candidates, keywordHits: [], aiMatches, limit: 2 });
+  // Both high-tier tickets first (blended tiebreak: 3 over 1); medium cut by the cap.
+  assert.deepEqual(final.map((c) => c.id), [3, 1]);
+});
+
+test('unionKeywordHits caps the LLM candidate set', () => {
+  const topK = [
+    { id: 1, match: 0.9, score: 0.9 },
+    { id: 2, match: 0.8, score: 0.8 },
+  ];
+  const keywordHits = [
+    { id: 2, match: 0.8, score: 0.8 },  // already in top-K -> not duplicated
+    { id: 3, match: 0.4, score: 0.4 },
+    { id: 4, match: 0.3, score: 0.3 },
+  ];
+  assert.deepEqual(unionKeywordHits(topK, keywordHits, 3).map((c) => c.id), [1, 2, 3]);
+});
+
+test('extractKeywordTerms: "invoices" also matches "invoice"; stopwords and short terms drop', () => {
+  const terms = extractKeywordTerms('Anything on invoices?');
+  assert.ok(terms.includes('invoices'));
+  assert.ok(terms.includes('invoice')); // trailing-'s'-trimmed variant
+  assert.ok(!terms.includes('anything')); // stopword
+  assert.ok(!terms.includes('on')); // < 3 chars
+  assert.deepEqual(extractKeywordTerms('any of the'), []);
+});
+
+test('public scope: keyword hits cannot come from non-public rows or internal text', () => {
+  const base = { application_name: 'Billing Center', type: 'defect', status: 'New' };
+  const candidates = [
+    { id: 1, match: 0.3, score: 0.3, row: { ...base, id: 1, is_public: 1, summary_of_issue: 'invoice preview totals differ' } },
+    { id: 2, match: 0.5, score: 0.5, row: { ...base, id: 2, is_public: 0, summary_of_issue: 'invoice rounding bug' } }, // private ticket
+    { id: 3, match: 0.4, score: 0.4, row: { ...base, id: 3, is_public: 1, summary_of_issue: 'unrelated topic', decision_notes: 'invoice secret note' } }, // term only in an internal field
+  ];
+  const publicHits = findKeywordHits(candidates, ['invoice'], { scope: 'public' });
+  assert.deepEqual(publicHits.map((c) => c.id), [1]);
+  // Admin scope may match internal text and non-public rows (ordered by raw match).
+  const adminHits = findKeywordHits(candidates, ['invoice'], { scope: 'admin' });
+  assert.deepEqual(adminHits.map((c) => c.id), [2, 3, 1]);
 });
 
 test('runAiSearch responses carry windowExcluded: 0 when nothing was filtered', async () => {

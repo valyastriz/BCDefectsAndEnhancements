@@ -703,18 +703,28 @@ tickets** listed below it. Available on three surfaces:
 **How it works (retrieve → rank → summarize):** every ticket is turned into an
 embedding vector once (cached, re-embedded only when its text changes). A search
 embeds just the query, filters candidates (application, time window, `is_public`),
-ranks them by a **blended match + recency** score, drops anything below a
-minimum relevance bar, and sends at most the **top 20** to the chat model to
-write the grounded summary. So per-search AI cost is flat regardless of how many
-tickets exist, and the results shown are always the real DB rows — the model
-never invents a ticket, status, or date.
+and shortlists the **most semantically similar tickets by meaning first —
+regardless of age** (after a minimum relevance bar), sending that shortlist to
+the chat model to write the grounded summary. Recency only breaks ties in how
+results are *ordered*; it never bumps a strong older match off the shortlist.
+Per-search AI cost is flat regardless of how many tickets exist, and the results
+shown are always the real DB rows — the model never invents a ticket, status, or
+date.
 
 **Honest answers, not filler:** tickets that barely resemble your query are
 dropped rather than padding the list (the relevance bar is tunable via
 `AI_SEARCH_MIN_SIMILARITY` — see [Configuration Reference](#configuration-reference)).
 The summary tells you what the most relevant ticket is actually *about* (one
 sentence drawn from its content, not just its status), and when nothing on file
-matches your topic it says so plainly instead of dressing up weak matches.
+matches your topic it says so plainly instead of dressing up weak matches — and
+if it says nothing relevant exists, any tickets it listed anyway are discarded,
+so the answer and the result list can never contradict each other.
+
+**Literal keyword matches are always shown:** tickets whose text literally
+contains your search words ("invoices" also matches "invoice") are guaranteed a
+spot in the results even when the AI doesn't consider them relevant — they
+appear after the AI-endorsed matches, so an exact-wording match can never
+silently disappear.
 
 **Provider master switch (`AI_PROVIDER`)** — one line per environment, never a mix:
 

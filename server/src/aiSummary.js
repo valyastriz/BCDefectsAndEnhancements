@@ -65,6 +65,11 @@ const RESULT_SCHEMA = {
   required: ['answer_summary', 'reported_in_window', 'resolved_in_window', 'matches'],
 };
 
+// OpenAI strict structured output requires EVERY property to be listed in
+// `required` (has_relevant_match stays optional in the base schema, which the
+// unchanged Claude path keeps using).
+const OPENAI_RESULT_SCHEMA = { ...RESULT_SCHEMA, required: Object.keys(RESULT_SCHEMA.properties) };
+
 const EMPTY_RESULT = {
   answer_summary: '',
   reported_in_window: false,
@@ -131,7 +136,13 @@ async function callOpenAI(userText) {
         { role: 'system', content: SYSTEM_PROMPT },
         { role: 'user', content: userText },
       ],
-      response_format: { type: 'json_object' },
+      // Strict structured output: the model cannot emit a shape outside the
+      // schema (it can still emit inconsistent VALUES — normalizeSummaryResult
+      // reconciles those).
+      response_format: {
+        type: 'json_schema',
+        json_schema: { name: 'ticket_search_summary', strict: true, schema: OPENAI_RESULT_SCHEMA },
+      },
     }),
   });
   if (!response.ok) {
@@ -140,6 +151,32 @@ async function callOpenAI(userText) {
   }
   const data = await response.json();
   return data?.choices?.[0]?.message?.content || '';
+}
+
+// Normalize a parsed model payload into the result contract. Self-consistency
+// guard: an explicit has_relevant_match === false forces matches=[] no matter
+// what the model listed — it must not affirm tickets it just called irrelevant.
+function normalizeSummaryResult(parsed) {
+  const matches = Array.isArray(parsed.matches)
+    ? parsed.matches
+      .filter((m) => m && Number.isFinite(Number(m.submission_id)))
+      .map((m) => ({
+        submission_id: Number(m.submission_id),
+        relevance: ['high', 'medium', 'low'].includes(m.relevance) ? m.relevance : 'low',
+        why: String(m.why || ''),
+      }))
+    : [];
+  // Optional in the model schema — fall back to whether anything matched.
+  const hasRelevantMatch = typeof parsed.has_relevant_match === 'boolean'
+    ? parsed.has_relevant_match
+    : matches.length > 0;
+  return {
+    answer_summary: String(parsed.answer_summary || ''),
+    reported_in_window: Boolean(parsed.reported_in_window),
+    resolved_in_window: Boolean(parsed.resolved_in_window),
+    has_relevant_match: hasRelevantMatch,
+    matches: hasRelevantMatch ? matches : [],
+  };
 }
 
 // tickets: [{ id, ref, application, type, status, created_at, resolved_at, summary, details, request, decision_notes? }]
@@ -155,25 +192,7 @@ async function summarizeMatches({ query, tickets, window }) {
   try {
     const raw = usingOpenAI() ? await callOpenAI(userText) : await callAnthropic(userText);
     if (!raw) return { ...EMPTY_RESULT };
-
-    const parsed = JSON.parse(raw);
-    const matches = Array.isArray(parsed.matches)
-      ? parsed.matches
-        .filter((m) => m && Number.isFinite(Number(m.submission_id)))
-        .map((m) => ({
-          submission_id: Number(m.submission_id),
-          relevance: ['high', 'medium', 'low'].includes(m.relevance) ? m.relevance : 'low',
-          why: String(m.why || ''),
-        }))
-      : [];
-    return {
-      answer_summary: String(parsed.answer_summary || ''),
-      reported_in_window: Boolean(parsed.reported_in_window),
-      resolved_in_window: Boolean(parsed.resolved_in_window),
-      // Optional in the model schema — fall back to whether anything matched.
-      has_relevant_match: typeof parsed.has_relevant_match === 'boolean' ? parsed.has_relevant_match : matches.length > 0,
-      matches,
-    };
+    return normalizeSummaryResult(JSON.parse(raw));
   } catch (error) {
     // Never let a provider/parse failure break the search request. The route
     // still returns the similarity-ranked tickets; the summary is just empty.
@@ -185,4 +204,5 @@ async function summarizeMatches({ query, tickets, window }) {
 module.exports = {
   isAiConfigured,
   summarizeMatches,
+  normalizeSummaryResult,
 };

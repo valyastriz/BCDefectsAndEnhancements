@@ -3,14 +3,19 @@
 // Flow (per search):
 //   1. Cheap DB pre-filter -> candidate rows (application, time window, scope).
 //   2. Ensure candidate embeddings exist (bounded self-heal for fresh tickets).
-//   3. Embed the query, rank candidates by cosine similarity, take top-K.
-//   4. Claude (Haiku) ranks/explains those <=K and writes the grounded summary.
-//   5. Return the summary + the REAL hydrated ticket rows (never Claude's text)
-//      in ranked order.
+//   3. Embed the query, rank candidates by cosine similarity. Top-K SELECTION
+//      is by the RAW cosine match (post-floor); the recency-blended score only
+//      tiebreaks display order. Keyword hits from the query terms ride along
+//      as a safety net.
+//   4. Claude (Haiku) ranks/explains those candidates and writes the grounded
+//      summary.
+//   5. Return the summary + the REAL hydrated ticket rows (never Claude's
+//      text): endorsed tickets by relevance tier, unendorsed keyword hits last.
 //
 // Scope safety: for scope='public' we hard-force is_public=1, retrieve with the
-// public vectors, build Claude cards from public-safe fields only, and map every
-// result through mapPublicSubmission — so no internal field can leak.
+// public vectors, build Claude cards from public-safe fields only, match
+// keyword terms against the public-safe doc only, and map every result through
+// mapPublicSubmission — so no internal field can leak.
 
 const { Op } = require('sequelize');
 const dbApi = require('../../db');
@@ -21,6 +26,8 @@ const { summarizeMatches, isAiConfigured } = require('../aiSummary');
 const {
   SCOPE_ADMIN,
   SCOPE_PUBLIC,
+  buildAdminDoc,
+  buildPublicDoc,
   hydrateRows,
   ensureEmbeddingsForHydratedRows,
   loadVectors,
@@ -109,6 +116,105 @@ function applySimilarityFloor(ranked, minSimilarity) {
   const floor = Number(minSimilarity);
   if (!Number.isFinite(floor) || floor <= 0) return ranked;
   return ranked.filter((candidate) => candidate.match >= floor);
+}
+
+// SELECT the top-K by RAW cosine `match` (post-floor). The recency-blended
+// `score` is a display-order tiebreak only — it must never eject a higher-raw-
+// similarity candidate from the K (the recency boost was evicting the best
+// semantic match; see the ticket #22 dropout).
+function selectTopK(ranked, { minSimilarity = AI_SEARCH_MIN_SIMILARITY, limit = AI_SEARCH_TOP_K } = {}) {
+  return applySimilarityFloor(ranked, minSimilarity)
+    .slice()
+    .sort((a, b) => b.match - a.match)
+    .slice(0, Math.max(0, limit));
+}
+
+// Filler words that would otherwise turn nearly every ticket into a keyword
+// hit (includes portal boilerplate like ticket/defect that appears in every
+// doc's Type line). Terms shorter than 3 chars are dropped before this check.
+const KEYWORD_STOPWORDS = new Set([
+  'about', 'after', 'all', 'and', 'any', 'anything', 'are', 'because', 'been',
+  'before', 'being', 'between', 'but', 'can', 'could', 'defect', 'defects',
+  'did', 'does', 'doing', 'else', 'enhancement', 'enhancements', 'ever', 'for',
+  'from', 'get', 'gets', 'got', 'had', 'has', 'have', 'having', 'her', 'him',
+  'his', 'how', 'into', 'issue', 'issues', 'its', 'just', 'like', 'may',
+  'might', 'more', 'most', 'not', 'once', 'only', 'other', 'our', 'out',
+  'over', 'own', 'per', 'related', 'she', 'should', 'some', 'something',
+  'such', 'than', 'that', 'the', 'their', 'them', 'then', 'there', 'these',
+  'they', 'this', 'those', 'ticket', 'tickets', 'too', 'under', 'until',
+  'very', 'want', 'wants', 'was', 'were', 'what', 'when', 'where', 'which',
+  'while', 'who', 'whose', 'why', 'will', 'with', 'would', 'you', 'your',
+]);
+
+// Salient keyword terms from the query: lowercase, punctuation stripped,
+// stopwords and <3-char terms dropped. Each term also contributes a trailing-
+// 's'-trimmed variant so "invoices" hits "invoice".
+function extractKeywordTerms(query) {
+  const words = String(query || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .split(' ')
+    .filter(Boolean);
+  const terms = new Set();
+  for (const word of words) {
+    if (word.length < 3 || KEYWORD_STOPWORDS.has(word)) continue;
+    terms.add(word);
+    const trimmed = word.endsWith('s') ? word.slice(0, -1) : '';
+    if (trimmed.length >= 3 && !KEYWORD_STOPWORDS.has(trimmed)) terms.add(trimmed);
+  }
+  return [...terms];
+}
+
+// Keyword safety net: window-surviving candidates whose SCOPE-SAFE text
+// contains a query term, ordered by raw match. Public scope fails closed
+// twice — only public rows can hit, and matching runs on the public-safe doc,
+// so internal fields (decision notes, reviewer, email) can never create a hit.
+function findKeywordHits(candidates, terms, { scope } = {}) {
+  if (!Array.isArray(terms) || !terms.length) return [];
+  return candidates
+    .filter(({ row }) => {
+      if (scope === SCOPE_PUBLIC && !row?.is_public) return false;
+      const doc = (scope === SCOPE_PUBLIC ? buildPublicDoc(row) : buildAdminDoc(row)).toLowerCase();
+      return terms.some((term) => doc.includes(term));
+    })
+    .sort((a, b) => b.match - a.match);
+}
+
+// Union keyword hits into the LLM candidate set — top-K first, then keyword
+// hits by raw match — capped at `cap` so the summary call stays bounded.
+function unionKeywordHits(topK, keywordHits, cap) {
+  const union = [...topK];
+  const seen = new Set(topK.map((c) => c.id));
+  for (const hit of keywordHits) {
+    if (union.length >= cap) break;
+    if (seen.has(hit.id)) continue;
+    union.push(hit);
+    seen.add(hit.id);
+  }
+  return union;
+}
+
+const RELEVANCE_RANK = { high: 3, medium: 2, low: 1 };
+
+// Final display order: LLM-endorsed candidates by relevance tier (high >
+// medium > low), tie-broken by the recency-blended score — then unendorsed
+// keyword hits (blended-score order) GUARANTEED a spot after them, with the
+// total capped at `limit`. aiMatches === null means no summary ran: every
+// candidate counts as endorsed (blended order, as before).
+function composeFinalResults({ candidates, keywordHits = [], aiMatches, limit }) {
+  const aiById = aiMatches == null ? null : new Map(aiMatches.map((m) => [Number(m.submission_id), m]));
+  const endorsed = aiById ? candidates.filter((c) => aiById.has(c.id)) : [...candidates];
+  const tier = (c) => RELEVANCE_RANK[aiById?.get(c.id)?.relevance] || 0;
+  endorsed.sort((a, b) => (tier(b) - tier(a)) || (b.score - a.score));
+  const results = endorsed.slice(0, Math.max(0, limit));
+  const seen = new Set(results.map((c) => c.id));
+  const pending = keywordHits.filter((c) => !seen.has(c.id)).sort((a, b) => b.score - a.score);
+  for (const hit of pending) {
+    if (results.length >= limit) break;
+    results.push(hit);
+    seen.add(hit.id);
+  }
+  return results;
 }
 
 // Latest terminal-status change per submission, from the status-event timeline.
@@ -258,23 +364,29 @@ async function runAiSearch(db, {
 
   const queryVector = await embedText(cleanQuery, { inputType: 'query' });
 
-  // Blend semantic match with recency so recent strong matches rank first:
-  // score = similarity + weight * recency. A much-better older match still beats
-  // a weak recent one; near-ties go to the newer ticket.
+  // Score each candidate: the raw cosine `match` drives SELECTION; the
+  // recency-blended `score` is only a display-order tiebreak later on.
   const nowTs = Date.now();
-  const ranked = withVectors
-    .map(({ id, vector, row }) => {
-      const match = cosineSimilarity(queryVector, vector);
-      const recency = recencyScore(row.created_at, nowTs);
-      return { id: Number(id), row, match, recency, score: match + AI_SEARCH_RECENCY_WEIGHT * recency };
-    })
-    .sort((a, b) => b.score - a.score);
-  // Similarity floor first (on the raw match), then take the top-K, so
-  // near-zero-relevance tickets never pad out the result set.
-  const topK = applySimilarityFloor(ranked, AI_SEARCH_MIN_SIMILARITY).slice(0, AI_SEARCH_TOP_K);
+  const ranked = withVectors.map(({ id, vector, row }) => {
+    const match = cosineSimilarity(queryVector, vector);
+    const recency = recencyScore(row.created_at, nowTs);
+    return { id: Number(id), row, match, recency, score: match + AI_SEARCH_RECENCY_WEIGHT * recency };
+  });
+  // Similarity floor first (on the raw match), then top-K by raw match, so
+  // near-zero-relevance tickets never pad out the result set and recency never
+  // ejects a better semantic match.
+  const topK = selectTopK(ranked, { minSimilarity: AI_SEARCH_MIN_SIMILARITY, limit: AI_SEARCH_TOP_K });
 
-  // 4. Summary over the top-K (Claude or OpenAI, best-effort).
-  const cards = topK.map(({ row }) => buildCard(row, {
+  // Keyword safety net: window-surviving candidates whose scope-safe text
+  // contains a query term ride along to the LLM and are guaranteed a spot in
+  // the final results even when the LLM does not endorse them.
+  const keywordTerms = extractKeywordTerms(cleanQuery);
+  const keywordHits = findKeywordHits(ranked, keywordTerms, { scope: safeScope });
+  const keywordIds = new Set(keywordHits.map((c) => c.id));
+  const llmCandidates = unionKeywordHits(topK, keywordHits, AI_SEARCH_TOP_K + 10);
+
+  // 4. Summary over the top-K + keyword hits (Claude or OpenAI, best-effort).
+  const cards = llmCandidates.map(({ row }) => buildCard(row, {
     scope: safeScope,
     resolvedAt: resolvedMap.get(Number(row.id))?.at || null,
     lastChangeAt: lastChangeMap.get(Number(row.id))?.at || null,
@@ -295,16 +407,14 @@ async function runAiSearch(db, {
     aiMatches = Array.isArray(result.matches) ? result.matches : [];
   }
 
-  // 5. Final results ordered newer+higher-match first (topK is already blended-
-  // sorted). When the summary ran, show only the tickets it judged relevant;
-  // otherwise show all top matches. Ticket DATA always comes from the DB row.
+  // 5. Final results: LLM-endorsed tickets by relevance tier (blended-score
+  // tiebreak), unendorsed keyword hits appended after, total capped at top-K.
+  // Without a summary, show all top matches. Ticket DATA always comes from
+  // the DB row.
   const aiById = new Map(aiMatches.map((m) => [Number(m.submission_id), m]));
-  const relevantIds = new Set(
-    [...aiById.keys()].filter((id) => topK.some((c) => c.id === id)),
-  );
   const finalTopK = isAiConfigured()
-    ? topK.filter((c) => relevantIds.has(c.id))
-    : topK;
+    ? composeFinalResults({ candidates: llmCandidates, keywordHits, aiMatches, limit: AI_SEARCH_TOP_K })
+    : composeFinalResults({ candidates: topK, keywordHits, aiMatches: null, limit: AI_SEARCH_TOP_K });
 
   const matches = finalTopK.map((cand) => {
     const mapped = safeScope === SCOPE_PUBLIC ? mapPublicSubmission(cand.row) : mapSubmission(cand.row);
@@ -316,6 +426,9 @@ async function runAiSearch(db, {
         why: ai?.why || '',
         match: Number(cand.match.toFixed(4)),
         score: Number(cand.score.toFixed(4)),
+        // Additive/optional: present only when the ticket text contains a
+        // query keyword (the D7 safety net) — clients must tolerate absence.
+        ...(keywordIds.has(cand.id) ? { keyword_match: true } : {}),
       },
     };
   });
@@ -348,6 +461,11 @@ module.exports = {
   isFeatureEnabled,
   applyTimeWindow,
   applySimilarityFloor,
+  selectTopK,
+  extractKeywordTerms,
+  findKeywordHits,
+  unionKeywordHits,
+  composeFinalResults,
   SCOPE_ADMIN,
   SCOPE_PUBLIC,
 };

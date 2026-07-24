@@ -14,17 +14,22 @@ search panel is hidden everywhere and the app runs exactly as before.
 2. A search embeds only the **query** (tiny), pre-filters candidates in SQL
    (application, `is_public` for public surfaces), applies the reported/resolved
    **time window** in Node (so the excluded count can be reported — see
-   [`windowExcluded`](#time-window--windowexcluded)), ranks the rest by cosine
-   similarity, drops anything under the **minimum-similarity floor**
-   (`AI_SEARCH_MIN_SIMILARITY`), and takes at most the **top 20**
-   (`AI_SEARCH_TOP_K`).
-3. Claude (Haiku) ranks/explains those ≤20 and writes the grounded summary.
-4. The response returns the summary + the **real hydrated ticket rows** in
-   ranked order — Claude never invents a ticket, status, or date.
+   [`windowExcluded`](#time-window--windowexcluded)), drops anything under the
+   **minimum-similarity floor** (`AI_SEARCH_MIN_SIMILARITY`), and selects the
+   **top 20** (`AI_SEARCH_TOP_K`) by **raw cosine similarity** — recency never
+   ejects a strong match from the shortlist.
+3. **Keyword hits** (window-surviving candidates whose text literally contains a
+   salient query term — see [Keyword safety net](#keyword-safety-net)) are
+   unioned into the candidate set, capped at `AI_SEARCH_TOP_K + 10`.
+4. The summary model ranks/explains those candidates and writes the grounded
+   summary.
+5. The response returns the summary + the **real hydrated ticket rows** —
+   endorsed matches first (by relevance tier), unendorsed keyword hits last.
+   The model never invents a ticket, status, or date.
 
-Per-search Claude cost is flat regardless of corpus size (only ≤20 tickets are
-ever sent). Ticket embeddings are computed once and re-embedded only when the
-source text changes (`content_hash` guard).
+Per-search summary cost is flat regardless of corpus size (at most top-K + 10
+tickets are ever sent). Ticket embeddings are computed once and re-embedded only
+when the source text changes (`content_hash` guard).
 
 ### Scope safety (no leakage)
 
@@ -64,14 +69,22 @@ Embeddings have three modes (set via `EMBEDDINGS_PROVIDER`, or let `AI_PROVIDER`
 **Demo preset** (all OpenAI, one key): `AI_PROVIDER=openai`, `OPENAI_API_KEY=…`
 **Work preset** (Claude + self-hosted embeddings, no third-party vendor): `AI_PROVIDER=anthropic`, `ANTHROPIC_API_KEY=…`
 
-## Ranking — newer + higher-match first
+## Ranking — selected by raw match, recency only tiebreaks display
 
-Results are ordered by a blended score: `similarity + AI_SEARCH_RECENCY_WEIGHT ×
-recency`, where recency halves every `AI_SEARCH_RECENCY_HALFLIFE_DAYS` (default
-180). Semantic match stays primary — a much-better older ticket still outranks a
-weak recent one — but among comparable matches the newer ticket wins. Set the
-weight to `0` for pure match, or higher to lean harder on recency. Each result
-carries `ai.match` (raw similarity) and `ai.score` (blended) for transparency.
+**Selection** into the top-K candidate set is by **raw cosine similarity**
+(`ai.match`) alone, after the minimum-similarity floor. The recency-blended
+score can never eject a higher-raw-similarity ticket from the shortlist — so an
+old but highly relevant ticket always reaches the summary model instead of being
+crowded out by recent low-relevance ones.
+
+**Display order** of the final results: AI relevance tier first (high > medium >
+low), tie-broken by the blended score `similarity + AI_SEARCH_RECENCY_WEIGHT ×
+recency` (recency halves every `AI_SEARCH_RECENCY_HALFLIFE_DAYS`, default 180) —
+among comparably relevant matches the newer ticket lists first. Unendorsed
+keyword hits come last. Set the weight to `0` to ignore recency entirely, or
+higher to lean harder on it; it only ever affects ordering, never selection.
+Each result carries `ai.match` (raw similarity) and `ai.score` (blended) for
+transparency.
 
 ### Minimum-similarity floor
 
@@ -83,6 +96,25 @@ recency must not rescue an irrelevant ticket past the floor. Set it to `0` to
 disable. The `0.25` default is calibrated for OpenAI `text-embedding-3-small`;
 different embedding models produce different similarity scales, so re-tune it
 after changing `EMBEDDINGS_PROVIDER`/`EMBEDDINGS_MODEL`.
+
+## Keyword safety net
+
+Semantic similarity can miss literal wording, so salient query terms are also
+matched against candidate ticket text: the query is lowercased, punctuation is
+stripped, stopwords and terms under 3 characters are dropped, and a
+trailing-`s`-trimmed variant is matched too ("invoices" also hits "invoice").
+Any window-surviving candidate whose text contains a term is a **keyword hit**:
+
+- Keyword hits are **unioned into the candidate set** sent to the summary model,
+  with the union capped at `AI_SEARCH_TOP_K + 10`.
+- They are **guaranteed to appear in the final results** even when the model
+  does not endorse them — appended after the endorsed matches in blended-score
+  order, with total results still capped at `AI_SEARCH_TOP_K`.
+- Each keyword hit carries an additive per-match flag `ai.keyword_match: true`;
+  clients must tolerate its absence.
+- Scope rules hold: public searches keyword-match only the **public-safe text of
+  public tickets**, so the union can never introduce a private ticket or an
+  internal field.
 
 ## Time window & `windowExcluded`
 
@@ -110,9 +142,16 @@ query's topic, returning an empty `matches` list. The structured result includes
 an optional **`has_relevant_match`** boolean; clients must tolerate its absence
 (treat it as metadata, never require it).
 
-Note the summary is load-bearing: the final result set is the LLM-endorsed
-subset of the retrieval top-K, so when the model says nothing is relevant,
-`matches: []` is the correct outcome even though retrieval found candidates.
+A **self-consistency guard** backs the prompt: if the summary reports
+`has_relevant_match: false`, the server forces its match list empty — the model
+can no longer list a ticket while claiming nothing relevant exists. On the
+OpenAI path the summary call uses strict structured output (`response_format:
+json_schema` with `strict: true`); the Claude path is unchanged.
+
+Note the summary is load-bearing for the *endorsed* results: they are the
+LLM-approved subset of the candidates, so when the model says nothing is
+relevant the endorsed list is correctly empty — only guaranteed
+[keyword hits](#keyword-safety-net) can still appear, flagged and listed last.
 
 ## Setup
 
