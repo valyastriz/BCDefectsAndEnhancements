@@ -218,7 +218,17 @@ export function AiSearchPanel({
       )}
 
       {!loading && !resultsCollapsed && showSummary && (
-        <div className="ai-summary" style={{ marginTop: 14, padding: 14, borderRadius: 8, background: 'var(--bs-info-bg, #eef4ff)', border: '1px solid var(--bs-info-border, #cfe0ff)' }}>
+        <div
+          className="ai-summary"
+          style={{
+            marginTop: 14,
+            padding: 14,
+            borderRadius: 8,
+            // Same token pattern as .lock-banner (index.css) so the block follows the theme.
+            background: 'color-mix(in srgb, var(--color-primary) 10%, var(--color-surface))',
+            border: '1px solid color-mix(in srgb, var(--color-primary) 35%, transparent)',
+          }}
+        >
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 6 }}>
             <strong>AI summary</strong>
             {summary.reported_in_window && <Badge tone="success">Reported in window</Badge>}

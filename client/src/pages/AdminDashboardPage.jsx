@@ -586,7 +586,7 @@ export function AdminDashboardPage({ user, onLogout }) {
                 key={item.id}
                 type="button"
                 onClick={() => openDetail(item.id)}
-                style={{ textAlign: 'left', cursor: 'pointer', border: '1px solid var(--bs-border, #e2e6ee)', borderRadius: 8, padding: '10px 12px', background: '#fff', display: 'flex', flexDirection: 'column', gap: 4 }}
+                style={{ textAlign: 'left', cursor: 'pointer', border: '1px solid var(--color-border)', borderRadius: 8, padding: '10px 12px', background: 'var(--color-surface)', color: 'var(--color-text)', display: 'flex', flexDirection: 'column', gap: 4 }}
               >
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                   <strong style={{ fontSize: 14 }}>{item.summary_of_issue || '(no summary)'}</strong>
