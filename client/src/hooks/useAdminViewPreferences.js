@@ -3,13 +3,19 @@ import { api } from '../lib/api';
 import {
   ADMIN_TABLE_COLUMNS,
   ADMIN_VIEW_PREFS_STORAGE_KEY,
+  ALL_COLUMN_KEYS,
+  ALL_FILTER_KEYS,
   DEFAULT_VISIBLE_COLUMN_KEYS,
   DEFAULT_VISIBLE_FILTER_KEYS,
 } from '../constants/adminConstants';
 
 const COLUMN_BY_KEY = new Map(ADMIN_TABLE_COLUMNS.map((column) => [column.key, column]));
-const KNOWN_COLUMN_KEYS = new Set(DEFAULT_VISIBLE_COLUMN_KEYS);
-const KNOWN_FILTER_KEYS = new Set(DEFAULT_VISIBLE_FILTER_KEYS);
+// Sanitize against the FULL registries, not the default visible sets: the
+// defaults are a subset, and a saved view may legitimately hold any registry key
+// (e.g. an admin who kept `policyPremium` visible). Narrowing these to the
+// defaults would silently strip such columns from saved views on every load.
+const KNOWN_COLUMN_KEYS = new Set(ALL_COLUMN_KEYS);
+const KNOWN_FILTER_KEYS = new Set(ALL_FILTER_KEYS);
 
 /** Keep only known keys, drop duplicates, preserve order. null when not an array. */
 function sanitizeKeys(list, allowed) {

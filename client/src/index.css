@@ -34,6 +34,13 @@
   --status-duplicate-bg: #ffedd5; --status-duplicate-fg: #92400e;
   --status-submitted-bg: #ede9fe; --status-submitted-fg: #5b21b6;
   --status-deployed-bg:  #ccfbf1; --status-deployed-fg:  #065f46;
+  /* The remaining defect/enhancement statuses. `holding` covers the three
+     parked ones (Backlog - Monitoring Impact, Future Consideration,
+     Deferred – Not in Current Scope) — they read as one state to a triager. */
+  --status-redirected-bg:    #e0f2fe; --status-redirected-fg:    #075985;
+  --status-holding-bg:       #f1f5f9; --status-holding-fg:       #475569;
+  --status-retired-bg:       #e5e7eb; --status-retired-fg:       #4b5563;
+  --status-cleanup-only-bg:  #fef9c3; --status-cleanup-only-fg:  #854d0e;
 
   /* Semantic aliases */
   --color-bg:            var(--slate-100);
@@ -80,6 +87,18 @@
   --color-primary-hover: #93c5fd;
   --color-danger:        #ef4444;
   --color-danger-hover:  #f87171;
+  /* Status pairs are inverted for dark, not reused: the light pastels put
+     near-white text on a pale ground once --color-text flips. */
+  --status-new-bg:          #1e3a8a; --status-new-fg:          #dbeafe;
+  --status-approved-bg:     #14532d; --status-approved-fg:     #dcfce7;
+  --status-rejected-bg:     #7f1d1d; --status-rejected-fg:     #fee2e2;
+  --status-duplicate-bg:    #7c2d12; --status-duplicate-fg:    #ffedd5;
+  --status-submitted-bg:    #4c1d95; --status-submitted-fg:    #ede9fe;
+  --status-deployed-bg:     #134e4a; --status-deployed-fg:     #ccfbf1;
+  --status-redirected-bg:   #0c4a6e; --status-redirected-fg:   #e0f2fe;
+  --status-holding-bg:      #334155; --status-holding-fg:      #e2e8f0;
+  --status-retired-bg:      #3f3f46; --status-retired-fg:      #e4e4e7;
+  --status-cleanup-only-bg: #713f12; --status-cleanup-only-fg: #fef9c3;
   --shadow-sm: 0 1px 2px rgba(2,6,23,.45), 0 1px 3px rgba(2,6,23,.4);
   --shadow-md: 0 4px 6px rgba(2,6,23,.45), 0 2px 16px rgba(2,6,23,.5);
   --shadow-lg: 0 10px 32px rgba(2,6,23,.55);
@@ -666,6 +685,10 @@ h1, h2, h3, h4, h5, h6 {
 .badge-deployed   { background: var(--status-deployed-bg);  color: var(--status-deployed-fg); }
 .badge-defect     { background: var(--status-rejected-bg);  color: var(--status-rejected-fg); }
 .badge-enhancement { background: var(--status-submitted-bg); color: var(--status-submitted-fg); }
+.badge-redirected { background: var(--status-redirected-bg); color: var(--status-redirected-fg); }
+.badge-holding    { background: var(--status-holding-bg);    color: var(--status-holding-fg); }
+.badge-retired    { background: var(--status-retired-bg);    color: var(--status-retired-fg); }
+.badge-cleanup-only { background: var(--status-cleanup-only-bg); color: var(--status-cleanup-only-fg); }
 
 /* ─────────────────────────────────────────────
    Table
@@ -1607,4 +1630,607 @@ button.stat-tile--clickable:focus-visible {
 :root[data-theme='dark'] select option {
   background: #111827;
   color: var(--color-text);
+}
+
+/* ─────────────────────────────────────────────
+   Admin queue — command bar, scope strip, filtered band
+   (Admin Queue redesign; see plan.md)
+   ───────────────────────────────────────────── */
+
+/* Scope badge — names which of the two count scopes you are reading */
+.scope-badge {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+  padding: 4px 9px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.scope-badge--all {
+  background: var(--color-bg);
+  color: var(--color-muted);
+  border: 1px solid var(--color-border);
+}
+.scope-badge--filtered {
+  background: color-mix(in srgb, var(--color-primary) 16%, var(--color-surface));
+  color: var(--color-primary);
+  border: 1px solid color-mix(in srgb, var(--color-primary) 40%, transparent);
+}
+
+/* ── Whole-queue scope strip (counts that ignore the filters) ── */
+.qscope {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  padding: 14px 16px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.qscope-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.qscope-head .qscope-title { font-size: 13.5px; font-weight: 700; }
+.qscope-head .qscope-hint {
+  font-size: 12.5px;
+  color: var(--color-muted);
+  flex: 1 1 auto;
+  min-width: 150px;
+}
+.qscope-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
+  gap: 9px;
+}
+.qscope-card {
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px 11px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  transition: border-color .15s, box-shadow .15s;
+}
+.qscope-card:hover { border-color: var(--color-primary); }
+.qscope-card[aria-pressed="true"] {
+  background: color-mix(in srgb, var(--color-primary) 10%, var(--color-surface));
+  border-color: var(--color-primary);
+  box-shadow: inset 0 0 0 1px var(--color-primary);
+}
+.qscope-card .qscope-num {
+  font-size: clamp(17px, 2vw, 25px);
+  font-weight: 800;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text);
+}
+.qscope-card .qscope-lbl { font-size: 12px; font-weight: 600; color: var(--color-muted); }
+.qscope-card .qscope-meter {
+  height: 3px;
+  border-radius: 2px;
+  background: var(--color-border);
+  overflow: hidden;
+}
+.qscope-card .qscope-meter i { display: block; height: 100%; border-radius: 2px; background: currentColor; }
+.qscope-card--total { color: var(--color-primary); }
+.qscope-card--new { color: var(--status-new-fg); }
+.qscope-card--approved { color: var(--status-approved-fg); }
+.qscope-card--submitted { color: var(--status-submitted-fg); }
+.qscope-card--deployed { color: var(--status-deployed-fg); }
+.qscope-card--other { color: var(--color-muted); }
+.qscope-other-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  padding-top: 4px;
+}
+.qscope-other-item {
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  color: var(--color-text);
+}
+.qscope-other-item:hover { border-color: var(--color-primary); }
+.qscope-other-item b { font-variant-numeric: tabular-nums; }
+
+/* ── Filtered-view band, joined to the table it describes ── */
+.viewband {
+  background: color-mix(in srgb, var(--color-primary) 7%, var(--color-surface));
+  border: 1px solid color-mix(in srgb, var(--color-primary) 30%, transparent);
+  border-bottom: 0;
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  padding: 13px 16px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+}
+.viewband-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.viewband-head .viewband-title { font-size: 13.5px; font-weight: 700; }
+.viewband-head .viewband-title b { font-variant-numeric: tabular-nums; }
+.viewband-head .viewband-hint {
+  font-size: 12.5px;
+  color: var(--color-muted);
+  flex: 1 1 auto;
+  min-width: 150px;
+}
+.viewband-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+  gap: 9px;
+}
+.viewband-tile {
+  background: var(--color-surface);
+  border: 1px solid color-mix(in srgb, var(--color-primary) 22%, var(--color-border));
+  border-radius: var(--radius-sm);
+  padding: 9px 12px 10px;
+}
+.viewband-tile .viewband-num {
+  font-size: clamp(15px, 1.6vw, 21px);
+  font-weight: 800;
+  line-height: 1.15;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text);
+}
+.viewband-tile .viewband-lbl {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--color-muted);
+  margin-top: 2px;
+}
+/* The queue card sits directly under the band — one object, two parts. */
+.queue-card.bs-card {
+  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+  margin-top: 0;
+}
+
+/* ── Command row: search + Filters + scope + customize ── */
+.admin-command { display: flex; flex-direction: column; gap: 10px; }
+.admin-command-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.admin-search { flex: 1 1 260px; min-width: 0; position: relative; display: flex; align-items: center; }
+.admin-search .admin-search-icon {
+  position: absolute;
+  left: 12px;
+  font-size: 14px;
+  color: var(--color-muted);
+  pointer-events: none;
+}
+.admin-search input {
+  width: 100%;
+  font: inherit;
+  font-size: 14px;
+  padding: 10px 13px 10px 34px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+.admin-search input::placeholder { color: var(--color-muted); }
+.admin-search input:focus {
+  outline: none;
+  border-color: var(--blue-500);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, .14);
+}
+
+/* Segmented control (retired scope) */
+.bs-seg {
+  display: inline-flex;
+  padding: 3px;
+  gap: 2px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+}
+.bs-seg button {
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 6px 12px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--color-muted);
+}
+.bs-seg button:hover { color: var(--color-text); }
+.bs-seg button[aria-pressed="true"] {
+  background: color-mix(in srgb, var(--color-primary) 14%, var(--color-surface));
+  color: var(--color-primary);
+}
+
+.bs-count-pill {
+  display: inline-grid;
+  place-items: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--color-primary);
+  color: var(--color-surface);
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.bs-icon-btn {
+  font: inherit;
+  cursor: pointer;
+  display: inline-grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  color: var(--color-muted);
+  font-size: 15px;
+}
+.bs-icon-btn:hover { color: var(--color-text); border-color: var(--color-primary); }
+
+/* Active-filter chips */
+.admin-chips { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+.admin-chips-label { font-size: 12px; font-weight: 600; color: var(--color-muted); }
+.admin-chip {
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 8px 5px 11px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-primary) 11%, var(--color-surface));
+  border: 1px solid color-mix(in srgb, var(--color-primary) 32%, transparent);
+  color: var(--color-text);
+}
+.admin-chip .admin-chip-x { font-size: 13px; line-height: 1; color: var(--color-muted); }
+.admin-chip:hover .admin-chip-x { color: var(--color-danger); }
+.bs-link-btn {
+  background: none;
+  border: 0;
+  padding: 5px 4px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 650;
+  color: var(--color-primary);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+/* ── Grouped filter panel ── */
+.filter-panel {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-md);
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.filter-panel-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.filter-panel-head h4 { margin: 0; font-size: 14.5px; font-weight: 750; }
+.filter-panel-head .filter-panel-count { font-size: 12.5px; color: var(--color-muted); }
+.filter-groups {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(228px, 1fr));
+  gap: 18px 22px;
+}
+.filter-group { display: flex; flex-direction: column; gap: 9px; min-width: 0; }
+.filter-group-label {
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+  color: var(--color-primary);
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--color-border);
+}
+.filter-panel-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding-top: 4px;
+  border-top: 1px solid var(--color-border);
+}
+
+/* ── Sort control (independent of which columns are visible) ── */
+.sort-control {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+  font-size: 12.5px;
+  color: var(--color-muted);
+}
+.sort-control select {
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 650;
+  cursor: pointer;
+  padding: 5px 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+/* ── Queue table head strip ── */
+.queue-table-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+/* ── Row state stripe + date cell ── */
+.admin-submissions-table tbody td:first-child { position: relative; }
+.admin-submissions-table tbody td:first-child::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--row-stripe, transparent);
+}
+tr.row-status--new { --row-stripe: var(--status-new-fg); }
+tr.row-status--approved { --row-stripe: var(--status-approved-fg); }
+tr.row-status--submitted { --row-stripe: var(--status-submitted-fg); }
+tr.row-status--deployed { --row-stripe: var(--status-deployed-fg); }
+tr.row-status--rejected { --row-stripe: var(--status-rejected-fg); }
+tr.row-status--duplicate { --row-stripe: var(--status-duplicate-fg); }
+tr.row-status--redirected { --row-stripe: var(--status-redirected-fg); }
+tr.row-status--holding { --row-stripe: var(--status-holding-fg); }
+tr.row-status--retired { --row-stripe: var(--color-border); }
+tr.row-retired td { opacity: .62; }
+tr[data-selected="true"] td { background: color-mix(in srgb, var(--color-primary) 11%, var(--color-surface)); }
+
+.cell-dates .cell-dates-updated {
+  display: block;
+  font-size: 11.5px;
+  color: var(--color-muted);
+  margin-top: 2px;
+}
+.cell-dates .cell-dates-updated i { font-style: normal; opacity: .7; }
+.cell-summary-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--color-muted);
+}
+
+/* Inline editors: quiet until you reach for them, but still real selects */
+.bs-inline-select {
+  border-color: transparent;
+  background: transparent;
+  font-weight: 600;
+}
+.bs-inline-select:hover:not(:disabled) {
+  border-color: var(--color-border);
+  background: var(--color-surface);
+}
+.bs-inline-select:disabled { cursor: default; opacity: .6; }
+.bs-inline-select--status {
+  border-radius: 999px;
+  font-weight: 700;
+  font-size: 12.5px;
+  padding: 5px 9px;
+}
+.bs-inline-select--status:hover:not(:disabled) { border-color: currentColor; }
+.sel-status--new { background: var(--status-new-bg); color: var(--status-new-fg); }
+.sel-status--approved { background: var(--status-approved-bg); color: var(--status-approved-fg); }
+.sel-status--submitted { background: var(--status-submitted-bg); color: var(--status-submitted-fg); }
+.sel-status--deployed { background: var(--status-deployed-bg); color: var(--status-deployed-fg); }
+.sel-status--rejected { background: var(--status-rejected-bg); color: var(--status-rejected-fg); }
+.sel-status--duplicate { background: var(--status-duplicate-bg); color: var(--status-duplicate-fg); }
+.sel-status--redirected { background: var(--status-redirected-bg); color: var(--status-redirected-fg); }
+.sel-status--holding { background: var(--status-holding-bg); color: var(--status-holding-fg); }
+.sel-status--retired { background: var(--status-retired-bg); color: var(--status-retired-fg); }
+.sel-status--cleanup-only { background: var(--status-cleanup-only-bg); color: var(--status-cleanup-only-fg); }
+.bs-inline-input {
+  border-color: transparent;
+  background: transparent;
+}
+.bs-inline-input:hover {
+  border-color: var(--color-border);
+  background: var(--color-surface);
+}
+
+/* ── Table skeleton + empty/error states ── */
+.sk-bar {
+  display: block;
+  height: 11px;
+  border-radius: 4px;
+  background: var(--color-border);
+  position: relative;
+  overflow: hidden;
+}
+.sk-bar::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--color-surface) 70%, transparent), transparent);
+  animation: sk-shimmer 1.5s infinite;
+}
+@keyframes sk-shimmer {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(100%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sk-bar::after { animation: none; }
+}
+
+.queue-state {
+  padding: 46px 22px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  text-align: center;
+}
+.queue-state-icon {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 19px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+}
+.queue-state--error .queue-state-icon {
+  background: var(--status-rejected-bg);
+  color: var(--status-rejected-fg);
+  border-color: transparent;
+}
+.queue-state h4 { margin: 0; font-size: 15.5px; font-weight: 750; }
+.queue-state p { margin: 0; font-size: 13.5px; color: var(--color-muted); max-width: 46ch; }
+
+/* ── Sticky bulk action bar ── */
+.bulk-action-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  position: sticky;
+  bottom: 0;
+  z-index: 3;
+  padding: 13px 16px;
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--slate-900) 94%, transparent);
+  border: 1px solid var(--color-border);
+  color: #f8fafc;
+  box-shadow: var(--shadow-lg);
+}
+.bulk-action-bar .bulk-count { font-size: 13.5px; font-weight: 650; }
+.bulk-action-bar .bulk-count b { font-variant-numeric: tabular-nums; }
+.bulk-action-bar .bulk-count span { opacity: .72; font-weight: 500; }
+.bulk-action-bar .bulk-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-left: auto; }
+.bulk-btn {
+  font: inherit;
+  font-size: 13px;
+  font-weight: 650;
+  cursor: pointer;
+  padding: 7px 13px;
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, .1);
+  border: 1px solid rgba(255, 255, 255, .22);
+  color: #fff;
+}
+.bulk-btn:hover:not(:disabled) { background: rgba(255, 255, 255, .18); }
+.bulk-btn:disabled { opacity: .5; cursor: not-allowed; }
+.bulk-btn--danger { border-color: color-mix(in srgb, var(--color-danger) 60%, transparent); }
+.bulk-btn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+
+/* ── AI search collapsed entry strip ── */
+.ai-entry-strip {
+  width: 100%;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 11px 15px;
+  border-radius: var(--radius);
+  background: var(--color-surface);
+  border: 1px dashed var(--color-border);
+  color: var(--color-text);
+}
+.ai-entry-strip:hover { border-color: var(--color-primary); }
+.ai-entry-strip .ai-entry-text { flex: 1; min-width: 0; font-size: 13.5px; }
+.ai-entry-strip .ai-entry-text span { color: var(--color-muted); }
+.ai-entry-strip .ai-entry-go { font-size: 12.5px; font-weight: 700; color: var(--color-primary); white-space: nowrap; }
+
+/* ── Admin header: primary action + menus ── */
+.admin-menu { position: relative; }
+.admin-menu-list {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 20;
+  min-width: 218px;
+  padding: 6px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.admin-menu-item {
+  font: inherit;
+  font-size: 13.5px;
+  text-align: left;
+  cursor: pointer;
+  padding: 9px 11px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text);
+  white-space: nowrap;
+}
+.admin-menu-item:hover:not(:disabled) { background: var(--color-bg); }
+.admin-menu-item:disabled { opacity: .55; cursor: not-allowed; }
+.admin-menu-sep { height: 1px; background: var(--color-border); margin: 4px 0; }
+.admin-who {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px 6px 7px;
+  border-radius: 999px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  font: inherit;
+  font-size: 13px;
+  color: var(--color-text);
+  cursor: pointer;
+}
+.admin-who-avatar {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--color-primary);
+  color: var(--color-surface);
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+/* ── Narrow screens ── */
+@media (max-width: 720px) {
+  .admin-command-row { flex-direction: column; align-items: stretch; }
+  .admin-search { flex: 1 1 auto; }
+  .bs-seg { justify-content: space-between; }
+  .bs-seg button { flex: 1; text-align: center; }
+  .admin-command-inline { display: flex; gap: 8px; }
+  .admin-command-inline .bs-btn { flex: 1; justify-content: center; }
+  .filter-groups { grid-template-columns: 1fr; }
+  .qscope-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .bulk-action-bar .bulk-actions { margin-left: 0; }
+  .bs-inline-select,
+  .bs-inline-input { border-color: var(--color-border); background: var(--color-surface); }
 }

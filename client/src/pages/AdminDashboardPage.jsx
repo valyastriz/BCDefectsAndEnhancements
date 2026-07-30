@@ -22,6 +22,7 @@ import {
   resetFilterValues,
 } from '../utils/filterUtils';
 import { normalizeAdminRow } from '../utils/mappers';
+import { getActiveFilters } from '../utils/activeFilterUtils';
 
 // ── Custom hooks ────────────────────────────────────────────────────────────
 import { useAdminMeta } from '../hooks/useAdminMeta';
@@ -38,8 +39,9 @@ import { useExportModal } from '../hooks/useExportModal';
 import {
   AdminHeader,
   NewSubmissionsAlert,
-  StatTiles,
-  FiltersBar,
+  QueueScopeStrip,
+  FilteredViewBand,
+  CommandBar,
   SubmissionsTable,
   CleanupTaskModal,
   ExportModal,
@@ -98,7 +100,6 @@ export function AdminDashboardPage({ user, onLogout }) {
   // Selectable status options (assigned after `meta` resolves below) — lets the
   // baseline totals fetch use the same status scope as the default/reset view.
   const statusFilterOptionsRef = useRef([]);
-  const preNewSubmissionFiltersRef = useRef(null);
   const [rows, setRows] = useState([]);
   const [pageSize, setPageSize] = useState(50);
   const [page, setPage] = useState(1);
@@ -106,8 +107,13 @@ export function AdminDashboardPage({ user, onLogout }) {
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
   const [newFormSubmissionsCount, setNewFormSubmissionsCount] = useState(0);
-  // Totals for the top stat row — always all non-retired items, independent of UI filters.
-  const [baselineCounts, setBaselineCounts] = useState({ total: 0, statuses: {} });
+  // Totals for the whole-queue scope strip — always all non-retired items,
+  // independent of UI filters. `cleanupOnly` is tracked separately because those
+  // items are displayed under "Cleanup Only" rather than their underlying status,
+  // and without it `total` would not equal the sum of the strip's cards.
+  const [baselineCounts, setBaselineCounts] = useState({ total: 0, statuses: {}, cleanupOnly: 0 });
+  // Grouped filter panel (drawn closed) and the AI search entry state.
+  const [filterPanelOpen, setFilterPanelOpen] = useState(false);
   // ── Bulk selection (single source of truth; page owns the full filtered `rows`) ──
   // A Set of selected row ids. `bulkConfirm` is null when closed, else
   // { action, ids } — `action` keys into BULK_ACTIONS and `ids` snapshots the
@@ -128,14 +134,18 @@ export function AdminDashboardPage({ user, onLogout }) {
         .map(normalizeAdminRow)
         .filter((row) => !row.is_retired);
       const statuses = {};
+      let cleanupOnly = 0;
       for (const row of nonRetired) {
         // Cleanup-only items are displayed under "Cleanup Only", not their underlying
         // defect/enhancement status, so they don't count toward New/Approved/etc.
         // (normalizeAdminRow already defaults a blank status to 'New' for the rest.)
-        if (row.is_cleanup && row.cleanup_tag_type === 'cleanup_only') continue;
+        if (row.is_cleanup && row.cleanup_tag_type === 'cleanup_only') {
+          cleanupOnly += 1;
+          continue;
+        }
         statuses[row.status] = (statuses[row.status] || 0) + 1;
       }
-      setBaselineCounts({ total: nonRetired.length, statuses });
+      setBaselineCounts({ total: nonRetired.length, statuses, cleanupOnly });
     } catch {
       // Silently ignore — tiles keep their last known totals
     }
@@ -282,20 +292,52 @@ export function AdminDashboardPage({ user, onLogout }) {
     window.localStorage.setItem(ADMIN_RETIRED_FILTER_STORAGE_KEY, filters.retiredFilter || 'non_retired');
   }, [filters, runtimeStatusFilterOptions]);
 
-  // ── Row-derived memos ─────────────────────────────────────────────────────
-  // True when filters match the "View New Submissions" preset
-  const isViewingNewFormOnly = filters.statuses?.length === 1
-    && filters.statuses[0] === 'New'
-    && filters.createdVia === 'rep_form';
-
-  // ── Top stat-row quick filters ────────────────────────────────────────────
-  // Clicking a Row 1 tile resets to a clean non-retired view of that scope, so the
-  // table matches the number on the tile.
+  // ── Scope-strip quick filters ─────────────────────────────────────────────
+  // Clicking a scope card resets to a clean non-retired view of that scope, so the
+  // table matches the number on the card.
   const selectTotalTile = () => setFilters({
     ...buildDefaultFilters(),
     statuses: runtimeStatusFilterOptions.length > 0 ? [...runtimeStatusFilterOptions] : [],
   });
   const selectStatusTile = (status) => setFilters({ ...buildDefaultFilters(), statuses: [status] });
+
+  // Clear every filter while preserving the retired scope and the sort: neither is
+  // a chip, so resetting them would move ground the admin never touched.
+  const clearAllFilters = useCallback(() => {
+    setFilters((prev) => ({
+      ...buildDefaultFilters(),
+      statuses: statusFilterOptionsRef.current.length > 0 ? [...statusFilterOptionsRef.current] : [],
+      retiredFilter: prev.retiredFilter,
+      sort: prev.sort,
+    }));
+  }, []);
+
+  // Drop this browser's remembered filters and return to the default view.
+  const resetSavedFilters = useCallback(() => {
+    if (typeof window !== 'undefined') {
+      window.localStorage.removeItem(ADMIN_FILTERS_STORAGE_KEY);
+      window.localStorage.removeItem(ADMIN_RETIRED_FILTER_STORAGE_KEY);
+    }
+    setFilters({
+      ...buildDefaultFilters(),
+      statuses: statusFilterOptionsRef.current.length > 0 ? [...statusFilterOptionsRef.current] : [],
+    });
+  }, []);
+
+  // The applied filters, derived once and shared by the Filters button badge, the
+  // chips, the filtered-view band's summary line and the empty state — deriving
+  // this in more than one place is how those four would drift apart.
+  const activeFilters = useMemo(
+    () => getActiveFilters(filters, runtimeStatusFilterOptions.length),
+    [filters, runtimeStatusFilterOptions.length],
+  );
+  const activeFilterSummary = activeFilters
+    .map(({ label, valueLabel }) => `${label}: ${valueLabel}`)
+    .join(' · ');
+
+  // "All active" is selected when no status narrowing is in force.
+  const isTotalScopeSelected = filters.statuses.length === 0
+    || areAllStatusesSelected(filters.statuses, runtimeStatusFilterOptions);
 
   const impactTotals = useMemo(() => {
     return rows.reduce(
@@ -534,6 +576,7 @@ export function AdminDashboardPage({ user, onLogout }) {
     <div className="stack">
       <AdminHeader
         user={user}
+        activeCount={baselineCounts.total}
         importFileInputRef={importFileInputRef}
         importWorking={importWorking}
         exportWorking={exportWorking}
@@ -549,7 +592,9 @@ export function AdminDashboardPage({ user, onLogout }) {
       <NewSubmissionsAlert
         count={newFormSubmissionsCount}
         onViewNewSubmissions={() => {
-          preNewSubmissionFiltersRef.current = { ...filters };
+          // No "restore previous filters" ref any more: the applied filters now
+          // show as removable chips, so getting back is Clear all (or removing the
+          // Created Via chip) rather than a hidden snapshot.
           setFilters({
             ...buildDefaultFilters(),
             statuses: ['New'],
@@ -562,22 +607,41 @@ export function AdminDashboardPage({ user, onLogout }) {
         }}
       />
 
-      <StatTiles
-        rows={rows}
+      <QueueScopeStrip
         baselineCounts={baselineCounts}
-        impactTotals={impactTotals}
-        showActiveHint={(filters.retiredFilter || 'non_retired') !== 'non_retired'}
+        activeStatuses={filters.statuses}
+        isTotalSelected={isTotalScopeSelected}
         onSelectTotal={selectTotalTile}
         onSelectStatus={selectStatusTile}
       />
 
-      {!isAnyAdminModalOpen && error && <Notice text={error} />}
+      {/* Rows are still on screen when this fires, so the error reports alongside
+          them; a failure with nothing to show renders the table's error state. */}
+      {!isAnyAdminModalOpen && error && rows.length > 0 && <Notice text={error} />}
       {!isAnyAdminModalOpen && notice && <Notice text={notice} kind="success" />}
+
+      <CommandBar
+        filters={filters}
+        setFilters={setFilters}
+        filterPanelOpen={filterPanelOpen}
+        setFilterPanelOpen={setFilterPanelOpen}
+        activeFilters={activeFilters}
+        runtimeStatusFilterOptions={runtimeStatusFilterOptions}
+        runtimeTypeFilterOptions={runtimeTypeFilterOptions}
+        runtimeCreatedViaOptions={runtimeCreatedViaOptions}
+        dynamicCleanupStatuses={dynamicCleanupStatuses}
+        visibleFilters={viewPrefs.filters}
+        onOpenCustomize={() => setCustomizeOpen(true)}
+        onResetSaved={resetSavedFilters}
+        onClearAllFilters={clearAllFilters}
+      />
 
       <AiSearchPanel
         scope="admin"
         applications={dynamicApplications}
         defaultApplication="all"
+        collapsible
+        entryHint="ask whether an issue has been reported before, and what happened to it"
         subtitle="Ask in plain language whether an issue has been reported before, and what happened to it. Searches all tickets, including internal notes."
         renderResults={(matches) => (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -608,36 +672,20 @@ export function AdminDashboardPage({ user, onLogout }) {
         )}
       />
 
-      <Card>
-        <FiltersBar
-          filters={filters}
-          setFilters={setFilters}
-          runtimeStatusFilterOptions={runtimeStatusFilterOptions}
-          runtimeTypeFilterOptions={runtimeTypeFilterOptions}
-          runtimeCreatedViaOptions={runtimeCreatedViaOptions}
-          dynamicCleanupStatuses={dynamicCleanupStatuses}
-          isViewingNewFormOnly={isViewingNewFormOnly}
-          preNewSubmissionFiltersRef={preNewSubmissionFiltersRef}
-          visibleFilters={viewPrefs.filters}
-          onOpenCustomize={() => setCustomizeOpen(true)}
-        />
+      <FilteredViewBand
+        rowCount={rows.length}
+        baselineTotal={baselineCounts.total}
+        impactTotals={impactTotals}
+        activeFilterSummary={activeFilterSummary}
+        loading={loading && rows.length === 0}
+      />
 
-        {selectedIds.size > 0 && (
-          <BulkActionBar
-            count={selectedIds.size}
-            disabled={applying}
-            onMakePublic={() => openBulkConfirm('makePublic')}
-            onMakePrivate={() => openBulkConfirm('makePrivate')}
-            onRetire={() => openBulkConfirm('retire')}
-            onUnretire={() => openBulkConfirm('unretire')}
-            onClear={() => setSelectedIds(new Set())}
-          />
-        )}
-
+      <Card className="queue-card">
         <SubmissionsTable
           rows={rows}
           pagedRows={pagedRows}
           loading={loading}
+          error={error}
           page={page}
           totalPages={totalPages}
           pageSize={pageSize}
@@ -658,8 +706,25 @@ export function AdminDashboardPage({ user, onLogout }) {
           selectedIds={selectedIds}
           onToggleRow={toggleRow}
           onToggleAll={toggleAllRows}
+          activeFilterCount={activeFilters.length}
+          baselineTotal={baselineCounts.total}
+          onClearFilters={clearAllFilters}
+          onOpenFilters={() => setFilterPanelOpen(true)}
+          onRetry={() => loadRows()}
         />
       </Card>
+
+      {selectedIds.size > 0 && (
+        <BulkActionBar
+          count={selectedIds.size}
+          disabled={applying}
+          onMakePublic={() => openBulkConfirm('makePublic')}
+          onMakePrivate={() => openBulkConfirm('makePrivate')}
+          onRetire={() => openBulkConfirm('retire')}
+          onUnretire={() => openBulkConfirm('unretire')}
+          onClear={() => setSelectedIds(new Set())}
+        />
+      )}
 
       <CleanupTaskModal
         {...cleanup}

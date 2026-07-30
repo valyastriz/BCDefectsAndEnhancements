@@ -64,6 +64,11 @@ export function AiSearchPanel({
   subtitle = 'Describe an issue in plain language to see if it has been reported before, and what happened to it.',
   placeholder = 'e.g. customer was double-charged on a renewal invoice',
   renderResults,
+  // Opt-in per surface: the admin queue starts collapsed so the ticket table
+  // stays above the fold, while the public/rep surfaces (where searching IS the
+  // task) keep the panel open as before.
+  collapsible = false,
+  entryHint = '',
 }) {
   const isPublic = scope === 'public';
   const statusFn = isPublic ? api.getAiSearchStatus : api.getAdminAiSearchStatus;
@@ -80,6 +85,9 @@ export function AiSearchPanel({
   // Collapses the summary + results area so the page below (e.g. the submission
   // form) stays reachable; a new search always re-expands.
   const [resultsCollapsed, setResultsCollapsed] = useState(false);
+  // Whole-panel collapse (distinct from `resultsCollapsed`, which only folds the
+  // summary + results). Starts closed only where the caller opted in.
+  const [panelOpen, setPanelOpen] = useState(!collapsible);
   const reqIdRef = useRef(0);
 
   useEffect(() => { setAppName(defaultApplication || 'all'); }, [defaultApplication]);
@@ -152,6 +160,25 @@ export function AiSearchPanel({
   // Hide entirely when the feature isn't configured (graceful degradation).
   if (status.loading || !status.enabled) return null;
 
+  // Collapsed entry point: one line that opens the real panel. Only reachable
+  // when the caller opted into `collapsible`.
+  if (!panelOpen) {
+    return (
+      <button
+        type="button"
+        className="ai-entry-strip"
+        aria-expanded={false}
+        onClick={() => setPanelOpen(true)}
+      >
+        <span aria-hidden="true">✦</span>
+        <span className="ai-entry-text">
+          <b>{title}</b>{entryHint ? <span> — {entryHint}</span> : null}
+        </span>
+        <span className="ai-entry-go">Open ▾</span>
+      </button>
+    );
+  }
+
   const matches = Array.isArray(result?.matches) ? result.matches : [];
   const summary = result?.summary;
   const showSummary = status.summaryEnabled && summary && summary.answer_summary;
@@ -160,7 +187,18 @@ export function AiSearchPanel({
   const windowExcluded = Number.isFinite(windowExcludedRaw) && windowExcludedRaw > 0 ? windowExcludedRaw : 0;
 
   return (
-    <Card title={title} subtitle={subtitle} className="ai-search-panel">
+    <Card
+      title={title}
+      subtitle={subtitle}
+      className="ai-search-panel"
+      actions={collapsible
+        ? (
+          <Button type="button" kind="ghost" onClick={() => setPanelOpen(false)}>
+            Hide AI search
+          </Button>
+        )
+        : null}
+    >
       <form onSubmit={onSubmit}>
         <div style={controlsRow}>
           <div style={{ flex: '3 1 260px' }}>

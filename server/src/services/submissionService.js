@@ -361,6 +361,8 @@ async function listFilteredAdminSubmissions(db, query = {}) {
 
   const sortKey = String(sort || 'updated_desc');
   const comparatorMap = {
+    id_asc: (a, b) => compareNum(a.id, b.id),
+    id_desc: (a, b) => compareNum(b.id, a.id),
     updated_desc: (a, b) => compareText(b.status_update_at, a.status_update_at),
     updated_asc: (a, b) => compareText(a.status_update_at, b.status_update_at),
     created_desc: (a, b) => compareText(b.created_at, a.created_at),

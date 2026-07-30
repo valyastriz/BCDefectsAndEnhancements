@@ -12,6 +12,11 @@ export const STATUS_TO_CLEANUP = {
   Retired: 'Completed',
 };
 
+// Headline statuses on the whole-queue scope strip. Deliberately FIXED rather
+// than derived from the data so the cards never reorder between loads; every
+// other status is summed into the strip's expandable "other statuses" card.
+export const SCOPE_STRIP_STATUSES = ['New', 'Approved', 'Submitted', 'Deployed'];
+
 export const ADMIN_META_CATEGORIES = [
   { key: 'statuses', label: 'Defect/Enhancement Statuses', endpointCategory: 'statuses', optionsKey: 'statuses', supportsRetired: true },
   { key: 'types', label: 'Submission Types', endpointCategory: 'types', optionsKey: 'types', supportsRetired: false },
@@ -35,7 +40,8 @@ export const ADMIN_VIEW_PREFS_STORAGE_KEY = 'bc.admin.viewPrefs';
 // not sortable). Keep keys in sync with the server allow-list ADMIN_VIEW_COLUMN_KEYS
 // (server/src/constants.js). Default view = every column visible, in this order.
 export const ADMIN_TABLE_COLUMNS = [
-  { key: 'reportedDate', label: 'Reported Date', sortKey: 'reportedDate' },
+  { key: 'id', label: 'ID', sortKey: 'id' },
+  { key: 'reportedDate', label: 'Reported / Updated', sortKey: 'reportedDate' },
   { key: 'statusUpdate', label: 'Status Update', sortKey: 'statusUpdate' },
   { key: 'type', label: 'Type', sortKey: 'type' },
   { key: 'summary', label: 'Summary', sortKey: 'summary' },
@@ -70,10 +76,49 @@ export const ADMIN_FILTER_FIELDS = [
   { key: 'releaseNumber', label: 'Release #' },
 ];
 
-export const DEFAULT_VISIBLE_COLUMN_KEYS = ADMIN_TABLE_COLUMNS.map((c) => c.key);
-export const DEFAULT_VISIBLE_FILTER_KEYS = ADMIN_FILTER_FIELDS.map((f) => f.key);
+// Every key the registries know about. These are the sanitize allow-lists for
+// saved view preferences and MUST stay complete — the default visible sets below
+// are deliberately smaller, and an admin's saved view may legitimately contain
+// any registry key (a saved view holding `policyPremium` must survive a reload
+// even though it is no longer a default column).
+export const ALL_COLUMN_KEYS = ADMIN_TABLE_COLUMNS.map((c) => c.key);
+export const ALL_FILTER_KEYS = ADMIN_FILTER_FIELDS.map((f) => f.key);
+
+// Default visible columns for an admin who has never customized their view:
+// identity, dates, the issue itself, and the four inline-editable fields. The
+// read-only reporting columns (statusUpdate as its own column, the three money
+// columns, frequency) stay available through Customize View. `reportedDate`
+// renders both the reported and last-status-update dates in one cell.
+export const DEFAULT_VISIBLE_COLUMN_KEYS = [
+  'id',
+  'reportedDate',
+  'summary',
+  'status',
+  'cleanupStatus',
+  'isPublic',
+  'easyvista',
+  'jiraCard',
+];
+export const DEFAULT_VISIBLE_FILTER_KEYS = ALL_FILTER_KEYS;
+
+// ── Filter groups (drives the grouped filter panel) ─────────────────────────
+// `search` and `retiredFilter` are intentionally absent: they live in the command
+// row (a free-text search box and the Active/Retired/All scope control) because
+// they are the most-used filter and the one that changes the meaning of every
+// count on the page. Every other ADMIN_FILTER_FIELDS key appears exactly once
+// here — a key missing from both places would be unreachable.
+export const ADMIN_FILTER_GROUPS = [
+  { key: 'ticket', label: 'Ticket', filterKeys: ['statuses', 'types', 'year'] },
+  { key: 'cleanup', label: 'Cleanup', filterKeys: ['cleanupRequired', 'cleanupStatuses'] },
+  { key: 'people', label: 'People & source', filterKeys: ['requester', 'submittedBy', 'createdVia'] },
+  { key: 'refs', label: 'References', filterKeys: ['easyvistaNumber', 'jiraNumber', 'releaseNumber', 'inJira'] },
+];
+
+// Filters that render in the command row rather than the grouped panel.
+export const COMMAND_ROW_FILTER_KEYS = ['search', 'retiredFilter'];
 
 export const SORT_COLS = {
+  id:               { asc: 'id_asc',                      desc: 'id_desc' },
   reportedDate:     { asc: 'created_asc',                 desc: 'created_desc' },
   statusUpdate:     { asc: 'updated_asc',                 desc: 'updated_desc' },
   type:             { asc: 'type_asc',                    desc: 'type_desc' },
@@ -90,4 +135,39 @@ export const SORT_COLS = {
   frequency:        { asc: 'frequency_asc',               desc: 'frequency_desc' },
   easyvista:        { asc: 'easyvista_asc',               desc: 'easyvista_desc' },
   submittedBy:      { asc: 'submitted_by_asc',            desc: 'submitted_by_desc' },
+};
+
+// ── Sort registry (drives the header sort control) ───────────────────────────
+// Sorting is deliberately NOT tied to which columns are visible: every sortable
+// field is reachable here even when its column is hidden. `type` selects the
+// direction wording — "Newest first" is meaningless for Summary — and mirrors the
+// comparator the server uses for that field (compareText / compareNum /
+// compareBool in server/src/services/submissionService.js). Keys index SORT_COLS.
+export const SORT_FIELDS = [
+  { key: 'statusUpdate', label: 'Last status update', type: 'date' },
+  { key: 'reportedDate', label: 'Reported date', type: 'date' },
+  { key: 'id', label: 'ID', type: 'number' },
+  { key: 'type', label: 'Type', type: 'text' },
+  { key: 'summary', label: 'Summary', type: 'text' },
+  { key: 'status', label: 'Defect/Enhancement Status', type: 'text' },
+  { key: 'isPublic', label: 'Public', type: 'bool' },
+  { key: 'easyvista', label: 'EasyVista', type: 'text' },
+  { key: 'jiraCard', label: 'JIRA Card #', type: 'text' },
+  { key: 'releaseNum', label: 'Release #', type: 'text' },
+  { key: 'requester', label: 'Requester', type: 'text' },
+  { key: 'submittedBy', label: 'Submitted by (EasyVista)', type: 'text' },
+  { key: 'inJira', label: 'In JIRA', type: 'bool' },
+  { key: 'policyPremium', label: 'Policy Premium ($)', type: 'number' },
+  { key: 'directImpact', label: 'Direct Impact ($)', type: 'number' },
+  { key: 'policiesImpacted', label: 'Policies Impacted', type: 'number' },
+  { key: 'frequency', label: 'Frequency', type: 'number' },
+];
+
+// Direction wording per field type. First entry is that type's default, which
+// preserves the existing habit of numeric columns opening high→low.
+export const SORT_DIRECTIONS_BY_TYPE = {
+  date: [{ dir: 'desc', label: 'Newest first' }, { dir: 'asc', label: 'Oldest first' }],
+  number: [{ dir: 'desc', label: 'Highest first' }, { dir: 'asc', label: 'Lowest first' }],
+  text: [{ dir: 'asc', label: 'A → Z' }, { dir: 'desc', label: 'Z → A' }],
+  bool: [{ dir: 'desc', label: 'Yes first' }, { dir: 'asc', label: 'No first' }],
 };

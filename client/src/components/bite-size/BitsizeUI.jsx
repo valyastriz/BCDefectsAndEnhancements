@@ -149,6 +149,14 @@ const BADGE_CLASS_MAP = {
   deployed:    'badge-deployed',
   defect:      'badge-defect',
   enhancement: 'badge-enhancement',
+  // The remaining defect/enhancement statuses (server/src/constants.js) — without
+  // these they fell through to an unstyled grey badge.
+  redirected:                      'badge-redirected',
+  'backlog - monitoring impact':   'badge-holding',
+  'future consideration':          'badge-holding',
+  'deferred – not in current scope': 'badge-holding',
+  retired:                         'badge-retired',
+  'cleanup only':                  'badge-cleanup-only',
 };
 
 /* Maps a semantic tone to an existing styled badge class */

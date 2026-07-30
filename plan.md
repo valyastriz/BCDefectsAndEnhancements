@@ -3,6 +3,88 @@
 Living record of notable features/changes. See `CLAUDE.md` for architecture and
 per-app details.
 
+## Admin Queue UI Redesign — built, awaiting UI sign-off (2026-07-30)
+
+Branch `feat/admin-queue-redesign`. Rebuilds the admin dashboard around the triage
+job: 14 always-open filters become a command row plus a grouped panel, the two
+count scopes are labelled instead of merged, sorting stops depending on which
+columns are visible, and the table gains real loading/empty/error states. Design
+was approved as Artifact v6 before any code
+(`admin-queue-redesign.html`, decisions recorded there).
+
+- **Command row** (`components/admin/CommandBar.jsx`): search + a Filters button
+  carrying the applied-filter count + a Customize-view button + an
+  Active/Retired/All segmented control. Of the 14 filter keys, `search` and
+  `retiredFilter` live here (`COMMAND_ROW_FILTER_KEYS`); the other 12 are grouped
+  four ways by `ADMIN_FILTER_GROUPS` in `FilterPanel.jsx`, drawn closed. Both
+  promoted controls still honour the admin's visible-filter set, because the page
+  resets the value of any hidden filter.
+- **Active filter chips** (`ActiveFilterChips.jsx` + `utils/activeFilterUtils.js`):
+  one removable chip per applied filter, plus Clear all. `getActiveFilters` is the
+  single derivation shared by the Filters badge, the chips, the filtered-view
+  band's summary line and the empty state, so those four can't drift.
+  An all-selected status multi-select is treated as "no filter", matching the
+  default view.
+- **Two count scopes, deliberately separate and now labelled** — the split was
+  intentional, so it was kept and made legible rather than merged.
+  `QueueScopeStrip.jsx` is badged **Whole queue** (all non-retired, ignores
+  filters); `FilteredViewBand.jsx` is badged **Filtered view**, states that it
+  changes with every filter, carries its denominator ("142 of 247"), and is
+  visually joined to the top of the table it describes.
+- **Fixed headline statuses + the missing counts**: the strip keeps
+  New/Approved/Submitted/Deployed (`SCOPE_STRIP_STATUSES`, fixed so cards never
+  reorder) and adds an expandable "other statuses" card. `loadBaselineCounts` now
+  also returns `cleanupOnly`, so Total finally equals the sum of the cards —
+  previously those tickets were counted in Total and shown nowhere.
+- **Sorting decoupled from column visibility** (`SortControl.jsx` +
+  `utils/sortUtils.js`): a Sort-by/direction pair listing every field in
+  `SORT_FIELDS`, whether or not its column shows. Direction wording follows the
+  field type (`SORT_DIRECTIONS_BY_TYPE`: dates Newest/Oldest, numbers
+  Highest/Lowest, text A→Z, booleans Yes/No first), mirroring the server's
+  compareText/compareNum/compareBool. Header click-to-sort still works and writes
+  the same `filters.sort`.
+- **Columns**: new `id` column (the `#1234` the app already uses in AI-search
+  citations and reply emails). Default visible set trimmed to 8 data columns —
+  `id, reportedDate, summary, status, cleanupStatus, isPublic, easyvista,
+  jiraCard` — keeping all four inline editors. `reportedDate` renders reported +
+  last-status-update in one cell; Type moved into the Summary cell as badges. All
+  13 previous columns remain available via Customize View.
+- **Saved-view safety**: `useAdminViewPreferences` now sanitizes against
+  `ALL_COLUMN_KEYS`/`ALL_FILTER_KEYS` rather than the default visible sets. With
+  the defaults now a subset, the old code would have silently stripped columns
+  like `policyPremium` from an admin's saved view on every load.
+- **Server**: `id_asc`/`id_desc` added to `comparatorMap`
+  (`services/submissionService.js`) using `compareNum` so #10 sorts after #9;
+  `id` added to `ADMIN_VIEW_COLUMN_KEYS`. No new endpoints, no migration.
+- **States** (`QueueStates.jsx`): layout-matching `TableSkeleton` replaces the
+  "Loading…" line over stale rows; `QueueEmptyState` names how many filters are
+  narrowing the view and offers Clear all; `QueueErrorState` offers Retry. A
+  failure with rows still on screen keeps them and reports via the page Notice.
+- **Bulk bar** (`BulkActionBar.jsx`): sticky to the viewport bottom so it stays
+  reachable down a long selection, and states in words that the selection spans
+  every page of the filtered view. Same four actions, same confirm modal, same
+  snapshot/re-intersect safety in the page.
+- **AI search**: `AiSearchPanel` gained opt-in `collapsible` + `entryHint`. Only
+  the admin queue passes them (collapsed entry strip, so the table stays above the
+  fold); Public Updates and Rep Submit are unchanged.
+- **Theming**: status color tokens added for the four statuses that had none
+  (Redirected + the three parked ones as `holding`) plus Retired and Cleanup Only,
+  and **dark-theme values for every status pair** — the light pastels were being
+  reused in dark mode. New badge classes wired in `BADGE_CLASS_MAP`.
+- **Removed**: `StatTiles.jsx` and `FiltersBar.jsx` (fully replaced). The
+  "viewing new form submissions only" info bar went with them — the chips now show
+  that state and Clear all reverses it, so the hidden previous-filters snapshot
+  (`preNewSubmissionFiltersRef`) was dropped too.
+- **Verification:** client `npm run lint` clean; `npm run build` succeeds; server
+  `npm test` 77/77 pass including new `test/adminSortKeys.test.js` (every sort key
+  the control can emit has a comparator; id sorting is numeric; `id` is
+  allow-listed). Endpoints exercised live against a **local sqljs sandbox** on
+  port 4100 (seeded, production untouched): `id_asc` → 1,2,3,4,5 and `id_desc` →
+  5,4,3,2,1; an unknown sort key still falls back to `updated_desc`; a saved view
+  containing `id` **and** the non-default `policyPremium` round-trips intact.
+  NOT yet done: no browser walkthrough of the rebuilt page, no two-window
+  live-update check, no narrow-width/dark-theme visual pass.
+
 ## Tickets Public by Default — done (verified 2026-07-24)
 
 New tickets are now public (`is_public = 1`) by default so they appear on the

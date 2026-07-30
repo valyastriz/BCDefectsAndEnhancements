@@ -115,6 +115,7 @@ const SUBMISSION_TO_CLEANUP_STATUS = {
 // ADMIN_FILTER_FIELDS (client/src/constants/adminConstants.js). Unknown keys are
 // dropped server-side, so drift fails safe (a stale key simply won't render).
 const ADMIN_VIEW_COLUMN_KEYS = [
+  'id',
   'reportedDate',
   'statusUpdate',
   'type',
