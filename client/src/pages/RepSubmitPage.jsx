@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { api } from '../lib/api';
-import { Button, Card, Input, Modal, Notice, Select, Textarea } from '../components/bite-size/BitsizeUI';
-import { AiSearchPanel } from '../components/common/AiSearchPanel';
-import { PublicItemCard } from '../components/public/PublicItemCard';
+import { Button, Modal } from '../components/bite-size/BitsizeUI';
+import { DuplicateCheck } from '../components/public/DuplicateCheck';
+import { ScreenshotDropZone } from '../components/public/ScreenshotDropZone';
+import { SubmitReadinessRail } from '../components/public/SubmitReadinessRail';
 
 const initialForm = {
   created_by: '',
@@ -18,8 +20,39 @@ const initialForm = {
   request: '',
   date_of_error: '',
   time_of_error: '',
-  desired_completion_date: '',
 };
+
+const SUMMARY_MAX_LENGTH = 140;
+
+// Mirrors the server's per-type checks in server/src/routes/submissionRoutes.js
+// (:46 created_by, :73 defect trio + date, :91 enhancement pair). Keep the two
+// in step — anything the server rejects that is missing here reaches the rep as
+// a bare 400 instead of an inline prompt.
+const REQUIRED_FIELDS = {
+  defect: [
+    { key: 'created_by', label: 'Your name' },
+    { key: 'summary_of_issue', label: 'One-line summary' },
+    { key: 'screen_title', label: 'Screen title' },
+    { key: 'date_of_error', label: 'Date it happened' },
+    { key: 'what_happened_exact_details', label: 'What you saw' },
+  ],
+  enhancement: [
+    { key: 'created_by', label: 'Your name' },
+    { key: 'summary_of_issue', label: 'One-line summary' },
+    { key: 'request', label: 'What should change' },
+  ],
+};
+
+const FIELD_ERRORS = {
+  created_by: 'Enter your name.',
+  summary_of_issue: 'Write one line describing the issue.',
+  screen_title: 'Name the screen you were on.',
+  date_of_error: 'Pick the date.',
+  what_happened_exact_details: 'Describe what you saw.',
+  request: 'Describe the change you would like.',
+};
+
+const COUNT_WORDS = ['no', 'One', 'Two', 'Three', 'Four', 'Five'];
 
 function CheckIcon() {
   return (
@@ -29,15 +62,36 @@ function CheckIcon() {
   );
 }
 
+/** A labelled control with its own hint line, counter and inline error slot. */
+function Field({ name, label, required, optional, counter, hint, error, children }) {
+  return (
+    <div className={`rs-field${error ? ' is-bad' : ''}`}>
+      <label htmlFor={`rs-${name}`}>
+        {label}
+        {required && <em className="rs-req">*</em>}
+        {optional && <span className="rs-chip rs-chip--opt">Optional</span>}
+        {counter && <span className="rs-count">{counter}</span>}
+      </label>
+      {children}
+      {error
+        ? <p className="rs-bad">{error}</p>
+        : hint ? <p className="rs-hint">{hint}</p> : null}
+    </div>
+  );
+}
+
 export function RepSubmitPage() {
   const [form, setForm] = useState(initialForm);
   const [files, setFiles] = useState([]);
+  const [fileUrls, setFileUrls] = useState([]);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
-  const [submittedId, setSubmittedId] = useState(null);
+  const [submitted, setSubmitted] = useState(null);
   const [previewImage, setPreviewImage] = useState(null);
-  const [fileUrls, setFileUrls] = useState([]);
   const [confirmNoScreenshots, setConfirmNoScreenshots] = useState(false);
+  // Only true once the rep has tried to submit — nobody wants a form that turns
+  // red while they are still filling in the first field.
+  const [showErrors, setShowErrors] = useState(false);
   const formRef = useRef(null);
 
   // One object URL per attached file, revoked whenever the list changes or the
@@ -50,60 +104,33 @@ export function RepSubmitPage() {
 
   const isDefect = form.type === 'defect';
   const isEnhancement = form.type === 'enhancement';
+  const requiredFields = REQUIRED_FIELDS[form.type];
+  const missing = requiredFields.filter((field) => !String(form[field.key] ?? '').trim());
 
   function updateField(name, value) {
     setForm((prev) => ({ ...prev, [name]: value }));
   }
 
-  function setType(t) {
-    setForm((prev) => ({ ...prev, type: t }));
+  function setType(nextType) {
+    setForm((prev) => ({ ...prev, type: nextType }));
     setFiles([]);
     setError('');
+    setShowErrors(false);
   }
 
-  function onFileChange(event) {
-    const selected = Array.from(event.target.files || []);
-    setFiles((prev) => {
-      const merged = [...prev];
-      for (const nextFile of selected) {
-        const exists = merged.some(
-          (existing) =>
-            existing.name === nextFile.name &&
-            existing.size === nextFile.size &&
-            existing.lastModified === nextFile.lastModified,
-        );
-        if (!exists) merged.push(nextFile);
-      }
-      return merged.slice(0, 3);
-    });
-    event.target.value = '';
-  }
-
-  function removeFile(index) {
-    setFiles((prev) => prev.filter((_, i) => i !== index));
+  function errorFor(key) {
+    return showErrors && missing.some((field) => field.key === key) ? FIELD_ERRORS[key] : '';
   }
 
   function onSubmit(event) {
     event.preventDefault();
     setError('');
-    setSubmittedId(null);
-
-    const isBlank = (v) => String(v ?? '').trim().length === 0;
-
-    const missing = [];
-    if (isBlank(form.created_by)) missing.push('Requester Name');
-    if (isBlank(form.summary_of_issue)) missing.push(isDefect ? 'Summary of Issue' : 'Summary');
-    if (isDefect) {
-      if (isBlank(form.screen_title)) missing.push('Screen Title');
-      if (isBlank(form.what_happened_exact_details)) missing.push('What Happened (Exact Details)');
-      if (isBlank(form.date_of_error)) missing.push('Date of Error');
-    }
-    if (isEnhancement) {
-      if (isBlank(form.request)) missing.push('Request Details');
-    }
 
     if (missing.length > 0) {
-      setError(`Missing required field(s): ${missing.join(', ')}`);
+      setShowErrors(true);
+      // Send focus to the first thing that needs attention, so a keyboard or
+      // screen-reader user is not left to hunt for the red field.
+      document.getElementById(`rs-${missing[0].key}`)?.focus();
       return;
     }
 
@@ -127,13 +154,23 @@ export function RepSubmitPage() {
         request: isDefect ? '-' : form.request,
         date_time_of_error: isDefect ? `${form.date_of_error}T${form.time_of_error || '00:00'}` : '',
       };
-      Object.entries(payload).forEach(([k, v]) => formData.append(k, v));
-      files.forEach((f) => formData.append('attachments', f));
+      Object.entries(payload).forEach(([key, value]) => formData.append(key, value));
+      files.forEach((file) => formData.append('attachments', file));
 
       const result = await api.submitRepSubmission(formData);
-      setSubmittedId(result.id);
+      // Snapshot what was sent before resetting — the confirmation shows the rep
+      // the ticket the team will see, and the form state is about to be cleared.
+      setSubmitted({
+        id: result.id,
+        type: form.type,
+        summary: form.summary_of_issue,
+        screen: form.screen_title,
+        name: form.created_by,
+        fileCount: files.length,
+      });
       setForm(initialForm);
       setFiles([]);
+      setShowErrors(false);
       formRef.current?.reset();
     } catch (submitError) {
       setError(submitError.message);
@@ -142,143 +179,349 @@ export function RepSubmitPage() {
     }
   }
 
-  if (submittedId) {
+  if (submitted) {
     return (
-      <div className="submit-page-wrap">
-      <Card>
-        <div className="submitted-card">
-          <div className="submitted-icon"><CheckIcon /></div>
-          <h3>Request Submitted</h3>
-          <p>Your request has been logged. Reference ID: <strong>#{submittedId}</strong></p>
-          <Button onClick={() => { setSubmittedId(null); setError(''); }}>
-            Submit Another Request
-          </Button>
-        </div>
-      </Card>
+      <div className="rs-page">
+        <section className="rs-done">
+          <div className="rs-done-top">
+            <span className="rs-done-icon"><CheckIcon /></span>
+            <h2>Reported</h2>
+            <p className="rs-done-ref">#{submitted.id}</p>
+            <p>
+              Your report is in the triage queue with the status <strong>Reported</strong>.
+              Quote <strong>#{submitted.id}</strong> if you need to follow it up.
+            </p>
+          </div>
+          <div className="rs-done-body">
+            <div className="rs-done-recap">
+              <div className="rs-recap-top">
+                <span className="rs-ref">#{submitted.id}</span>
+                <h4>{submitted.summary}</h4>
+              </div>
+              <p className="rs-recap-meta">
+                {submitted.type === 'defect' ? 'Defect' : 'Enhancement'} · Billing Center
+                {submitted.screen ? ` · ${submitted.screen}` : ''}
+                {` · Reported by ${submitted.name}`}
+                {submitted.fileCount > 0
+                  ? ` · ${submitted.fileCount} screenshot${submitted.fileCount === 1 ? '' : 's'} attached`
+                  : ''}
+              </p>
+            </div>
+            <div className="rs-done-acts">
+              <Link className="rs-act" to="/public">Follow it on the Status Board</Link>
+              <button
+                type="button"
+                className="rs-act rs-act--ghost"
+                onClick={() => { setSubmitted(null); setError(''); }}
+              >
+                Submit another request
+              </button>
+            </div>
+          </div>
+        </section>
       </div>
     );
   }
 
   return (
-    <div className="submit-page-wrap">
-      <div className="page-header">
-        <h2>Submit a Request</h2>
-        <p>Use this form to report a defect or request an enhancement in Billing Center.</p>
+    <div className="rs-page">
+      <div className="rs-head">
+        <div>
+          <h1>Report a Billing Center issue</h1>
+          <p>
+            Defects and enhancements go to the same triage queue. You&rsquo;ll get a reference
+            number and can follow it on the Status Board.
+          </p>
+        </div>
+        <Link className="rs-headlink" to="/public">Status Board →</Link>
       </div>
 
-      <AiSearchPanel
-        scope="public"
-        title="Check if this was already reported"
-        subtitle="Before you submit, describe your issue to see if it has already been reported — and what happened to it."
-        placeholder="e.g. customer was double-charged on a renewal invoice"
-        renderResults={(matches) => (
-          <div className="public-list">
-            {matches.map((item) => (
-              <PublicItemCard key={item.id} item={item} />
-            ))}
-          </div>
-        )}
-      />
+      <form ref={formRef} className="rs-cols" onSubmit={onSubmit} noValidate>
+        <div className="rs-main">
 
-      <Card>
-        <form ref={formRef} className="bs-form" onSubmit={onSubmit}>
-
-          {/* ── Request type toggle ── */}
-          <div className="bs-field">
-            <span>Request Type</span>
-            <div className="type-picker">
-              <button type="button" className={isDefect ? 'active' : ''} onClick={() => setType('defect')}>
-                🐛 Defect
+          <section className="rs-card">
+            <p className="rs-grouplabel">What are you reporting?</p>
+            <div className="rs-types">
+              <button
+                type="button"
+                className="rs-type"
+                aria-pressed={isDefect}
+                onClick={() => setType('defect')}
+              >
+                <span className="rs-type-mark" aria-hidden="true" />
+                <span className="rs-type-name">Defect</span>
+                <span className="rs-type-desc">
+                  Billing Center is doing something wrong — a screen errors, a figure is
+                  incorrect, a transaction won&rsquo;t process.
+                </span>
               </button>
-              <button type="button" className={isEnhancement ? 'active' : ''} onClick={() => setType('enhancement')}>
-                ✨ Enhancement
+              <button
+                type="button"
+                className="rs-type"
+                aria-pressed={isEnhancement}
+                onClick={() => setType('enhancement')}
+              >
+                <span className="rs-type-mark" aria-hidden="true" />
+                <span className="rs-type-name">Enhancement</span>
+                <span className="rs-type-desc">
+                  Billing Center works, but a change would save time or prevent mistakes.
+                </span>
               </button>
             </div>
-          </div>
+          </section>
 
-          {/* ── Requester ── */}
-          <p className="section-label">Contact</p>
-          <Input
-            label="Requester Name"
-            required
-            placeholder="Your full name"
-            value={form.created_by}
-            onChange={(e) => updateField('created_by', e.target.value)}
-          />
+          <section className="rs-card">
+            <p className="rs-grouplabel">Your request</p>
 
-          {/* ── Defect fields ── */}
+            {showErrors && missing.length > 0 && (
+              <div className="rs-alert" role="alert">
+                <span className="rs-alert-glyph" aria-hidden="true">!</span>
+                <b>
+                  {missing.length === 1
+                    ? 'One required field is still empty'
+                    : `${COUNT_WORDS[missing.length] ?? missing.length} required fields are still empty`}
+                </b>
+                <span>
+                  They are marked below and listed under &ldquo;Before you submit&rdquo;.
+                  Nothing you have typed has been lost.
+                </span>
+              </div>
+            )}
+
+            {error && (
+              <div className="rs-alert" role="alert">
+                <span className="rs-alert-glyph" aria-hidden="true">!</span>
+                <b>That did not send</b>
+                <span>{error}</span>
+              </div>
+            )}
+
+            <Field
+              name="created_by"
+              label="Your name"
+              required
+              hint="So the BC team knows who to come back to with questions."
+              error={errorFor('created_by')}
+            >
+              <input
+                id="rs-created_by"
+                type="text"
+                autoComplete="name"
+                placeholder="First and last name"
+                value={form.created_by}
+                onChange={(e) => updateField('created_by', e.target.value)}
+              />
+            </Field>
+
+            <div className="rs-field-lead">
+              <Field
+                name="summary_of_issue"
+                label="Summarize it in one line"
+                required
+                counter={`${form.summary_of_issue.length} / ${SUMMARY_MAX_LENGTH}`}
+                hint="This is the line the BC team reads first — and what we check for duplicates."
+                error={errorFor('summary_of_issue')}
+              >
+                <input
+                  id="rs-summary_of_issue"
+                  type="text"
+                  maxLength={SUMMARY_MAX_LENGTH}
+                  placeholder="e.g. Renewal invoice shows the prior term's installment amount"
+                  value={form.summary_of_issue}
+                  onChange={(e) => updateField('summary_of_issue', e.target.value)}
+                />
+              </Field>
+            </div>
+
+            <DuplicateCheck query={form.summary_of_issue} />
+          </section>
+
           {isDefect && (
             <>
-              <p className="section-label">Incident Details</p>
-              <div className="bs-grid two">
-                <Input label="Policy Number" value={form.policy_num} onChange={(e) => updateField('policy_num', e.target.value)} />
-                <Input label="Account Number" value={form.account_num} onChange={(e) => updateField('account_num', e.target.value)} />
-                <Input label="Transaction Number" value={form.transaction_num} onChange={(e) => updateField('transaction_num', e.target.value)} />
-                <Input label="Screen Title" required value={form.screen_title} onChange={(e) => updateField('screen_title', e.target.value)} />
-                <Input label="Date of Error" type="date" required value={form.date_of_error} onChange={(e) => updateField('date_of_error', e.target.value)} />
-                <Input label="Time of Error (optional)" type="time" value={form.time_of_error} onChange={(e) => updateField('time_of_error', e.target.value)} />
-              </div>
-              <Input label="Summary of Issue" required value={form.summary_of_issue} onChange={(e) => updateField('summary_of_issue', e.target.value)} />
-              <Textarea label="Steps to Reproduce" rows={3} value={form.steps_to_reproduce} onChange={(e) => updateField('steps_to_reproduce', e.target.value)} />
-              <Textarea label="What Happened? (Exact Details)" rows={4} required value={form.what_happened_exact_details} onChange={(e) => updateField('what_happened_exact_details', e.target.value)} />
+              <section className="rs-card">
+                <p className="rs-grouplabel">Where it happened</p>
+                <div className="rs-row rs-row--when">
+                  <Field
+                    name="screen_title"
+                    label="Screen title"
+                    required
+                    hint="The heading at the top of the Billing Center screen."
+                    error={errorFor('screen_title')}
+                  >
+                    <input
+                      id="rs-screen_title"
+                      type="text"
+                      placeholder="e.g. Invoice Details"
+                      value={form.screen_title}
+                      onChange={(e) => updateField('screen_title', e.target.value)}
+                    />
+                  </Field>
+                  <Field
+                    name="date_of_error"
+                    label="Date it happened"
+                    required
+                    error={errorFor('date_of_error')}
+                  >
+                    <input
+                      id="rs-date_of_error"
+                      type="date"
+                      value={form.date_of_error}
+                      onChange={(e) => updateField('date_of_error', e.target.value)}
+                    />
+                  </Field>
+                  <Field name="time_of_error" label="Time" optional>
+                    <input
+                      id="rs-time_of_error"
+                      type="time"
+                      value={form.time_of_error}
+                      onChange={(e) => updateField('time_of_error', e.target.value)}
+                    />
+                  </Field>
+                </div>
 
-              <p className="section-label">Screenshots (strongly encouraged)</p>
-              <label className="bs-field">
-                <span className="muted" style={{ fontSize: '12px', margin: 0, color: 'var(--color-muted)', fontWeight: 400 }}>Screens change over time — a screenshot makes it far more likely developers can see and reproduce the issue.</span>
-                <input type="file" accept="image/*" multiple onChange={onFileChange} />
-                <span className="muted" style={{ fontSize: '12px' }}>{files.length}/3 selected — click a thumbnail to preview</span>
-              </label>
+                <div className="rs-sub">
+                  <div className="rs-sub-head">
+                    <b>Reference numbers</b>
+                    <span>Optional — but they let the team open the exact record you were looking at.</span>
+                  </div>
+                  <div className="rs-row">
+                    <Field name="policy_num" label="Policy number">
+                      <input
+                        id="rs-policy_num"
+                        type="text"
+                        placeholder="e.g. 40-123456"
+                        value={form.policy_num}
+                        onChange={(e) => updateField('policy_num', e.target.value)}
+                      />
+                    </Field>
+                    <Field name="account_num" label="Account number">
+                      <input
+                        id="rs-account_num"
+                        type="text"
+                        placeholder="e.g. 8004521"
+                        value={form.account_num}
+                        onChange={(e) => updateField('account_num', e.target.value)}
+                      />
+                    </Field>
+                    <Field name="transaction_num" label="Transaction number">
+                      <input
+                        id="rs-transaction_num"
+                        type="text"
+                        placeholder="e.g. 90211884"
+                        value={form.transaction_num}
+                        onChange={(e) => updateField('transaction_num', e.target.value)}
+                      />
+                    </Field>
+                  </div>
+                </div>
+              </section>
+
+              <section className="rs-card">
+                <p className="rs-grouplabel">What happened</p>
+                <Field
+                  name="what_happened_exact_details"
+                  label="Exactly what you saw"
+                  required
+                  counter={`${form.what_happened_exact_details.length} characters`}
+                  hint="Error text matters — paste or type it exactly."
+                  error={errorFor('what_happened_exact_details')}
+                >
+                  <textarea
+                    id="rs-what_happened_exact_details"
+                    rows={5}
+                    placeholder="What you expected, what appeared instead, and any error message word-for-word."
+                    value={form.what_happened_exact_details}
+                    onChange={(e) => updateField('what_happened_exact_details', e.target.value)}
+                  />
+                </Field>
+                <Field
+                  name="steps_to_reproduce"
+                  label="Steps to reproduce"
+                  optional
+                  hint="If it happens every time, the steps get it fixed much faster."
+                >
+                  <textarea
+                    id="rs-steps_to_reproduce"
+                    rows={3}
+                    placeholder={'1. Open the account\n2. Click Invoices\n3. …'}
+                    value={form.steps_to_reproduce}
+                    onChange={(e) => updateField('steps_to_reproduce', e.target.value)}
+                  />
+                </Field>
+              </section>
             </>
           )}
 
-          {/* ── Enhancement fields ── */}
           {isEnhancement && (
-            <>
-              <p className="section-label">Enhancement Details</p>
-              <div className="bs-grid two">
-                <Input label="Application Name" value="Billing Center" disabled />
-              </div>
-              <Input label="Summary" required value={form.summary_of_issue} onChange={(e) => updateField('summary_of_issue', e.target.value)} />
-              <Textarea label="Request Details" rows={5} required value={form.request} onChange={(e) => updateField('request', e.target.value)} />
-
-              <p className="section-label">Attachments (optional)</p>
-              <label className="bs-field">
-                <input type="file" accept="image/*" multiple onChange={onFileChange} />
-                <span className="muted" style={{ fontSize: '12px' }}>{files.length}/3 selected</span>
-              </label>
-            </>
+            <section className="rs-card">
+              <p className="rs-grouplabel">What you&rsquo;d like</p>
+              <Field
+                name="request"
+                label="What should change, and why"
+                required
+                counter={`${form.request.length} characters`}
+                hint="The “why” is what gets an enhancement prioritised."
+                error={errorFor('request')}
+              >
+                <textarea
+                  id="rs-request"
+                  rows={6}
+                  placeholder="Describe the change and what it would save you — time per case, errors avoided, calls prevented."
+                  value={form.request}
+                  onChange={(e) => updateField('request', e.target.value)}
+                />
+              </Field>
+            </section>
           )}
 
-          {/* ── Thumbnails ── */}
-          {files.length > 0 && (
-            <div className="thumb-grid">
-              {files.map((file, index) => {
-                const url = fileUrls[index];
-                if (!url) return null;
-                return (
-                  <article key={`${file.name}-${file.size}-${index}`} className="thumb-item">
-                    <button type="button" className="thumb-open-btn" onClick={() => setPreviewImage(url)}>
-                      <img src={url} alt={file.name} />
-                    </button>
-                    <div className="thumb-meta">
-                      <span className="thumb-name">{file.name}</span>
-                      <Button kind="ghost" type="button" onClick={() => removeFile(index)}>Remove</Button>
-                    </div>
-                  </article>
-                );
-              })}
-            </div>
-          )}
+          <section className="rs-card">
+            <p className="rs-grouplabel">
+              Screenshots
+              <span className={`rs-chip${isDefect ? '' : ' rs-chip--opt'}`}>
+                {isDefect ? 'Strongly encouraged' : 'Optional'}
+              </span>
+            </p>
+            <ScreenshotDropZone
+              files={files}
+              fileUrls={fileUrls}
+              onFilesChange={setFiles}
+              onPreview={setPreviewImage}
+            />
+            {isDefect && (
+              <p className="rs-hint">
+                Billing Center screens change over time. Without a picture a developer often
+                cannot tell what you were looking at — the most common reason a defect gets
+                closed unfixed.
+              </p>
+            )}
+          </section>
 
-          <Notice text={error} />
+        </div>
 
-          <div className="bs-actions">
-            <Button type="submit" disabled={saving}>
-              {saving ? 'Submitting…' : 'Submit Request'}
-            </Button>
-          </div>
-        </form>
-      </Card>
+        <SubmitReadinessRail
+          requiredFields={requiredFields}
+          values={form}
+          showErrors={showErrors}
+          isDefect={isDefect}
+          fileCount={files.length}
+          saving={saving}
+        />
+
+        {/* Narrow screens only. A sibling of the rail rather than nested inside
+            the form column, so once the layout stacks it still lands last —
+            below the readiness checklist, not above it. */}
+        <div className="rs-stickybar">
+          <span className="rs-stickybar-left">
+            {missing.length === 0
+              ? 'Ready to submit'
+              : `${missing.length} required field${missing.length === 1 ? '' : 's'} left`}
+          </span>
+          <button type="submit" className="rs-submit" disabled={saving}>
+            {saving && <span className="rs-spin" aria-hidden="true" />}
+            {saving ? 'Submitting…' : 'Submit request'}
+          </button>
+        </div>
+      </form>
 
       <Modal open={Boolean(previewImage)} onClose={() => setPreviewImage(null)} title="Image Preview">
         {previewImage && <img className="bs-preview-image" src={previewImage} alt="Preview" />}

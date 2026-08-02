@@ -1042,49 +1042,12 @@ tr.clickable:hover td { background: var(--blue-50); }
   align-items: center;
 }
 
-.type-picker {
-  display: flex;
-  border: 1px solid var(--slate-300);
-  border-radius: var(--radius-sm);
-  overflow: hidden;
-  width: fit-content;
-}
-
-.type-picker button {
-  padding: 8px 22px;
-  border: 0;
-  background: transparent;
-  font: inherit;
-  font-size: 13.5px;
-  font-weight: 500;
-  color: var(--slate-600);
-  cursor: pointer;
-  transition: background .15s, color .15s;
-}
-
-.type-picker button.active {
-  background: var(--blue-600);
-  color: #fff;
-  font-weight: 600;
-}
-
-.type-picker button:not(.active):hover {
-  background: var(--slate-100);
-}
-
 /* ─────────────────────────────────────────────
    Public updates
    ───────────────────────────────────────────── */
 .public-list {
   display: grid;
   gap: 12px;
-}
-
-/* Constrain the submit form to a readable width on wide screens */
-.submit-page-wrap {
-  max-width: 1290px;
-  margin-left: auto;
-  margin-right: auto;
 }
 
 .public-item {
@@ -1173,47 +1136,6 @@ tr.clickable:hover td { background: var(--blue-50); }
 .pub-field > span:last-child {
   min-width: 0;
   word-break: break-word;
-}
-
-/* ─────────────────────────────────────────────
-   Submission-confirmed state
-   ───────────────────────────────────────────── */
-.submitted-card {
-  text-align: center;
-  padding: 48px 32px;
-}
-
-.submitted-icon {
-  width: 64px;
-  height: 64px;
-  background: #dcfce7;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin: 0 auto 16px;
-}
-
-.submitted-icon svg {
-  width: 32px;
-  height: 32px;
-  stroke: #16a34a;
-  stroke-width: 2.2;
-  fill: none;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-
-.submitted-card h3 {
-  font-size: 20px;
-  color: var(--slate-800);
-  margin-bottom: 8px;
-}
-
-.submitted-card p {
-  color: var(--color-muted);
-  font-size: 15px;
-  margin: 0 0 24px;
 }
 
 /* ─────────────────────────────────────────────
@@ -1590,18 +1512,6 @@ button.stat-tile--clickable:focus-visible {
 
 :root[data-theme='dark'] .file-link:hover {
   background: #132648;
-}
-
-:root[data-theme='dark'] .type-picker {
-  border-color: var(--color-border);
-}
-
-:root[data-theme='dark'] .type-picker button {
-  color: var(--color-text);
-}
-
-:root[data-theme='dark'] .type-picker button:not(.active):hover {
-  background: #1f2937;
 }
 
 :root[data-theme='dark'] select option {
@@ -2848,3 +2758,439 @@ select.dm-prow-input { cursor: pointer; }
 .dm-consequence--fold[open] > summary .dm-caret::after { content: '\25b4'; }
 .dm-consequence--fold[open] > summary { border-bottom: 1px solid color-mix(in srgb, var(--status-duplicate-fg) 25%, transparent); }
 .dm-consequence--fold > ul { padding: 11px 13px 12px; }
+
+/* ════════════════════════════════════════════════════════════════════════
+   Rep submission form — rs- namespace (Submit a Request redesign; see plan.md).
+
+   Same approach as the detail modal above: semantic vars + color-mix() only,
+   so there are no dark-theme overrides to keep in sync. Deliberately its own
+   namespace rather than restyling .section-label / .thumb-* — five admin
+   components render those.
+   ════════════════════════════════════════════════════════════════════════ */
+
+/* Solid button ground stays fixed across themes, exactly as .bs-btn-primary
+   does: --color-primary lightens in dark, where white label text would fall to
+   about 2.4:1. */
+.rs-page { --rs-btn: var(--blue-600); --rs-btn-hover: var(--blue-700); }
+
+.rs-page {
+  max-width: 1180px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.rs-sr {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0;
+}
+
+/* ── Page header ── */
+.rs-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 18px; flex-wrap: wrap; }
+.rs-head h1 { font-size: 23px; font-weight: 750; letter-spacing: -.015em; text-wrap: balance; }
+.rs-head p { margin: 5px 0 0; font-size: 13.5px; color: var(--color-muted); max-width: 62ch; }
+.rs-headlink {
+  font-size: 13px; font-weight: 650; color: var(--color-primary); text-decoration: none;
+  border: 1px solid color-mix(in srgb, var(--color-primary) 35%, transparent);
+  background: color-mix(in srgb, var(--color-primary) 7%, var(--color-surface));
+  padding: 7px 13px; border-radius: 999px; white-space: nowrap;
+}
+.rs-headlink:hover { background: color-mix(in srgb, var(--color-primary) 14%, var(--color-surface)); }
+
+/* ── Two columns: the form, and the rail that owns the primary action ── */
+.rs-cols { display: grid; grid-template-columns: minmax(0,1fr) 316px; gap: 16px; align-items: start; }
+.rs-main { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.rs-rail { display: flex; flex-direction: column; gap: 14px; position: sticky; top: 16px; }
+
+.rs-card {
+  background: var(--color-surface); border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg); padding: 16px 18px 18px;
+  box-shadow: var(--shadow-sm); display: flex; flex-direction: column; gap: 13px; min-width: 0;
+}
+.rs-grouplabel {
+  margin: 0; font-size: 10.5px; font-weight: 800; letter-spacing: .09em; text-transform: uppercase;
+  color: var(--color-primary); padding-bottom: 7px; border-bottom: 1px solid var(--color-border);
+  display: flex; align-items: center; gap: 9px; flex-wrap: wrap;
+}
+.rs-chip {
+  font-size: 9.5px; font-weight: 800; letter-spacing: .07em; text-transform: uppercase;
+  border-radius: 999px; padding: 2px 7px;
+  background: color-mix(in srgb, var(--status-duplicate-fg) 16%, var(--color-surface));
+  color: var(--status-duplicate-fg);
+}
+.rs-chip--opt { background: color-mix(in srgb, var(--color-muted) 16%, var(--color-surface)); color: var(--color-muted); }
+
+/* ── Type picker: two cards, because this choice reshapes the whole form ── */
+.rs-types { display: grid; grid-template-columns: 1fr 1fr; gap: 11px; }
+.rs-type {
+  text-align: left; cursor: pointer; display: grid; grid-template-columns: auto 1fr; gap: 3px 11px;
+  padding: 13px 15px 14px; border-radius: var(--radius); font: inherit;
+  border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text);
+  transition: border-color .15s, background .15s, box-shadow .15s;
+}
+.rs-type:hover { border-color: color-mix(in srgb, var(--color-primary) 45%, var(--color-border)); }
+.rs-type-mark {
+  grid-row: 1 / span 2; width: 19px; height: 19px; border-radius: 50%; margin-top: 2px;
+  border: 2px solid color-mix(in srgb, var(--color-text) 25%, transparent);
+  display: grid; place-items: center; flex-shrink: 0;
+}
+.rs-type-mark::after { content: ''; width: 9px; height: 9px; border-radius: 50%; background: transparent; }
+.rs-type-name { font-size: 14.5px; font-weight: 700; }
+.rs-type-desc { font-size: 12.5px; color: var(--color-muted); }
+.rs-type[aria-pressed='true'] {
+  border-color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 8%, var(--color-surface));
+  box-shadow: 0 0 0 1px var(--color-primary) inset;
+}
+.rs-type[aria-pressed='true'] .rs-type-mark { border-color: var(--color-primary); }
+.rs-type[aria-pressed='true'] .rs-type-mark::after { background: var(--color-primary); }
+.rs-type[aria-pressed='true'] .rs-type-name { color: var(--color-primary); }
+
+/* ── Fields ── */
+.rs-field { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.rs-field > label { font-size: 13px; font-weight: 650; color: var(--color-text); display: flex; align-items: baseline; gap: 6px; }
+.rs-req { color: var(--color-danger); font-style: normal; font-weight: 700; }
+.rs-count { font-size: 11.5px; color: var(--color-muted); font-variant-numeric: tabular-nums; margin-left: auto; font-weight: 600; }
+.rs-field input,
+.rs-field textarea {
+  width: 100%; font: inherit; font-size: 14px; color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid color-mix(in srgb, var(--color-text) 22%, var(--color-surface));
+  border-radius: var(--radius-sm); padding: 9px 12px;
+  transition: border-color .15s, box-shadow .15s;
+}
+.rs-field input::placeholder,
+.rs-field textarea::placeholder { color: color-mix(in srgb, var(--color-muted) 80%, transparent); }
+.rs-field input:focus,
+.rs-field textarea:focus {
+  outline: none; border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 20%, transparent);
+}
+.rs-field textarea { resize: vertical; min-height: 92px; line-height: 1.55; }
+.rs-field-lead .rs-field input { font-size: 15.5px; padding: 11px 13px; font-weight: 550; }
+.rs-hint { margin: 0; font-size: 12.5px; color: var(--color-muted); }
+.rs-bad { margin: 0; font-size: 12.5px; font-weight: 650; color: var(--color-danger); }
+.rs-field.is-bad input,
+.rs-field.is-bad textarea {
+  border-color: var(--color-danger);
+  background: color-mix(in srgb, var(--color-danger) 5%, var(--color-surface));
+}
+
+.rs-row { display: grid; gap: 11px; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); }
+.rs-row--when { grid-template-columns: minmax(0,2fr) minmax(0,1.1fr) minmax(0,1fr); }
+
+/* Optional reference numbers: kept in view — a rep filing a defect has the
+   record open — but visibly secondary to the required fields above. */
+.rs-sub {
+  border: 1px dashed color-mix(in srgb, var(--color-text) 18%, transparent);
+  border-radius: var(--radius); padding: 12px 13px 13px;
+  background: color-mix(in srgb, var(--color-text) 2.5%, var(--color-surface));
+  display: flex; flex-direction: column; gap: 10px;
+}
+.rs-sub-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.rs-sub-head b { font-size: 12.5px; font-weight: 700; }
+.rs-sub-head span { font-size: 12px; color: var(--color-muted); }
+
+/* ── Duplicate check ── */
+.rs-dupe {
+  border: 1px solid color-mix(in srgb, var(--color-primary) 30%, transparent);
+  background: color-mix(in srgb, var(--color-primary) 6%, var(--color-surface));
+  border-radius: var(--radius); padding: 11px 13px;
+  display: flex; flex-direction: column; gap: 11px; min-width: 0;
+}
+.rs-dupe--clear {
+  border-color: color-mix(in srgb, var(--status-approved-fg) 40%, transparent);
+  background: color-mix(in srgb, var(--status-approved-bg) 50%, var(--color-surface));
+}
+.rs-dupe--hits {
+  border-color: color-mix(in srgb, var(--status-duplicate-fg) 42%, transparent);
+  background: color-mix(in srgb, var(--status-duplicate-bg) 45%, var(--color-surface));
+}
+.rs-dupe--error {
+  border-color: color-mix(in srgb, var(--color-danger) 40%, transparent);
+  background: color-mix(in srgb, var(--color-danger) 7%, var(--color-surface));
+}
+.rs-dupe-top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.rs-dupe-glyph {
+  width: 21px; height: 21px; border-radius: 50%; display: grid; place-items: center;
+  font-size: 11px; font-weight: 800; flex-shrink: 0; color: var(--color-primary);
+  background: color-mix(in srgb, currentColor 18%, var(--color-surface));
+}
+.rs-dupe--clear .rs-dupe-glyph { color: var(--status-approved-fg); }
+.rs-dupe--hits .rs-dupe-glyph { color: var(--status-duplicate-fg); }
+.rs-dupe--error .rs-dupe-glyph { color: var(--color-danger); }
+.rs-dupe-txt { min-width: 0; flex: 1 1 220px; }
+.rs-dupe-txt b { font-size: 13.5px; font-weight: 700; display: block; }
+.rs-dupe-txt > span { font-size: 12.5px; color: color-mix(in srgb, var(--color-text) 72%, transparent); }
+.rs-dupe-act {
+  border: 1px solid var(--rs-btn); background: var(--rs-btn); color: #fff;
+  border-radius: var(--radius-sm); padding: 7px 13px; font: inherit; font-size: 13px;
+  font-weight: 650; cursor: pointer; white-space: nowrap;
+}
+.rs-dupe-act:hover:not(:disabled) { background: var(--rs-btn-hover); border-color: var(--rs-btn-hover); }
+.rs-dupe-act:disabled { opacity: .55; cursor: not-allowed; }
+.rs-dupe-link {
+  border: 0; background: none; padding: 0; font: inherit; font-size: 12.5px; font-weight: 650;
+  color: var(--color-primary); text-decoration: underline; cursor: pointer; white-space: nowrap;
+}
+.rs-dupe-sum {
+  font-size: 13px; line-height: 1.55; padding: 10px 12px; border-radius: var(--radius-sm);
+  background: var(--color-surface); border: 1px solid var(--color-border);
+}
+.rs-dupe-sum b {
+  display: block; font-size: 11px; font-weight: 800; letter-spacing: .08em;
+  text-transform: uppercase; color: var(--color-muted); margin-bottom: 4px;
+}
+.rs-dupe-list { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.rs-dupe-group { padding-top: 11px; border-top: 1px solid var(--color-border); }
+.rs-dupe-grouplabel {
+  margin: 0 0 8px; font-size: 13px; font-weight: 700;
+  display: flex; flex-direction: column; gap: 3px;
+}
+/* The rep-form results sit on a tinted ground, so the shared public card needs
+   the plain surface back to stay readable. */
+.rs-dupe .public-item { background: var(--color-surface); }
+
+.rs-skelrow {
+  border: 1px solid var(--color-border); border-radius: var(--radius);
+  background: var(--color-surface); padding: 11px 13px; display: grid; gap: 7px;
+}
+.rs-skel {
+  display: block; border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--color-text) 9%, var(--color-surface));
+  animation: rs-pulse 1.3s ease-in-out infinite;
+}
+@keyframes rs-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }
+
+/* ── Screenshots ── */
+.rs-drop {
+  border: 1.5px dashed color-mix(in srgb, var(--color-primary) 40%, transparent);
+  background: color-mix(in srgb, var(--color-primary) 4%, var(--color-surface));
+  border-radius: var(--radius); padding: 20px 16px; text-align: center;
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  transition: background .15s, border-color .15s, box-shadow .15s;
+}
+.rs-drop:hover { background: color-mix(in srgb, var(--color-primary) 7%, var(--color-surface)); }
+/* Focused is a real state here, not decoration: it is the cue that the box is
+   now the paste target. */
+.rs-drop.is-focused,
+.rs-drop.is-dragging {
+  outline: none; border-style: solid; border-color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 10%, var(--color-surface));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 20%, transparent);
+}
+.rs-drop-icon { font-size: 20px; line-height: 1; }
+.rs-drop b { font-size: 13.5px; font-weight: 700; }
+.rs-drop > span { font-size: 12px; color: var(--color-muted); max-width: 46ch; }
+.rs-drop-browse {
+  font: inherit; font-size: 13px; font-weight: 650; cursor: pointer;
+  padding: 6px 15px; border-radius: var(--radius-sm);
+  border: 1px solid color-mix(in srgb, var(--color-primary) 45%, transparent);
+  background: var(--color-surface); color: var(--color-primary);
+  transition: background .15s, border-color .15s;
+}
+.rs-drop-browse:hover {
+  background: color-mix(in srgb, var(--color-primary) 12%, var(--color-surface));
+  border-color: var(--color-primary);
+}
+.rs-drop kbd {
+  font-family: ui-monospace, 'Cascadia Mono', 'Segoe UI Mono', Consolas, monospace;
+  font-size: 10.5px; border: 1px solid var(--color-border); border-bottom-width: 2px;
+  border-radius: 4px; padding: 1px 5px; background: var(--color-surface);
+}
+.rs-drop-input { display: none; }
+.rs-drop-notice { margin: 0; font-size: 12.5px; font-weight: 650; color: var(--color-danger); }
+
+.rs-shots { display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 168px)); gap: 10px; }
+.rs-shot {
+  margin: 0; border: 1px solid var(--color-border); border-radius: var(--radius); overflow: hidden;
+  background: color-mix(in srgb, var(--color-text) 3%, var(--color-surface));
+  display: flex; flex-direction: column; min-width: 0;
+}
+.rs-shot-btn {
+  appearance: none; border: 0; padding: 0; margin: 0; background: transparent;
+  cursor: zoom-in; display: block; line-height: 0; width: 100%;
+}
+.rs-shot-btn img { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; display: block; }
+.rs-shot-cap { padding: 7px 9px 9px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.rs-shot-name { font-size: 11.5px; font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rs-shot-size { font-size: 10.5px; color: var(--color-muted); font-variant-numeric: tabular-nums; }
+.rs-shot-x {
+  border: 0; background: none; padding: 2px 0 0; font: inherit; font-size: 12px; font-weight: 650;
+  color: var(--color-muted); cursor: pointer; text-align: left;
+}
+.rs-shot-x:hover { color: var(--color-danger); }
+.rs-shot-rules { margin: 0; font-size: 11.5px; color: var(--color-muted); font-variant-numeric: tabular-nums; }
+
+/* ── Rail ── */
+.rs-railcard {
+  background: var(--color-surface); border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg); padding: 14px 16px 16px; box-shadow: var(--shadow-sm);
+  display: flex; flex-direction: column; gap: 12px;
+}
+.rs-check { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 7px; }
+.rs-check li {
+  display: grid; grid-template-columns: auto 1fr; gap: 9px; align-items: center;
+  font-size: 13px; color: var(--color-muted);
+}
+.rs-check-box {
+  width: 17px; height: 17px; border-radius: 50%; display: grid; place-items: center;
+  border: 1.5px solid color-mix(in srgb, var(--color-text) 25%, transparent);
+  font-size: 10px; font-weight: 800; color: transparent; flex-shrink: 0;
+}
+.rs-check li.on { color: var(--color-text); font-weight: 600; }
+.rs-check li.on .rs-check-box {
+  background: var(--status-approved-fg); border-color: var(--status-approved-fg);
+  color: var(--status-approved-bg);
+}
+.rs-check li.bad { color: var(--color-danger); font-weight: 650; }
+/* An empty red ring, never a red tick — the tick is the "done" signal and must
+   not appear against something still outstanding. */
+.rs-check li.bad .rs-check-box {
+  border-color: var(--color-danger);
+  background: color-mix(in srgb, var(--color-danger) 12%, transparent);
+}
+
+.rs-nudge {
+  display: grid; grid-template-columns: auto 1fr; gap: 3px 9px;
+  font-size: 12.5px; padding: 10px 11px; border-radius: var(--radius-sm);
+  border: 1px solid color-mix(in srgb, var(--status-duplicate-fg) 35%, transparent);
+  background: color-mix(in srgb, var(--status-duplicate-bg) 45%, var(--color-surface));
+}
+.rs-nudge--ok {
+  border-color: color-mix(in srgb, var(--status-approved-fg) 35%, transparent);
+  background: color-mix(in srgb, var(--status-approved-bg) 45%, var(--color-surface));
+}
+.rs-nudge-glyph { grid-row: 1 / span 2; font-size: 13px; margin-top: 1px; }
+.rs-nudge b { font-size: 12.5px; font-weight: 700; }
+.rs-nudge span { color: color-mix(in srgb, var(--color-text) 74%, transparent); }
+
+.rs-submit {
+  width: 100%; border: 0; border-radius: var(--radius-sm); padding: 12px 16px;
+  background: var(--rs-btn); color: #fff; font: inherit; font-size: 14.5px; font-weight: 700;
+  cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 9px;
+  transition: background .15s;
+}
+.rs-submit:hover:not(:disabled) { background: var(--rs-btn-hover); }
+.rs-submit:disabled { opacity: .6; cursor: not-allowed; }
+.rs-spin {
+  width: 14px; height: 14px; border-radius: 50%; flex-shrink: 0;
+  border: 2px solid rgba(255,255,255,.35); border-top-color: #fff;
+  animation: rs-rot .7s linear infinite;
+}
+@keyframes rs-rot { to { transform: rotate(360deg); } }
+.rs-railnote { margin: 0; font-size: 11.5px; color: var(--color-muted); text-align: center; }
+
+/* Numbered because this genuinely is a sequence: New → Approved → Submitted
+   (server/src/constants.js). */
+.rs-steps { list-style: none; margin: 0; padding: 0; counter-reset: rs-step; display: flex; flex-direction: column; gap: 11px; }
+.rs-steps li { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; counter-increment: rs-step; }
+.rs-steps li::before {
+  content: counter(rs-step); grid-row: 1 / span 2;
+  width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center;
+  font-size: 11px; font-weight: 800; margin-top: 1px;
+  background: color-mix(in srgb, var(--color-primary) 14%, var(--color-surface));
+  color: var(--color-primary);
+}
+.rs-steps b { font-size: 12.5px; font-weight: 700; }
+.rs-steps span { font-size: 12px; color: var(--color-muted); }
+
+/* ── Alerts ── */
+.rs-alert {
+  display: grid; grid-template-columns: auto 1fr; gap: 4px 10px;
+  padding: 11px 13px; border-radius: var(--radius-sm);
+  border: 1px solid color-mix(in srgb, var(--color-danger) 42%, transparent);
+  background: color-mix(in srgb, var(--color-danger) 8%, var(--color-surface));
+}
+.rs-alert-glyph {
+  grid-row: 1 / span 2; width: 20px; height: 20px; border-radius: 50%;
+  display: grid; place-items: center; font-size: 12px; font-weight: 800; margin-top: 1px;
+  color: var(--color-danger); background: color-mix(in srgb, var(--color-danger) 16%, var(--color-surface));
+}
+.rs-alert b { font-size: 13.5px; font-weight: 700; color: var(--color-danger); }
+.rs-alert > span { font-size: 12.5px; color: color-mix(in srgb, var(--color-text) 78%, transparent); }
+
+/* ── Confirmation ── */
+.rs-done {
+  background: var(--color-surface); box-shadow: var(--shadow-sm); overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--status-approved-fg) 35%, transparent);
+  border-radius: var(--radius-lg);
+}
+.rs-done-top {
+  padding: 26px 24px 22px; text-align: center;
+  background: color-mix(in srgb, var(--status-approved-bg) 40%, var(--color-surface));
+  display: flex; flex-direction: column; align-items: center; gap: 9px;
+}
+.rs-done-icon {
+  width: 52px; height: 52px; border-radius: 50%; display: grid; place-items: center;
+  background: color-mix(in srgb, var(--status-approved-fg) 16%, var(--color-surface));
+}
+.rs-done-icon svg {
+  width: 26px; height: 26px; fill: none; stroke: var(--status-approved-fg);
+  stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round;
+}
+.rs-done-top h2 { font-size: 20px; font-weight: 750; }
+.rs-done-ref {
+  margin: 0; font-family: ui-monospace, 'Cascadia Mono', 'Segoe UI Mono', Consolas, monospace;
+  font-size: 26px; font-weight: 700; color: var(--status-approved-fg);
+}
+.rs-done-top p { margin: 0; font-size: 13.5px; color: var(--color-muted); max-width: 52ch; }
+.rs-done-body { padding: 16px 20px 20px; display: flex; flex-direction: column; gap: 14px; }
+.rs-done-recap {
+  border: 1px solid var(--color-border); border-radius: var(--radius); padding: 12px 14px;
+  display: flex; flex-direction: column; gap: 7px;
+  background: color-mix(in srgb, var(--color-text) 2.5%, var(--color-surface));
+}
+.rs-recap-top { display: flex; align-items: baseline; gap: 9px; flex-wrap: wrap; }
+.rs-recap-top h4 { font-size: 14px; font-weight: 650; min-width: 0; }
+.rs-recap-meta { margin: 0; font-size: 12.5px; color: var(--color-muted); }
+.rs-ref {
+  font-family: ui-monospace, 'Cascadia Mono', 'Segoe UI Mono', Consolas, monospace;
+  font-size: 12.5px; font-weight: 700; color: var(--color-primary); white-space: nowrap;
+}
+.rs-done-acts { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+.rs-act {
+  border-radius: var(--radius-sm); padding: 10px 18px; font: inherit; font-size: 13.5px;
+  font-weight: 650; cursor: pointer; text-decoration: none;
+  display: inline-flex; align-items: center; gap: 7px;
+  border: 1px solid var(--rs-btn); background: var(--rs-btn); color: #fff;
+}
+.rs-act:hover { background: var(--rs-btn-hover); border-color: var(--rs-btn-hover); }
+.rs-act--ghost {
+  background: transparent; color: var(--color-primary);
+  border-color: color-mix(in srgb, var(--color-primary) 45%, transparent);
+}
+.rs-act--ghost:hover { background: color-mix(in srgb, var(--color-primary) 10%, var(--color-surface)); }
+
+/* ── Narrow screens ── */
+.rs-stickybar { display: none; }
+
+@media (max-width: 980px) {
+  .rs-cols { grid-template-columns: minmax(0, 1fr); }
+  .rs-rail { position: static; }
+  /* The rail's copy of the action scrolls away with it, so the bar below the
+     form takes over as the one always-reachable Submit. */
+  .rs-rail .rs-submit,
+  .rs-rail .rs-railnote { display: none; }
+  .rs-stickybar {
+    display: flex; align-items: center; gap: 12px;
+    position: sticky; bottom: 0; z-index: 20;
+    /* Full-bleed to the .app-main padding edge (index.css:333) so the blurred
+       ground spans the screen rather than floating in a gutter. */
+    margin: 0 -24px; padding: 11px 24px 14px;
+    background: color-mix(in srgb, var(--color-surface) 92%, transparent);
+    backdrop-filter: blur(8px); border-top: 1px solid var(--color-border);
+  }
+  .rs-stickybar .rs-submit { width: auto; flex: 1; }
+  .rs-stickybar-left { font-size: 12px; color: var(--color-muted); font-weight: 600; }
+}
+
+@media (max-width: 640px) {
+  .rs-types { grid-template-columns: 1fr; }
+  .rs-row--when { grid-template-columns: 1fr; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rs-skel, .rs-spin { animation: none; }
+}
