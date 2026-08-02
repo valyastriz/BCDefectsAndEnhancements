@@ -54,6 +54,63 @@ function buildPublicDoc(row) {
   ].filter(Boolean).join('\n');
 }
 
+// ── Literal lookup text — NOT embedded, never hashed ────────────────────────
+// The keyword safety net matches query terms literally, and people search by
+// things a vector cannot represent: an EasyVista incident, a Jira number, a
+// policy, the person who reported it. Those belong here rather than in the
+// embedded docs above, for two reasons:
+//   1. Identifier strings are semantic noise — embedding "I250101_0001" adds no
+//      meaning and dilutes the topical signal that cosine ranking depends on.
+//   2. Any change to an embedded doc changes its content_hash, which would
+//      re-embed the entire corpus (a CPU pass locally, a billable re-index on a
+//      hosted provider) and leave search degraded until the backfill finishes.
+// Nothing in this function touches a vector or a hash.
+//
+// Scope safety mirrors the embedded docs: the public variant may only name
+// fields on the mapPublicSubmission allow-list — never the reporter's email,
+// easyvista_submitted_by, or any internal note.
+function buildKeywordDoc(row, scope) {
+  const base = scope === SCOPE_PUBLIC ? buildPublicDoc(row) : buildAdminDoc(row);
+  const identity = scope === SCOPE_PUBLIC
+    ? [
+      line('Ticket', `#${row.id}`),
+      line('EasyVista', row.easyvista_ticket_id),
+      line('Jira', row.jira_number),
+      line('Policy', row.policy_num),
+      line('Account', row.account_num),
+      line('Reported by', row.created_by),
+    ]
+    : [
+      line('Ticket', `#${row.id}`),
+      line('EasyVista', row.easyvista_ticket_id),
+      line('Jira', row.jira_number),
+      line('Release', row.release_number),
+      line('Policy', row.policy_num),
+      line('Account', row.account_num),
+      line('Transaction', row.transaction_num),
+      line('Reported by', row.created_by),
+      line('Reporter email', row.created_by_email),
+      line('Submitted by', row.easyvista_submitted_by),
+    ];
+  return [base, ...identity].filter(Boolean).join('\n');
+}
+
+// Fields an identifier lookup ("paste the incident number") may match against,
+// per scope — same allow-list rule as buildKeywordDoc. Matched field-by-field
+// rather than against the joined doc, so a bare number can only ever hit an
+// identifier, never a date or a word in the ticket text.
+const ADMIN_IDENTIFIER_FIELDS = [
+  'id', 'easyvista_ticket_id', 'jira_number', 'release_number',
+  'policy_num', 'account_num', 'transaction_num',
+];
+const PUBLIC_IDENTIFIER_FIELDS = [
+  'id', 'easyvista_ticket_id', 'jira_number', 'policy_num', 'account_num',
+];
+
+function identifierFieldsForScope(scope) {
+  return scope === SCOPE_PUBLIC ? PUBLIC_IDENTIFIER_FIELDS : ADMIN_IDENTIFIER_FIELDS;
+}
+
 function contentHash(text) {
   return crypto.createHash('sha256').update(String(text || '')).digest('hex');
 }
@@ -256,6 +313,8 @@ module.exports = {
   SCOPE_PUBLIC,
   buildAdminDoc,
   buildPublicDoc,
+  buildKeywordDoc,
+  identifierFieldsForScope,
   contentHash,
   hydrateRows,
   ensureEmbeddings,

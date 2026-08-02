@@ -174,6 +174,17 @@ was approved as Artifact v6 before any code
   four ways by `ADMIN_FILTER_GROUPS` in `FilterPanel.jsx`, drawn closed. Both
   promoted controls still honour the admin's visible-filter set, because the page
   resets the value of any hidden filter.
+- **Search matches every identifier on the ticket** (2026-08-02): the box used to
+  match only policy/account/summary while its placeholder promised more, so an
+  EasyVista incident number or a reporter's name returned nothing. It now matches
+  the fields in `ADMIN_SEARCH_FIELDS` (`services/submissionService.js`) — ticket
+  id, EasyVista incident, Jira and release numbers, policy/account/transaction,
+  reporter (`created_by`, its email, `easyvista_submitted_by`), the descriptive
+  text, and application name — each field independently, so a query can't match
+  by straddling two fields. Status/type names and internal notes stay out
+  (dedicated filters exist; "new" would otherwise return the board). Guarded by
+  `test/adminSearchFields.test.js`. XLSX export uses the same filter path, so it
+  follows automatically.
 - **Active filter chips** (`ActiveFilterChips.jsx` + `utils/activeFilterUtils.js`):
   one removable chip per applied filter, plus Clear all. `getActiveFilters` is the
   single derivation shared by the Filters badge, the chips, the filtered-view
@@ -378,7 +389,8 @@ status board.
   relevance "high" while its own summary text said it wasn't relevant); OpenAI
   summary calls use strict structured output (`json_schema`, strict), Claude
   path unchanged. Note the summary is load-bearing for endorsement ordering:
-  final results are the LLM-endorsed matches plus guaranteed keyword hits.
+  `matches` is exactly the LLM-endorsed set; guaranteed literal hits it did not
+  endorse are returned in `keywordMatches` instead (see below).
 - **Data model:** new `submission_embeddings` table (JSON-in-TEXT vectors,
   portable across the SQLite/Postgres backends; no pgvector). Two scopes:
   `admin` (full text) and `public` (public-safe text, only for `is_public`
@@ -410,6 +422,33 @@ status board.
   holds only `{id, username, role}`, submitters are anonymous, and submissions
   record the submitter only via free-text `created_by_email`), so it waits on
   real per-user preferences or an identity link.
+- **Two result sections: semantic, then literal** (2026-08-02). The panel now
+  returns `matches` (LLM-endorsed, ranked by relevance) *and* a separate
+  top-level `keywordMatches` array rendered below them under a "Keyword matches"
+  heading — tickets that literally contain what was typed but weren't endorsed.
+  Previously the two were merged into one ranked list, which made a literal hit
+  look like an AI judgement. A ticket appears in one section, never both.
+  - **Identifier lookup**: pasting a ticket id, EasyVista incident, Jira,
+    release, policy, account, or transaction number now resolves, as does a
+    reporter's name. Identifier terms bypass the prose tokenizer's stopword and
+    3-char rules (`#42` is a real ticket) and match identifier *fields* rather
+    than the free text — equality always, containment only for distinctive terms
+    (5+ chars, or 3+ mixing letters and digits). The numeric `id` is
+    equality-only, so `#42` can't drag in `#1420`, and a bare `2026` can't
+    substring-match a policy number. Hits carry `ai.matched_on`.
+  - **No re-index was needed, by design.** The identifiers live in
+    `buildKeywordDoc` (`embeddingIndexService.js`), which extends the embedded
+    doc for *matching only*. Embedding ID strings would add semantic noise, and
+    any change to the embedded text changes its `content_hash` and re-embeds the
+    whole corpus. The embedded docs and every stored vector are untouched — a
+    test asserts this.
+  - Literal matching runs over every window-surviving row, not just vectorized
+    ones, so a brand-new ticket is findable by its incident number before the
+    backfill reaches it; with an empty index the search degrades to literal
+    matches instead of returning nothing.
+  - Public scope still fails closed twice: only public rows can hit, and the
+    public lookup fields are the `mapPublicSubmission` allow-list (no email, no
+    `easyvista_submitted_by`, no notes).
 - **Endpoints:** `POST /api/admin/submissions/ai-search`, `POST /api/ai-search`
   (public, rate-limited), plus `/status` endpoints for UI gating.
 - **Cost/abuse controls:** embeddings computed once (content-hash guard),

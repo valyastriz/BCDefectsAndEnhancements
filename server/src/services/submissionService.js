@@ -44,6 +44,36 @@ const {
   normalizeSendAsType,
 } = require('../helpers/easyVistaPayload');
 
+// Fields the admin dashboard's free-text search box matches against, in the
+// order an admin is most likely to be searching by: identifiers first, then the
+// people on the ticket, then its descriptive text. Each field is matched
+// independently (substring, case-insensitive) rather than against one joined
+// string, so a query can never match by straddling two unrelated fields.
+//
+// `application_name` is a hydrated lookup name, not a raw column — the rows are
+// already hydrated by the time the search filter runs. Status/type names are
+// deliberately absent: they have dedicated filters, and matching them here would
+// make a query like "new" return the whole board. The internal-only notes
+// (decision_notes, impact_details, reviewer, fingerprint) are also left out.
+const ADMIN_SEARCH_FIELDS = [
+  'id',
+  'easyvista_ticket_id',
+  'jira_number',
+  'release_number',
+  'policy_num',
+  'account_num',
+  'transaction_num',
+  'created_by',
+  'created_by_email',
+  'easyvista_submitted_by',
+  'summary_of_issue',
+  'screen_title',
+  'what_happened_exact_details',
+  'request',
+  'steps_to_reproduce',
+  'application_name',
+];
+
 const SUBMISSION_LOOKUP_JOINS = `
   LEFT JOIN defect_enhancement_statuses st ON st.id = s.status_id
   LEFT JOIN submission_types ty ON ty.id = s.type_id
@@ -203,6 +233,10 @@ async function listFilteredAdminSubmissions(db, query = {}) {
     .map((value) => CLEANUP_TO_SUBMISSION_STATUS[value] || value);
   const normalizedStatus = CLEANUP_TO_SUBMISSION_STATUS[String(status || '').trim()] || status;
 
+  // Trimmed so a pasted incident number with stray whitespace still matches, and
+  // so an all-whitespace box is treated as no search at all.
+  const searchValue = String(search || '').trim();
+
   const createdViaFilter = createdVia ? String(createdVia || '').trim().toLowerCase() : '';
   const lookupCreatedViaId = createdViaFilter
     ? await getLookupIdByName(db, 'submission_sources', createdViaFilter, { lowercase: true })
@@ -278,11 +312,8 @@ async function listFilteredAdminSubmissions(db, query = {}) {
       if (!cleanupStatusesList.includes(String(row.cleanup_status || '').trim())) return false;
     }
 
-    if (search) {
-      const searchValue = String(search || '');
-      const searchMatch = containsIgnoreCase(row.policy_num, searchValue)
-        || containsIgnoreCase(row.account_num, searchValue)
-        || containsIgnoreCase(row.summary_of_issue, searchValue);
+    if (searchValue) {
+      const searchMatch = ADMIN_SEARCH_FIELDS.some((field) => containsIgnoreCase(row[field], searchValue));
       if (!searchMatch) return false;
     }
 
@@ -1725,6 +1756,7 @@ async function submitSubmissionToEasyVista(db, { id, body, username, dryRun = fa
 }
 
 module.exports = {
+  ADMIN_SEARCH_FIELDS,
   SUBMISSION_LOOKUP_JOINS,
   SUBMISSION_LOOKUP_SELECT,
   getSubmissionByIdWithLookups,

@@ -57,8 +57,8 @@ export function CommandBar({
             <input
               type="search"
               value={filters.search}
-              placeholder="Search ID, policy, account, or keyword…"
-              aria-label="Search tickets"
+              placeholder="Search ID, incident #, Jira, reporter, policy, account, or keyword…"
+              aria-label="Search tickets by ID, incident number, Jira number, reporter, policy, account, or keyword"
               onChange={(e) => setFilters((prev) => ({ ...prev, search: e.target.value }))}
             />
           </span>
