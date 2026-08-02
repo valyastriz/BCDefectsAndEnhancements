@@ -142,12 +142,21 @@ visual check in both themes, keyboard walk of the tab strip, the narrow-width se
 the confirm dialog and inline blocked-field editing exercised for real, and an
 `easyvista-preview` round-trip against a real record.
 
-Testing notes for whoever picks this up: with `.env` on `sqljs`/`local` the whole flow
-writes only to the local seeded file, and with `EASYVISTA_BASE_URL`/`EASYVISTA_API_KEY`
-unset `submitToEasyVista` returns a stubbed `EV-#####` id without calling anything
-external (`easyvista.js:5-11`). So a re-submit can be exercised end to end — it really
-does fork the record locally, which is the fastest way to see the behaviour the new
-confirm dialog describes.
+**EasyVista is wired but deliberately not connected.** `EASYVISTA_ENABLED` is a master
+switch that defaults OFF; credentials alone are not enough, because the endpoint path and
+the response shape are still assumptions. While it is off, a send records a placeholder
+`EV-#####` id and transmits nothing, and both the EasyVista tab and the success message
+say so — a stubbed send still writes a realistic-looking id onto a real record, so it
+must not read as a genuine ticket.
+
+To connect it, in order: confirm `EASYVISTA_REQUESTS_PATH` and the response shape, fill
+in `sendEasyVistaAttachments` (the only unimplemented function — the picker, the four-file
+cap and the ownership validation are done), set the catalog config in `.env`, then set
+`EASYVISTA_ENABLED=true`. Every variable is documented in `server/.env.example`.
+
+Testing notes: with `.env` on `sqljs`/`local` the whole flow writes only to the local
+seeded file. A re-submit can be exercised end to end — it really does fork the record
+locally, which is the fastest way to see the behaviour the confirm dialog describes.
 
 ## Admin Queue UI Redesign — built, awaiting UI sign-off (2026-07-30)
 

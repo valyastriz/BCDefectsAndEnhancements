@@ -186,6 +186,16 @@ export function DetailEasyVistaSection({
         </p>
       </div>
 
+      {/* A stubbed send still writes a realistic-looking EV-##### onto the
+          record, so the admin has to be told it was not real. */}
+      {preview && !preview.live && (
+        <Notice
+          kind="info"
+          text={'The EasyVista connection is not switched on yet. Sending records a placeholder '
+            + 'ticket number and files stay here — nothing is transmitted.'}
+        />
+      )}
+
       {/* EasyVista takes a defect or an enhancement and nothing else. A Cleanup
           Only task is neither, so it has no default and must be chosen — which
           is how a cleanup task reaches EasyVista without being reclassified. */}
@@ -553,7 +563,11 @@ function EasyVistaConfirm({
         </div>
 
         <div className="dm-foot">
-          <p className="dm-foot-state">Nothing is sent until you confirm.</p>
+          <p className="dm-foot-state">
+            {preview.live
+              ? 'Nothing is sent until you confirm.'
+              : 'Not connected yet — this records a placeholder ticket number only.'}
+          </p>
           <div className="dm-foot-actions">
             <Button kind="ghost" onClick={onClose}>Cancel</Button>
             <Button onClick={onSend}>Send to EasyVista</Button>

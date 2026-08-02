@@ -1,10 +1,25 @@
 const { buildEasyVistaPayload } = require('./helpers/easyVistaPayload');
 
+/**
+ * Whether a send actually leaves this app.
+ *
+ * `EASYVISTA_ENABLED` is a deliberate master switch, and it is OFF unless set.
+ * Credentials alone are not enough: the payload shape, the endpoint path and the
+ * response parsing are all still unconfirmed, so an environment that happens to
+ * have a base URL and a key configured must not start transmitting on its own.
+ * Turning this on is the conscious act of saying the integration is ready.
+ */
+function easyVistaIsLive() {
+  const flag = String(process.env.EASYVISTA_ENABLED || '').trim().toLowerCase();
+  const enabled = flag === 'true' || flag === '1' || flag === 'yes' || flag === 'on';
+  return enabled && Boolean(process.env.EASYVISTA_BASE_URL) && Boolean(process.env.EASYVISTA_API_KEY);
+}
+
 async function submitToEasyVista(submission, { submitter = null } = {}) {
   const baseUrl = process.env.EASYVISTA_BASE_URL;
   const apiToken = process.env.EASYVISTA_API_KEY;
 
-  if (!baseUrl || !apiToken) {
+  if (!easyVistaIsLive()) {
     const suffix = String(Math.floor(10000 + Math.random() * 89999));
     return {
       ticketId: `EV-${suffix}`,
@@ -80,8 +95,6 @@ const EASYVISTA_MAX_ATTACHMENTS = 4;
  * @returns {Promise<{sent:number, skipped:number, source:string}>}
  */
 async function sendEasyVistaAttachments(ticketId, attachments = [], { submitter = null } = {}) {
-  const baseUrl = process.env.EASYVISTA_BASE_URL;
-  const apiToken = process.env.EASYVISTA_API_KEY;
   const files = attachments.slice(0, EASYVISTA_MAX_ATTACHMENTS);
   const skipped = Math.max(0, attachments.length - files.length);
 
@@ -89,7 +102,7 @@ async function sendEasyVistaAttachments(ticketId, attachments = [], { submitter 
     return { sent: 0, skipped, source: 'none' };
   }
 
-  if (!baseUrl || !apiToken) {
+  if (!easyVistaIsLive()) {
     return { sent: files.length, skipped, source: 'stub' };
   }
 
@@ -105,5 +118,6 @@ async function sendEasyVistaAttachments(ticketId, attachments = [], { submitter 
 module.exports = {
   submitToEasyVista,
   sendEasyVistaAttachments,
+  easyVistaIsLive,
   EASYVISTA_MAX_ATTACHMENTS,
 };

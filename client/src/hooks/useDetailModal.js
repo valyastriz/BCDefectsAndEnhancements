@@ -491,12 +491,20 @@ export function useDetailModal({ loadRows, setRows, setError, currentUsername })
 
       await loadRows();
       setShowEasyVistaRequirements(false);
+      // A stubbed send still stores a realistic-looking ticket id, so say so
+      // rather than letting a placeholder read as a real EasyVista ticket.
+      const simulated = result?.source === 'stub';
+      const suffix = simulated
+        ? ' (placeholder — EasyVista is not connected yet, nothing was transmitted)'
+        : '';
       if (result?.resubmission) {
         setEasyVistaConfirmation(
-          `Successfully re-submitted to EasyVista. New card #${result?.submission?.id || ''}, Ticket: ${result?.ticketId || 'created'}`,
+          `Re-submitted. New card #${result?.submission?.id || ''}, Ticket: ${result?.ticketId || 'created'}${suffix}`,
         );
       } else {
-        setEasyVistaConfirmation(`Successfully submitted to EasyVista. Ticket: ${result?.ticketId || 'created'}`);
+        setEasyVistaConfirmation(
+          `Submitted. Ticket: ${result?.ticketId || 'created'}${suffix}`,
+        );
       }
     } catch (submitError) {
       setEasyVistaConfirmation('');

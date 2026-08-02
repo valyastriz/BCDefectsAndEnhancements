@@ -33,6 +33,7 @@ const { scheduleEmbeddingRefresh } = require('./embeddingIndexService');
 const {
   submitToEasyVista,
   sendEasyVistaAttachments,
+  easyVistaIsLive,
   EASYVISTA_MAX_ATTACHMENTS,
 } = require('../easyvista');
 const {
@@ -1355,6 +1356,7 @@ async function submitSubmissionToEasyVista(db, { id, body, username, dryRun = fa
           missing: [],
           rows: [],
           raw: '',
+          live: easyVistaIsLive(),
         },
       };
     }
@@ -1423,6 +1425,8 @@ async function submitSubmissionToEasyVista(db, { id, body, username, dryRun = fa
         // field names, which are an internal translation detail and would only
         // confuse an admin reading this.
         raw: buildDescriptionHtml(outgoing),
+        // False means a send records a placeholder id and transmits nothing.
+        live: easyVistaIsLive(),
         maxAttachments: EASYVISTA_MAX_ATTACHMENTS,
         attachments: submissionAttachments.map((att) => ({
           id: att.id,

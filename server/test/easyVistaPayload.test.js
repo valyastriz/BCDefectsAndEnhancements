@@ -287,7 +287,58 @@ test('the table and the preview rows come from one source', () => {
 
 // ── Attachments ───────────────────────────────────────────────────────────
 
-const { sendEasyVistaAttachments, EASYVISTA_MAX_ATTACHMENTS } = require('../src/easyvista');
+const {
+  sendEasyVistaAttachments,
+  easyVistaIsLive,
+  EASYVISTA_MAX_ATTACHMENTS,
+} = require('../src/easyvista');
+
+/** Runs `fn` with the given EasyVista env, restoring whatever was there. */
+function withEnv(vars, fn) {
+  const previous = {};
+  for (const [key, value] of Object.entries(vars)) {
+    previous[key] = process.env[key];
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+  try {
+    return fn();
+  } finally {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+}
+
+test('credentials alone do not make EasyVista live', () => {
+  // The payload shape, endpoint path and response parsing are unconfirmed, so an
+  // environment that merely has credentials must not start transmitting.
+  withEnv(
+    { EASYVISTA_ENABLED: undefined, EASYVISTA_BASE_URL: 'https://ev.example', EASYVISTA_API_KEY: 'k' },
+    () => assert.equal(easyVistaIsLive(), false, 'must stay stubbed without the switch'),
+  );
+  withEnv(
+    { EASYVISTA_ENABLED: 'false', EASYVISTA_BASE_URL: 'https://ev.example', EASYVISTA_API_KEY: 'k' },
+    () => assert.equal(easyVistaIsLive(), false),
+  );
+});
+
+test('the switch alone does not make EasyVista live either', () => {
+  withEnv(
+    { EASYVISTA_ENABLED: 'true', EASYVISTA_BASE_URL: undefined, EASYVISTA_API_KEY: undefined },
+    () => assert.equal(easyVistaIsLive(), false, 'no endpoint to send to'),
+  );
+});
+
+test('live requires the switch and both credentials', () => {
+  for (const flag of ['true', '1', 'yes', 'on', 'TRUE']) {
+    withEnv(
+      { EASYVISTA_ENABLED: flag, EASYVISTA_BASE_URL: 'https://ev.example', EASYVISTA_API_KEY: 'k' },
+      () => assert.equal(easyVistaIsLive(), true, `"${flag}" should enable it`),
+    );
+  }
+});
 
 const file = (id) => ({ id, filename: `f${id}.png`, mime_type: 'image/png', file_path: `u/f${id}.png` });
 
@@ -305,21 +356,17 @@ test('no files selected is not an error', async () => {
 });
 
 test('attachment delivery never throws — the ticket already exists by then', async () => {
-  const previousUrl = process.env.EASYVISTA_BASE_URL;
-  const previousKey = process.env.EASYVISTA_API_KEY;
-  process.env.EASYVISTA_BASE_URL = 'https://easyvista.example';
-  process.env.EASYVISTA_API_KEY = 'test-key';
-  try {
-    const result = await sendEasyVistaAttachments('EV-1', [file(1)]);
-    // Contract not implemented yet: it must report that, not reject.
-    assert.equal(result.source, 'not-implemented');
-    assert.equal(result.sent, 0);
-  } finally {
-    if (previousUrl === undefined) delete process.env.EASYVISTA_BASE_URL;
-    else process.env.EASYVISTA_BASE_URL = previousUrl;
-    if (previousKey === undefined) delete process.env.EASYVISTA_API_KEY;
-    else process.env.EASYVISTA_API_KEY = previousKey;
-  }
+  const result = await withEnv(
+    {
+      EASYVISTA_ENABLED: 'true',
+      EASYVISTA_BASE_URL: 'https://easyvista.example',
+      EASYVISTA_API_KEY: 'test-key',
+    },
+    () => sendEasyVistaAttachments('EV-1', [file(1)]),
+  );
+  // Contract not implemented yet: it must report that, not reject.
+  assert.equal(result.source, 'not-implemented');
+  assert.equal(result.sent, 0);
 });
 
 test('the excluded list never names a field that is actually sent', () => {
