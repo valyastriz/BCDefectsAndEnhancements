@@ -18,14 +18,16 @@ search panel is hidden everywhere and the app runs exactly as before.
    **minimum-similarity floor** (`AI_SEARCH_MIN_SIMILARITY`), and selects the
    **top 20** (`AI_SEARCH_TOP_K`) by **raw cosine similarity** — recency never
    ejects a strong match from the shortlist.
-3. **Keyword hits** (window-surviving candidates whose text literally contains a
-   salient query term — see [Keyword safety net](#keyword-safety-net)) are
-   unioned into the candidate set, capped at `AI_SEARCH_TOP_K + 10`.
+3. **Literal hits** — window-surviving candidates whose text contains a salient
+   query term, or whose identifier fields match a pasted number (see
+   [Keyword safety net](#keyword-safety-net)) — are unioned into the candidate
+   set, capped at `AI_SEARCH_TOP_K + 10`.
 4. The summary model ranks/explains those candidates and writes the grounded
    summary.
-5. The response returns the summary + the **real hydrated ticket rows** —
-   endorsed matches first (by relevance tier), unendorsed keyword hits last.
-   The model never invents a ticket, status, or date.
+5. The response returns the summary + the **real hydrated ticket rows** in two
+   sections: **`matches`** (endorsed by the model, by relevance tier) and
+   **`keywordMatches`** (literal hits it did not endorse). The model never
+   invents a ticket, status, or date.
 
 Per-search summary cost is flat regardless of corpus size (at most top-K + 10
 tickets are ever sent). Ticket embeddings are computed once and re-embedded only
@@ -99,22 +101,52 @@ after changing `EMBEDDINGS_PROVIDER`/`EMBEDDINGS_MODEL`.
 
 ## Keyword safety net
 
-Semantic similarity can miss literal wording, so salient query terms are also
-matched against candidate ticket text: the query is lowercased, punctuation is
-stripped, stopwords and terms under 3 characters are dropped, and a
-trailing-`s`-trimmed variant is matched too ("invoices" also hits "invoice").
-Any window-surviving candidate whose text contains a term is a **keyword hit**:
+Semantic similarity misses two things: literal wording, and **lookups** — a
+pasted incident number, ticket id, policy, or a reporter's name. Vectors are
+structurally bad at exact tokens, so both are handled by literal matching
+alongside the cosine ranking.
 
-- Keyword hits are **unioned into the candidate set** sent to the summary model,
-  with the union capped at `AI_SEARCH_TOP_K + 10`.
-- They are **guaranteed to appear in the final results** even when the model
-  does not endorse them — appended after the endorsed matches in blended-score
-  order, with total results still capped at `AI_SEARCH_TOP_K`.
-- Each keyword hit carries an additive per-match flag `ai.keyword_match: true`;
-  clients must tolerate its absence.
-- Scope rules hold: public searches keyword-match only the **public-safe text of
-  public tickets**, so the union can never introduce a private ticket or an
-  internal field.
+**Keyword hits** — the query is lowercased, punctuation is stripped, stopwords
+and terms under 3 characters are dropped, and a trailing-`s`-trimmed variant is
+matched too ("invoices" also hits "invoice"). Any candidate whose scope-safe
+lookup text contains a term is a hit.
+
+**Identifier hits** — tokens containing a digit (leading `#` and trailing
+punctuation stripped: `#42` → `42`, `INC0012345`, `BC-4471`) are matched against
+identifier *fields*, not the free text. A term matches a field when it **equals**
+the value, or is **distinctive** enough to appear inside it (5+ characters, or
+3+ mixing letters and digits). The numeric ticket `id` is equality-only, so
+`#42` finds ticket 42 and not 1420, and a bare year like `2026` can never
+substring-match a policy number. Identifier hits carry `ai.matched_on`
+(e.g. `['easyvista_ticket_id']`).
+
+Both kinds:
+
+- Are **unioned into the candidate set** sent to the summary model, capped at
+  `AI_SEARCH_TOP_K + 10`, so the model can endorse and explain one that *is* on
+  topic.
+- Are **guaranteed to appear in the response**. Anything the model endorses is
+  in `matches`; everything else is returned in the separate **`keywordMatches`**
+  array (identifier hits first, then keyword hits by blended score), capped at
+  `AI_SEARCH_TOP_K`. A ticket never appears in both.
+- Carry the additive flag `ai.keyword_match: true`; clients must tolerate its
+  absence.
+- Run over **every window-surviving row, not just the vectorized ones**, so a
+  ticket created minutes ago is findable by its incident number before the
+  backfill reaches it. With a completely empty index the search degrades to
+  literal matches rather than returning nothing.
+- Honour scope: public searches match only the **public-safe fields of public
+  tickets**, so the union can never introduce a private ticket or an internal
+  field.
+
+### Why identifiers are not embedded
+
+The lookup text (`buildKeywordDoc` in `embeddingIndexService.js`) deliberately
+extends — never replaces — the embedded doc. Identifiers stay out of the
+embedded text because ID strings are semantic noise that dilutes the topical
+signal ranking depends on, and because any change to an embedded doc changes its
+`content_hash`, which would re-embed the whole corpus. **Adding or changing
+lookup-only fields therefore requires no re-index.**
 
 ## Time window & `windowExcluded`
 
@@ -208,7 +240,7 @@ Body: `{ query, applicationName?, applicationId?, reportedWithinDays?, resolvedW
 
 The search response includes a top-level `windowExcluded` integer (see
 [Time window & `windowExcluded`](#time-window--windowexcluded)) alongside
-`summary`, `matches`, `window`, and `meta`.
+`summary`, `matches`, `keywordMatches`, `window`, and `meta`.
 
 ## Troubleshooting
 
@@ -236,7 +268,8 @@ that (or at hundreds of thousands), replace the in-JS ranking with **pgvector**
 
 - `src/embeddings.js` — provider-agnostic embeddings (local self-hosted / OpenAI / Voyage).
 - `src/aiSummary.js` — Claude Haiku structured summary (fails safe to empty).
-- `src/services/embeddingIndexService.js` — search docs, `ensureEmbeddings`, cosine.
+- `src/services/embeddingIndexService.js` — embedded docs + the non-embedded
+  `buildKeywordDoc` lookup text, `ensureEmbeddings`, cosine.
 - `src/services/aiSearchService.js` — retrieve → rank → summarize orchestration.
 - `src/routes/aiSearchRoutes.js` — admin + public routes, rate limiter, status.
 - `scripts/backfillEmbeddings.js` — one-time/idempotent backfill.

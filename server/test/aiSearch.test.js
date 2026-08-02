@@ -6,6 +6,7 @@ const {
   cosineTopK,
   buildAdminDoc,
   buildPublicDoc,
+  buildKeywordDoc,
   contentHash,
 } = require('../src/services/embeddingIndexService');
 const { embedTexts } = require('../src/embeddings');
@@ -17,7 +18,10 @@ const {
   applySimilarityFloor,
   selectTopK,
   extractKeywordTerms,
+  extractIdentifierTerms,
   findKeywordHits,
+  findIdentifierHits,
+  composeKeywordMatches,
   unionKeywordHits,
   composeFinalResults,
 } = require('../src/services/aiSearchService');
@@ -218,7 +222,7 @@ test('normalizeSummaryResult keeps matches when has_relevant_match is true or ab
 });
 
 // ── Round 2 (D7): keyword safety net ──────────────────────────────────────────
-test('keyword hit outside the vector top-K still appears in final results', () => {
+test('keyword hit outside the vector top-K rides to the LLM and lands in its own section', () => {
   const topK = [
     { id: 1, match: 0.9, score: 0.95 },
     { id: 2, match: 0.8, score: 0.85 },
@@ -227,10 +231,37 @@ test('keyword hit outside the vector top-K still appears in final results', () =
   const llmCandidates = unionKeywordHits(topK, keywordHits, 30);
   assert.deepEqual(llmCandidates.map((c) => c.id), [1, 2, 42]); // rides along to the LLM
   const aiMatches = [{ submission_id: 1, relevance: 'high', why: 'on topic' }];
-  const final = composeFinalResults({ candidates: llmCandidates, keywordHits, aiMatches, limit: 20 });
-  // Endorsed first, unendorsed keyword hit guaranteed after; unendorsed
-  // non-keyword candidate (id 2) is dropped.
-  assert.deepEqual(final.map((c) => c.id), [1, 42]);
+  const semantic = composeFinalResults({ candidates: llmCandidates, aiMatches, limit: 20 });
+  // The semantic section is the endorsed set only — the unendorsed keyword hit
+  // (42) and the unendorsed non-keyword candidate (2) are both out of it.
+  assert.deepEqual(semantic.map((c) => c.id), [1]);
+  // ...but the keyword hit is still guaranteed a spot, in its own section.
+  const keywordSection = composeKeywordMatches({
+    keywordHits,
+    excludeIds: semantic.map((c) => c.id),
+    limit: 20,
+  });
+  assert.deepEqual(keywordSection.map((c) => c.id), [42]);
+});
+
+test('a ticket endorsed by the LLM is not repeated in the keyword section', () => {
+  const hits = [{ id: 7, match: 0.6, score: 0.65 }, { id: 8, match: 0.3, score: 0.31 }];
+  const section = composeKeywordMatches({ keywordHits: hits, excludeIds: [7], limit: 20 });
+  assert.deepEqual(section.map((c) => c.id), [8]);
+});
+
+test('composeKeywordMatches puts identifier hits first and respects the limit', () => {
+  const identifierHits = [{ id: 5, match: 0, score: 0.02, matchedOn: ['easyvista_ticket_id'] }];
+  const keywordHits = [
+    { id: 6, match: 0.4, score: 0.44 },
+    { id: 7, match: 0.5, score: 0.51 },
+  ];
+  // An exact incident-number hit outranks better-scoring text hits...
+  const all = composeKeywordMatches({ identifierHits, keywordHits, limit: 20 });
+  assert.deepEqual(all.map((c) => c.id), [5, 7, 6]); // then text hits by blended score
+  // ...and survives the cap rather than being crowded out by them.
+  const capped = composeKeywordMatches({ identifierHits, keywordHits, limit: 1 });
+  assert.deepEqual(capped.map((c) => c.id), [5]);
 });
 
 test('composeFinalResults orders by relevance tier then blended score, capped at limit', () => {
@@ -244,7 +275,7 @@ test('composeFinalResults orders by relevance tier then blended score, capped at
     { submission_id: 2, relevance: 'medium', why: '' },
     { submission_id: 3, relevance: 'high', why: '' },
   ];
-  const final = composeFinalResults({ candidates, keywordHits: [], aiMatches, limit: 2 });
+  const final = composeFinalResults({ candidates, aiMatches, limit: 2 });
   // Both high-tier tickets first (blended tiebreak: 3 over 1); medium cut by the cap.
   assert.deepEqual(final.map((c) => c.id), [3, 1]);
 });
@@ -283,6 +314,106 @@ test('public scope: keyword hits cannot come from non-public rows or internal te
   // Admin scope may match internal text and non-public rows (ordered by raw match).
   const adminHits = findKeywordHits(candidates, ['invoice'], { scope: 'admin' });
   assert.deepEqual(adminHits.map((c) => c.id), [2, 3, 1]);
+});
+
+// ── Identifier lookup (paste an incident number into the AI box) ─────────────
+const IDENTIFIABLE_ROW = {
+  id: 42,
+  application_name: 'Billing Center',
+  type: 'defect',
+  status: 'New',
+  summary_of_issue: 'invoice totals differ',
+  easyvista_ticket_id: 'INC0012345',
+  jira_number: 'BC-4471',
+  release_number: 'R2026.3',
+  policy_num: '981234567',
+  account_num: '55501',
+  transaction_num: 'TXN-9090',
+  created_by: 'Dana Reporter',
+  created_by_email: 'dana@example.com',
+  easyvista_submitted_by: 'Sam Submitter',
+  is_public: 1,
+};
+
+function candidateFor(row, overrides = {}) {
+  return { id: Number(row.id), row, match: 0, score: 0, ...overrides };
+}
+
+test('the keyword doc adds identifiers and people WITHOUT changing the embedded doc', () => {
+  // The whole point of a separate lookup doc: the embedded text (and therefore
+  // every content_hash and every stored vector) is untouched, so adding
+  // identifier search does not re-index the corpus.
+  const embedded = buildAdminDoc(IDENTIFIABLE_ROW);
+  assert.ok(!embedded.includes('INC0012345'), 'identifiers must stay out of the embedded doc');
+  assert.ok(!embedded.includes('Dana Reporter'), 'people must stay out of the embedded doc');
+
+  const lookup = buildKeywordDoc(IDENTIFIABLE_ROW, 'admin');
+  assert.ok(lookup.startsWith(embedded), 'the lookup doc extends the embedded doc');
+  for (const value of ['#42', 'INC0012345', 'BC-4471', 'R2026.3', '981234567', 'TXN-9090', 'Dana Reporter', 'dana@example.com', 'Sam Submitter']) {
+    assert.ok(lookup.includes(value), `lookup doc is missing ${value}`);
+  }
+});
+
+test('the public keyword doc withholds email and submitted-by', () => {
+  const lookup = buildKeywordDoc(IDENTIFIABLE_ROW, 'public');
+  assert.ok(lookup.includes('INC0012345'), 'public lookup keeps the allow-listed incident number');
+  assert.ok(lookup.includes('Dana Reporter'), 'created_by is on the public allow-list');
+  assert.ok(!lookup.includes('dana@example.com'), 'public lookup must not include the reporter email');
+  assert.ok(!lookup.includes('Sam Submitter'), 'public lookup must not include easyvista_submitted_by');
+  assert.ok(!lookup.includes('TXN-9090'), 'transaction_num is not on the public allow-list');
+  assert.ok(!lookup.includes('R2026.3'), 'release_number is not on the public allow-list');
+});
+
+test('extractIdentifierTerms keeps numbers a prose tokenizer would throw away', () => {
+  assert.deepEqual(extractIdentifierTerms('#42'), ['42']); // under the 3-char prose floor
+  assert.deepEqual(extractIdentifierTerms('anything on INC0012345?'), ['inc0012345']);
+  assert.deepEqual(extractIdentifierTerms('BC-4471 and 981234567'), ['bc-4471', '981234567']);
+  assert.deepEqual(extractIdentifierTerms('double charged on renewal'), []); // no digits, no terms
+});
+
+test('an incident number finds its ticket; a ticket id matches exactly, not as a substring', () => {
+  const other = { ...IDENTIFIABLE_ROW, id: 1420, easyvista_ticket_id: 'INC0099999', policy_num: '', jira_number: '', transaction_num: '', account_num: '' };
+  const candidates = [candidateFor(IDENTIFIABLE_ROW), candidateFor(other)];
+
+  const byIncident = findIdentifierHits(candidates, extractIdentifierTerms('INC0012345'), { scope: 'admin' });
+  assert.deepEqual(byIncident.map((c) => c.id), [42]);
+  assert.deepEqual(byIncident[0].matchedOn, ['easyvista_ticket_id']);
+
+  // "#42" must not also drag in #1420 — the numeric id is equality-only.
+  const byTicketId = findIdentifierHits(candidates, extractIdentifierTerms('#42'), { scope: 'admin' });
+  assert.deepEqual(byTicketId.map((c) => c.id), [42]);
+  assert.deepEqual(byTicketId[0].matchedOn, ['id']);
+});
+
+test('a bare year cannot substring-match a policy number', () => {
+  // "2026" appears inside no identifier here by equality, and a 4-digit
+  // all-numeric term is not distinctive enough to match inside one.
+  const row = { ...IDENTIFIABLE_ROW, policy_num: '920261111' };
+  const hits = findIdentifierHits([candidateFor(row)], extractIdentifierTerms('errors in 2026'), { scope: 'admin' });
+  assert.deepEqual(hits, []);
+  // A distinctive term still matches inside a longer identifier.
+  const partial = findIdentifierHits([candidateFor(row)], ['920261'], { scope: 'admin' });
+  assert.deepEqual(partial.map((c) => c.id), [42]);
+});
+
+test('public identifier lookup fails closed on private rows and internal fields', () => {
+  const privateRow = { ...IDENTIFIABLE_ROW, id: 43, is_public: 0 };
+  const hits = findIdentifierHits([candidateFor(privateRow)], ['inc0012345'], { scope: 'public' });
+  assert.deepEqual(hits, [], 'a private ticket must never be found by its incident number publicly');
+
+  // transaction_num is off the public allow-list, so it cannot produce a hit.
+  const publicHits = findIdentifierHits([candidateFor(IDENTIFIABLE_ROW)], ['txn-9090'], { scope: 'public' });
+  assert.deepEqual(publicHits, []);
+  const adminHits = findIdentifierHits([candidateFor(IDENTIFIABLE_ROW)], ['txn-9090'], { scope: 'admin' });
+  assert.deepEqual(adminHits.map((c) => c.matchedOn), [['transaction_num']]);
+});
+
+test('a reporter name is a keyword hit for admins, and public keyword hits stay public-safe', () => {
+  const candidates = [candidateFor(IDENTIFIABLE_ROW)];
+  assert.deepEqual(findKeywordHits(candidates, ['reporter'], { scope: 'admin' }).map((c) => c.id), [42]);
+  // The reporter's email is admin-only text: it can create an admin hit, never a public one.
+  assert.deepEqual(findKeywordHits(candidates, ['dana@example.com'], { scope: 'admin' }).map((c) => c.id), [42]);
+  assert.deepEqual(findKeywordHits(candidates, ['dana@example.com'], { scope: 'public' }), []);
 });
 
 test('runAiSearch responses carry windowExcluded: 0 when nothing was filtered', async () => {

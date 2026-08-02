@@ -36,6 +36,14 @@ const controlsRow = {
   alignItems: 'flex-end',
 };
 
+// Separates the literal "Keyword matches" list from the AI matches above it —
+// only applied when there are AI matches to divide it from.
+const keywordSectionDivided = {
+  marginTop: 18,
+  paddingTop: 14,
+  borderTop: '1px solid var(--color-border)',
+};
+
 // Low-key inline "widen the search" affordance styled as a link.
 const linkButton = {
   background: 'none',
@@ -62,7 +70,7 @@ export function AiSearchPanel({
   defaultApplication = 'all',
   title = 'AI Ticket Search',
   subtitle = 'Describe an issue in plain language to see if it has been reported before, and what happened to it.',
-  placeholder = 'e.g. customer was double-charged on a renewal invoice',
+  placeholder = 'e.g. customer was double-charged on a renewal invoice — or paste a ticket, incident, or policy number',
   renderResults,
   // Opt-in per surface: the admin queue starts collapsed so the ticket table
   // stays above the fold, while the public/rep surfaces (where searching IS the
@@ -180,6 +188,11 @@ export function AiSearchPanel({
   }
 
   const matches = Array.isArray(result?.matches) ? result.matches : [];
+  // Literal (non-semantic) hits — ID, incident/Jira number, policy, account,
+  // reporter, or a word in the ticket text. Shown as their own section below the
+  // AI matches. Absent on older responses, hence the guard.
+  const keywordMatches = Array.isArray(result?.keywordMatches) ? result.keywordMatches : [];
+  const totalResults = matches.length + keywordMatches.length;
   const summary = result?.summary;
   const showSummary = status.summaryEnabled && summary && summary.answer_summary;
   // Candidates dropped solely by the time-window filter (absent → 0).
@@ -249,7 +262,7 @@ export function AiSearchPanel({
             style={linkButton}
           >
             {resultsCollapsed
-              ? `Show results${matches.length > 0 ? ` (${matches.length})` : ''}`
+              ? `Show results${totalResults > 0 ? ` (${totalResults})` : ''}`
               : 'Hide results'}
           </button>
         </div>
@@ -285,7 +298,7 @@ export function AiSearchPanel({
 
       {!loading && !error && !resultsCollapsed && hasSearched && (
         <div style={{ marginTop: 14 }}>
-          {matches.length === 0
+          {totalResults === 0
             ? (windowExcluded > 0
               ? (
                 <>
@@ -301,10 +314,29 @@ export function AiSearchPanel({
               : <p className="muted">No similar tickets found. This looks like it may not have been reported yet.</p>)
             : (
               <>
-                <p className="muted" style={{ marginBottom: 8, fontSize: 13 }}>
-                  {matches.length} matching ticket{matches.length === 1 ? '' : 's'} (ranked by relevance)
-                </p>
-                {renderResults ? renderResults(matches) : null}
+                {matches.length > 0 && (
+                  <>
+                    <p className="muted" style={{ marginBottom: 8, fontSize: 13 }}>
+                      {matches.length} matching ticket{matches.length === 1 ? '' : 's'} (ranked by relevance)
+                    </p>
+                    {renderResults ? renderResults(matches) : null}
+                  </>
+                )}
+
+                {keywordMatches.length > 0 && (
+                  <div style={matches.length > 0 ? keywordSectionDivided : undefined}>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                      <strong>Keyword matches</strong>
+                      <Badge>{keywordMatches.length}</Badge>
+                    </div>
+                    <p className="muted" style={{ margin: '4px 0 8px', fontSize: 13 }}>
+                      Tickets whose ID, incident or Jira number, policy, account, reporter, or text
+                      literally contains what you typed — not ranked by the AI.
+                    </p>
+                    {renderResults ? renderResults(keywordMatches) : null}
+                  </div>
+                )}
+
                 {windowExcluded > 0 && (
                   <p className="muted" style={{ marginTop: 8, fontSize: 13 }}>
                     {windowExcluded} older ticket{windowExcluded === 1 ? ' was' : 's were'} outside the selected time frame.{' '}

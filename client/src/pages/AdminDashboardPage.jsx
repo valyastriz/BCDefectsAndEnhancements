@@ -642,7 +642,7 @@ export function AdminDashboardPage({ user, onLogout }) {
         defaultApplication="all"
         collapsible
         entryHint="ask whether an issue has been reported before, and what happened to it"
-        subtitle="Ask in plain language whether an issue has been reported before, and what happened to it. Searches all tickets, including internal notes."
+        subtitle="Ask in plain language whether an issue has been reported before, and what happened to it — or paste a ticket, incident, Jira, policy, or account number to look it up. Searches all tickets, including internal notes."
         renderResults={(matches) => (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {matches.map((item) => (

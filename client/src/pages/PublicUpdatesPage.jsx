@@ -166,7 +166,7 @@ export function PublicUpdatesPage() {
         scope="public"
         applications={publicApplications}
         defaultApplication="all"
-        subtitle="Search the public status board in plain language to see if an issue has already been reported and what happened to it."
+        subtitle="Search the public status board in plain language to see if an issue has already been reported and what happened to it — or paste a ticket, incident, or policy number to look it up."
         renderResults={(matches) => (
           <div className="public-list">
             {matches.map((item) => (
