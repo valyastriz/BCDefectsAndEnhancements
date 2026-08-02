@@ -181,7 +181,12 @@ export function Badge({ value, tone, children }) {
 // an attachment preview over the detail modal must not close both at once.
 const openModalStack = [];
 
-export function Modal({ open, onClose, title, headerActions, children }) {
+/**
+ * `footer` and `className` are optional and default to today's behaviour, so the
+ * other modals in the app are unaffected. A footer becomes a third grid row that
+ * stays put while only the body scrolls.
+ */
+export function Modal({ open, onClose, title, headerActions, footer, className = '', children }) {
   // Mirror onClose into a ref so the stack effect depends only on `open` —
   // stack order must follow open order, not re-render order.
   const onCloseRef = useRef(onClose);
@@ -208,7 +213,7 @@ export function Modal({ open, onClose, title, headerActions, children }) {
   return (
     <div className="bs-modal-backdrop" onClick={onClose} role="presentation">
       <div
-        className="bs-modal"
+        className={`bs-modal${footer ? ' bs-modal--with-foot' : ''}${className ? ` ${className}` : ''}`}
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
@@ -224,6 +229,7 @@ export function Modal({ open, onClose, title, headerActions, children }) {
           </div>
         </header>
         <div className="bs-modal-body">{children}</div>
+        {footer && <div className="bs-modal-foot">{footer}</div>}
       </div>
     </div>
   );

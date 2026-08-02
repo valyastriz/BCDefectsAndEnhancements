@@ -3,6 +3,152 @@
 Living record of notable features/changes. See `CLAUDE.md` for architecture and
 per-app details.
 
+## FIXED — enhancements were being sent to EasyVista as defects (2026-08-01)
+
+Found while building the EasyVista preview; not introduced by the redesign. Resolved by
+**making the outgoing type an explicit choice instead of an inference** (see "Send as"
+below), which removes the guess rather than correcting it.
+
+What was wrong: the effective type consulted only `cleanup_tag_type`, so an ordinary
+(non-cleanup) enhancement — where that field is null — resolved to `defect`. Every such
+EasyVista ticket opened with `Type: defect`, the server validated it against **defect**
+rules (Summary of Issue, Screen Title, Description) so the enhancement branch was dead
+code, and the client disagreed with the server about which fields block a send. Evidence
+it was an oversight rather than a decision: twelve lines earlier the same function tested
+enhancement-ness with `source.type === 'enhancement'`.
+
+Pinned by `server/test/easyVistaPayload.test.js` — the default for each of the five
+ticket shapes, plus a named regression guard that an ordinary enhancement never resolves
+to `defect`.
+
+## Admin Detail Modal Redesign — v2 tabs, built, awaiting UI sign-off (2026-08-01)
+
+Carries the queue redesign's vocabulary into the modal it never reached, and gives the
+EasyVista hand-off a real review step. Design approved as Artifact **v2** before any code
+(https://claude.ai/code/artifact/c331a963-65b9-4da8-be0f-da894f17c3d5). v1 stacked the
+sections as cards in one scroll; reviewed live and rejected as still too busy, so v2
+moves to **one pane at a time**.
+
+**Tabs** (`detail/DetailTabs.jsx`, registry in `constants/detailModalConstants.js`):
+Triage · Impact · Report · Files · History & reference · EasyVista, the last set apart at
+the right end as an outbound action. Identity, alerts and the footer render OUTSIDE the
+strip, so nothing needing attention can hide behind an inactive tab; tab labels carry a
+file count, a warning marker when they hold a required-but-empty field, and a dot for
+unsaved edits. One tab stop for the strip with arrow-key/Home/End navigation. Under
+~480px of modal width (container query, so it follows the modal not the window) the
+strip becomes a labelled select carrying the same badges as text. Only the active pane
+is rendered — every input is controlled by `edit`, so unmounting loses nothing, and the
+rendered markup for a defect dropped from ~12k to ~4.9k characters.
+
+**EasyVista review** — the second half of the work, and the reason for the backend
+changes:
+- `server/src/helpers/easyVistaPayload.js` is now the single definition of the outgoing
+  format. `submitToEasyVista` and the preview both use it; the hand-maintained copy that
+  lived in the modal is deleted. Verified byte-identical to the previous inline builder
+  across defect, enhancement and all-blank inputs. One intentional divergence: a null
+  value now renders empty instead of the literal text `null`.
+- `POST /api/admin/submissions/:id/easyvista-preview` runs the **real submit path in
+  dry-run mode** (`submitSubmissionToEasyVista({ dryRun: true })`) and returns just
+  before the outbound call. The preview therefore cannot disagree with the request about
+  the payload, the effective type, or which fields are blocking. It carries the unsaved
+  draft and writes nothing.
+- The tab states the consequences a re-submit actually has — it **forks the record**
+  rather than updating the ticket — lists all 18 fields that never reach EasyVista,
+  marks rows changed by unsaved edits, and offers the raw string.
+- Blocked sends are **editable inline** on the EasyVista tab, wired to the same `edit`
+  state as the other tabs. The footer's send button opens the tab; the tab's opens a
+  confirm. Nothing outbound happens without the payload being seen first.
+
+**"Send as" — the outgoing type is chosen, not inferred.** EasyVista accepts a defect or
+an enhancement and nothing else, so the admin picks which one a send goes out as, on both
+first-time sends and re-submits:
+- Pre-filled with the ticket's own type. A **Cleanup Only** task has no valid default, so
+  it must be chosen — which is also how a cleanup task now reaches EasyVista at all. The
+  old hard 400 ("Tag as Defect or Enhancement first") is gone; re-tagging the ticket just
+  to send it is no longer necessary.
+- **Which fields block the send follows the choice**, client and server alike: pick
+  Enhancement and it needs Impact Details and Request Type; pick Defect and it needs
+  Screen Title and Description.
+- **Whether the record is reclassified depends on which send it is** — the split is
+  `isResubmissionRequest = !isBlank(submission.easyvista_ticket_id)`:
+  - **First send** (no EasyVista ticket yet): the record is updated in place, nothing is
+    forked. A **Cleanup Only** task is therefore *retagged* to cleanup + the chosen type,
+    because the choice is resolving an incomplete classification rather than overriding a
+    good one — Cleanup Only is not a type EasyVista recognises. A history entry records
+    it. The lookups are resolved BEFORE the outbound call so a missing metadata value
+    can't leave a created ticket against an untagged record.
+  - **Re-submit** (a ticket already exists): forks. The *new* submission carries the
+    chosen type (a Cleanup Only original becomes a cleanup tagged with it); the original
+    keeps its own classification, including Cleanup Only, and gains only its resubmission
+    link plus a history entry recording what went out —
+    `…as Submission #1503, sent as Enhancement`.
+  - A ticket that already has a valid type is **never** reclassified by sending it, on
+    either path.
+
+  The worked case: reported as a defect → EasyVista defect ticket raised → turns out to
+  be working as designed → marked Cleanup Only → later needs to go out as an enhancement.
+  Because an EasyVista ticket already exists, that second send forks: a new submission and
+  a new EasyVista ticket as an Enhancement, with the original defect ticket left intact.
+- `resolveEasyVistaEffectiveType(source, sendAsType)` returns `null` when there is no
+  default and no choice, which is what produces the "must choose" state in both the
+  preview and the send.
+
+**The original problem was structural, not decorative.** Every `detail/*` section
+returned a bare fragment, so all six section labels and their fields were siblings in one
+`.stack` grid at `gap: 16px` — the gap between two *sections* equalled the gap between
+two *fields*. `.section-label` was 11px `--slate-400` while `.bs-field > span` was
+13px/600, so group titles were the smallest, faintest text in the body: hierarchy
+inverted. Roughly 86 elements, 16 headings in 4 styles, 12 banner slots, and 4 flat
+footer actions that scrolled out of view.
+
+Also carried over from v1 and still true:
+
+- **Identity band** (`detail/DetailIdentityBand.jsx`): the queue row's badges, summary
+  and meta line carried into the modal. Badges read from `edit`, so they track the
+  dropdowns live. This is now the only place the EasyVista ID appears — it used to show
+  in four.
+- **Alerts region** (`detail/DetailAlerts.jsx`): the 12 banner slots become one region
+  ordered by severity, capped past two alerts so warnings can never push the content
+  below the fold.
+- **Pinned footer**: `Modal` gained two **optional** props, `footer` and `className`;
+  `.bs-modal--with-foot` switches the grid to `auto 1fr auto`. Defaults preserve all
+  nine existing mount points. Respond/Retire sit behind a `⋯ More` menu reusing
+  `AdminMenu`. The menu is a DOM descendant of the modal, never a portal — a portal's
+  clicks land on the backdrop, whose close handler discards staged attachments.
+- **Retire now confirms.** It was irreversible-in-the-modal with no prompt, while the
+  *less* consequential bulk retire already confirmed.
+- **Presence lock rewritten**: `.modal-locked`'s blanket `pointer-events: none;
+  opacity: .55` contradicted its own "you can view everything below" copy and still left
+  every control keyboard-reachable. Now `inert` on the editable pane only — bodies stay
+  readable, attachments stay openable, mutating controls switch off.
+- **Deletions**: the duplicate `JIRA Number` (both bound to `edit.jira_number`), the
+  duplicate header Save button, the doubled label on Impact Notes, the
+  permanently-disabled `Cleanup Status` for non-cleanup tickets, `Fingerprint` as an
+  editable input, the client-side copy of the EasyVista format, and every inline
+  `style={{}}` in `detail/*` — so the panes participate in dark mode and the responsive
+  rules.
+- **CSS**: one appended block in `client/src/index.css` after the queue block, semantic
+  vars + `color-mix()` only, **no new dark-theme overrides**. Also adds `.bs-field-hint`,
+  which components referenced but was never defined.
+
+Verified: `npm run lint` and `npm run build` (client) green, `npm test` (server) 77/77,
+EasyVista payload parity proven byte-identical against the pre-refactor builder, and a
+`react-dom/server` harness renders five states (defect, enhancement, dense/all-alerts,
+empty, cleanup) asserting the tab strip, exactly one rendered pane, the narrow select,
+the capped alerts, the auto-switch to EasyVista on a blocked send, and the absence of
+every legacy class.
+**Not verified in a browser** — no browser tooling in this environment. Outstanding:
+visual check in both themes, keyboard walk of the tab strip, the narrow-width select,
+the confirm dialog and inline blocked-field editing exercised for real, and an
+`easyvista-preview` round-trip against a real record.
+
+Testing notes for whoever picks this up: with `.env` on `sqljs`/`local` the whole flow
+writes only to the local seeded file, and with `EASYVISTA_BASE_URL`/`EASYVISTA_API_KEY`
+unset `submitToEasyVista` returns a stubbed `EV-#####` id without calling anything
+external (`easyvista.js:5-11`). So a re-submit can be exercised end to end — it really
+does fork the record locally, which is the fastest way to see the behaviour the new
+confirm dialog describes.
+
 ## Admin Queue UI Redesign — built, awaiting UI sign-off (2026-07-30)
 
 Branch `feat/admin-queue-redesign`. Rebuilds the admin dashboard around the triage

@@ -1402,32 +1402,9 @@ tr.clickable:hover td { background: var(--blue-50); }
   margin-top: 2px;
 }
 
-/* Presence soft-lock banner + read-only modal body (collaborative editing). */
-.lock-banner {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 14px;
-  border-radius: var(--radius);
-  border: 1px solid var(--color-primary);
-  background: color-mix(in srgb, var(--color-primary) 10%, var(--color-surface));
-}
-.lock-banner--stale {
-  border-color: var(--amber-500, #f59e0b);
-  background: color-mix(in srgb, var(--amber-500, #f59e0b) 12%, var(--color-surface));
-}
-.lock-banner-text { flex: 1; min-width: 0; }
-.lock-banner-text strong { color: var(--color-text); }
-.lock-banner-meta {
-  font-size: 12px;
-  color: var(--color-muted);
-  margin-top: 2px;
-}
-.modal-locked {
-  pointer-events: none;
-  opacity: 0.55;
-  user-select: none;
-}
+/* The presence soft-lock banner and the .modal-locked body overlay lived here.
+   The detail modal now renders holds as an alert (.dm-alert--warn) and takes the
+   controls out of reach with `inert` instead of dimming the whole stack. */
 
 /* Conflict review (3-way merge) panel. */
 .conflict-panel {
@@ -2234,3 +2211,640 @@ tr[data-selected="true"] td { background: color-mix(in srgb, var(--color-primary
   .bs-inline-select,
   .bs-inline-input { border-color: var(--color-border); background: var(--color-surface); }
 }
+
+/* ════════════════════════════════════════════════════════════════════════
+   Admin detail modal — identity band, alerts, tabs, EasyVista preview
+   (Detail Modal redesign v2; see plan.md).
+
+   Semantic vars + color-mix() only, so this needs no dark-theme overrides.
+   ════════════════════════════════════════════════════════════════════════ */
+
+/* ── Shell: the optional footer row on the shared Modal ── */
+.bs-modal--with-foot { grid-template-rows: auto 1fr auto; }
+.bs-modal-foot {
+  border-top: 1px solid var(--color-border);
+  background: var(--color-surface);
+  border-radius: 0 0 var(--radius-xl) var(--radius-xl);
+}
+.bs-modal-head { flex-wrap: wrap; }
+
+/* The tabbed body does not scroll — the active pane does. */
+.dm-modal { container-type: inline-size; }
+.dm-modal .bs-modal-body {
+  overflow: hidden;
+  padding: 0;
+  display: grid;
+  grid-template-rows: auto auto 1fr;
+  min-height: 0;
+}
+.dm-mono { font-family: ui-monospace, 'Cascadia Mono', 'Segoe UI Mono', Consolas, monospace; }
+
+/* ── Always-on region: identity + alerts, above the tab strip ── */
+.dm-fixed { padding: 14px 20px 0; display: flex; flex-direction: column; gap: 10px; min-height: 0; }
+.dm-identity {
+  background: color-mix(in srgb, var(--color-primary) 7%, var(--color-surface));
+  border: 1px solid color-mix(in srgb, var(--color-primary) 30%, transparent);
+  border-radius: var(--radius-lg);
+  padding: 12px 15px 13px;
+  display: flex; flex-direction: column; gap: 7px;
+}
+.dm-id-badges { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+.dm-id-summary { margin: 0; font-size: 15.5px; font-weight: 750; letter-spacing: -.005em; text-wrap: balance; }
+.dm-id-meta {
+  margin: 0; font-size: 12.5px; color: var(--color-muted);
+  display: flex; flex-wrap: wrap; gap: 4px 7px; align-items: baseline;
+}
+.dm-id-meta .dm-sep { color: color-mix(in srgb, var(--color-muted) 60%, transparent); }
+.dm-id-meta .dm-mono { font-size: 12px; }
+.dm-badge-flag {
+  background: color-mix(in srgb, var(--color-primary) 16%, var(--color-surface));
+  color: var(--color-primary);
+}
+
+/* ── Alerts ── */
+.dm-alerts { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.dm-alerts > * { flex: none; }
+.dm-alerts--capped { max-height: 26vh; overflow-y: auto; padding-right: 4px; }
+.dm-alert {
+  display: grid; grid-template-columns: auto 1fr; gap: 4px 10px;
+  padding: 10px 12px 11px; border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background: color-mix(in srgb, var(--color-text) 4%, var(--color-surface));
+}
+.dm-alert-glyph {
+  grid-row: 1 / span 2; width: 20px; height: 20px; border-radius: 50%;
+  display: grid; place-items: center; font-size: 12px; font-weight: 800; line-height: 1; margin-top: 1px;
+  background: color-mix(in srgb, currentColor 16%, var(--color-surface));
+}
+.dm-alert-title { margin: 0; font-size: 13.5px; font-weight: 700; min-width: 0; }
+.dm-alert-body { min-width: 0; font-size: 12.5px; color: color-mix(in srgb, var(--color-text) 76%, transparent); }
+.dm-alert-body p { margin: 0; }
+.dm-alert-body p + p { margin-top: 4px; }
+.dm-alert-body .bs-actions { margin-top: 7px; }
+.dm-alert-body:empty { display: none; }
+.dm-alert--danger {
+  border-color: color-mix(in srgb, var(--color-danger) 40%, transparent);
+  background: color-mix(in srgb, var(--color-danger) 8%, var(--color-surface));
+}
+.dm-alert--danger .dm-alert-glyph,
+.dm-alert--danger .dm-alert-title { color: var(--color-danger); }
+.dm-alert--warn {
+  border-color: color-mix(in srgb, var(--status-duplicate-fg) 40%, transparent);
+  background: color-mix(in srgb, var(--status-duplicate-bg) 55%, var(--color-surface));
+}
+.dm-alert--warn .dm-alert-glyph,
+.dm-alert--warn .dm-alert-title { color: var(--status-duplicate-fg); }
+.dm-alert--info {
+  border-color: color-mix(in srgb, var(--color-primary) 30%, transparent);
+  background: color-mix(in srgb, var(--color-primary) 7%, var(--color-surface));
+}
+.dm-alert--info .dm-alert-glyph { color: var(--color-primary); }
+.dm-alert--success {
+  border-color: color-mix(in srgb, var(--status-approved-fg) 40%, transparent);
+  background: color-mix(in srgb, var(--status-approved-bg) 55%, var(--color-surface));
+}
+.dm-alert--success .dm-alert-glyph,
+.dm-alert--success .dm-alert-title { color: var(--status-approved-fg); }
+.dm-alert--neutral .dm-alert-glyph { color: var(--color-muted); }
+.dm-req-list { display: flex; flex-direction: column; gap: 3px; margin: 5px 0 0; padding: 0; list-style: none; }
+.dm-req-list li { font-size: 12.5px; font-weight: 650; color: var(--color-text); }
+.dm-req-list li::before { content: '·'; margin-right: 6px; color: var(--color-muted); }
+.dm-alert-body .conflict-panel { margin-top: 8px; overflow-x: auto; }
+
+/* ── Tab strip ──────────────────────────────────────────────────────────
+   An underline strip rather than the queue's .bs-seg pill group: the
+   segmented control means "pick one filter, the list below narrows", while
+   these navigate between panes of one record. Different job, different
+   affordance — same tokens, weights and tint formula.                      */
+.dm-tabs {
+  display: flex; align-items: stretch; gap: 2px;
+  padding: 12px 20px 0; margin-top: 12px;
+  border-bottom: 1px solid var(--color-border);
+  overflow-x: auto; scrollbar-width: thin;
+}
+.dm-tab {
+  appearance: none; border: 0; background: transparent; font: inherit;
+  font-size: 13px; font-weight: 650; color: var(--color-muted);
+  padding: 9px 13px 10px; cursor: pointer; white-space: nowrap;
+  border-bottom: 2px solid transparent; margin-bottom: -1px;
+  display: inline-flex; align-items: center; gap: 7px;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  transition: color .15s, border-color .15s, background .15s;
+}
+.dm-tab:hover { color: var(--color-text); background: color-mix(in srgb, var(--color-primary) 5%, var(--color-surface)); }
+.dm-tab[aria-selected='true'] { color: var(--color-primary); border-bottom-color: var(--color-primary); font-weight: 700; }
+.dm-tab:focus-visible { outline: 2px solid var(--color-primary); outline-offset: -2px; }
+.dm-tab-count {
+  font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums;
+  min-width: 17px; height: 17px; padding: 0 5px; border-radius: 999px;
+  display: inline-grid; place-items: center;
+  background: color-mix(in srgb, var(--color-text) 10%, var(--color-surface));
+  color: var(--color-muted);
+}
+.dm-tab[aria-selected='true'] .dm-tab-count { background: var(--color-primary); color: var(--color-surface); }
+.dm-tab-warn {
+  width: 15px; height: 15px; border-radius: 50%; display: inline-grid; place-items: center;
+  font-size: 10px; font-weight: 800; line-height: 1;
+  background: var(--status-duplicate-fg); color: var(--status-duplicate-bg);
+}
+.dm-tab-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--color-primary); }
+
+/* Narrow: the strip becomes a labelled select. */
+.dm-tabselect { display: none; padding: 12px 16px 0; margin-top: 10px; }
+.dm-tabselect .bs-field > span {
+  font-size: 10.5px; font-weight: 800; letter-spacing: .09em;
+  text-transform: uppercase; color: var(--color-primary);
+}
+.dm-tabselect select { font-weight: 650; }
+
+/* ── Pane ── */
+.dm-panel {
+  overflow-y: auto; min-height: 0;
+  padding: 18px 20px 22px;
+  display: flex; flex-direction: column; gap: 16px;
+}
+.dm-panel > * { flex: none; }
+.dm-panel:focus-visible { outline: 2px solid var(--color-primary); outline-offset: -3px; }
+.dm-groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(228px, 1fr)); gap: 18px 22px; }
+.dm-group { display: flex; flex-direction: column; gap: 9px; min-width: 0; }
+.dm-group-label {
+  font-size: 10.5px; font-weight: 800; letter-spacing: .09em; text-transform: uppercase;
+  color: var(--color-primary); padding-bottom: 6px; border-bottom: 1px solid var(--color-border);
+}
+/* Sits directly under the control it explains, so it pulls up out of the gap. */
+.bs-field-hint {
+  margin: -5px 0 0; font-size: 12.5px; color: var(--color-muted);
+  font-variant-numeric: tabular-nums;
+}
+.bs-field-hint--req { color: var(--color-danger); font-weight: 650; }
+
+/* ── Read-only values: text under a rule, never a box that invites typing ── */
+.dm-ro {
+  margin: 0; font-size: 14px; color: var(--color-text);
+  padding: 8px 0 1px; border-top: 1px solid var(--color-border); overflow-wrap: anywhere;
+}
+.dm-ro--empty { color: var(--color-muted); font-style: italic; }
+.dm-ro.dm-mono { font-size: 13px; letter-spacing: .01em; }
+.dm-rotag {
+  font-style: normal; font-size: 10px; font-weight: 800; letter-spacing: .09em;
+  text-transform: uppercase; color: var(--color-muted);
+  border: 1px solid var(--color-border); border-radius: 999px; padding: 1px 6px; margin-left: 7px;
+}
+.dm-derived {
+  margin: 0; font-size: 14px; font-weight: 650; color: var(--color-text);
+  background: color-mix(in srgb, var(--color-primary) 7%, var(--color-surface));
+  border: 1px dashed color-mix(in srgb, var(--color-primary) 30%, transparent);
+  border-radius: var(--radius-sm); padding: 8px 12px; font-variant-numeric: tabular-nums;
+}
+.dm-check {
+  display: flex; align-items: center; gap: 9px; font-size: 14px; cursor: pointer; padding: 9px 12px;
+  /* Matches the input border in both themes without a dark override. */
+  border: 1px solid color-mix(in srgb, var(--color-text) 22%, var(--color-surface));
+  border-radius: var(--radius-sm); background: var(--color-surface);
+  transition: border-color .15s, background .15s;
+}
+.dm-check:hover { border-color: color-mix(in srgb, var(--color-primary) 55%, var(--color-surface)); }
+.dm-check input { margin: 0; width: 15px; height: 15px; flex-shrink: 0; accent-color: var(--color-primary); }
+.dm-check--consequence {
+  border-color: color-mix(in srgb, var(--color-primary) 40%, transparent);
+  background: color-mix(in srgb, var(--color-primary) 6%, var(--color-surface));
+  font-weight: 600;
+}
+
+/* ── Status history ── */
+.dm-timeline-scroll { max-height: 34vh; overflow-y: auto; }
+.dm-timeline { display: flex; flex-direction: column; margin: 0; padding: 0; list-style: none; }
+.dm-event {
+  display: grid; grid-template-columns: auto 1fr; gap: 2px 11px;
+  padding: 9px 0; border-bottom: 1px solid var(--color-border);
+}
+.dm-event:first-child { padding-top: 0; }
+.dm-event:last-child { border-bottom: 0; padding-bottom: 0; }
+.dm-event-dot {
+  grid-row: 1 / span 2; width: 9px; height: 9px; border-radius: 50%; margin-top: 5px;
+  background: color-mix(in srgb, var(--color-muted) 45%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-muted) 12%, transparent);
+}
+.dm-event--latest .dm-event-dot {
+  background: var(--color-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 18%, transparent);
+}
+.dm-event-title { margin: 0; font-size: 13.5px; font-weight: 650; min-width: 0; overflow-wrap: anywhere; }
+.dm-event-meta {
+  margin: 0; font-size: 11.5px; font-weight: 600; color: var(--color-muted);
+  font-variant-numeric: tabular-nums; overflow-wrap: anywhere;
+}
+
+/* ── Attachments ── */
+.dm-thumbs-scroll { max-height: 42vh; overflow-y: auto; }
+/* auto-FILL, not auto-fit: auto-fit collapses the empty tracks, so a ticket
+   with one attachment stretched that single thumbnail across the whole modal.
+   The fixed max keeps them a consistent small size however many there are. */
+.dm-modal .thumb-grid { grid-template-columns: repeat(auto-fill, minmax(128px, 156px)); gap: 9px; }
+.dm-thumb {
+  margin: 0; border: 1px solid var(--color-border); border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--color-text) 3%, var(--color-surface));
+  padding: 8px; display: flex; flex-direction: column; gap: 7px; min-width: 0;
+}
+.dm-thumb--removing {
+  border-color: color-mix(in srgb, var(--color-danger) 40%, transparent);
+  background: color-mix(in srgb, var(--color-danger) 6%, var(--color-surface));
+}
+.dm-thumb-btn {
+  appearance: none; padding: 0; border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm); overflow: hidden; cursor: pointer;
+  background: var(--color-surface); display: block; line-height: 0;
+  transition: border-color .15s, box-shadow .15s;
+}
+.dm-thumb-btn:hover {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 18%, transparent);
+}
+/* Square rather than a fixed height, so the crop stays predictable at any
+   column width. */
+.dm-thumb-btn img { width: 100%; aspect-ratio: 1; height: auto; object-fit: cover; display: block; }
+.dm-thumb figcaption { display: flex; flex-direction: column; gap: 4px; min-width: 0; align-items: flex-start; }
+.dm-thumb-name {
+  font-size: 12.5px; font-weight: 650; max-width: 100%;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.dm-thumb-act {
+  appearance: none; border: 0; background: transparent; font: inherit;
+  font-size: 12.5px; font-weight: 650; color: var(--color-muted); cursor: pointer;
+  padding: 3px 6px; border-radius: var(--radius-sm); transition: background .15s, color .15s;
+}
+.dm-thumb-act:hover { background: color-mix(in srgb, var(--color-text) 8%, var(--color-surface)); color: var(--color-text); }
+.dm-thumb-act--undo { color: var(--color-primary); }
+.dm-thumb-act:disabled { opacity: .5; cursor: not-allowed; }
+
+/* ── EasyVista pane ── */
+.dm-ev-head { display: flex; flex-direction: column; gap: 5px; }
+.dm-ev-head h4 { font-size: 14.5px; font-weight: 750; }
+.dm-ev-head p { margin: 0; font-size: 12.5px; color: var(--color-muted); max-width: 62ch; }
+.dm-consequence {
+  border: 1px solid color-mix(in srgb, var(--status-duplicate-fg) 40%, transparent);
+  background: color-mix(in srgb, var(--status-duplicate-bg) 45%, var(--color-surface));
+  border-radius: var(--radius-sm); padding: 12px 14px;
+  display: flex; flex-direction: column; gap: 7px;
+}
+.dm-consequence h5 { font-size: 13px; font-weight: 750; color: var(--status-duplicate-fg); }
+.dm-consequence ul { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.dm-consequence li {
+  font-size: 12.5px; color: color-mix(in srgb, var(--color-text) 82%, transparent);
+  display: flex; gap: 8px; align-items: baseline;
+}
+.dm-consequence li::before { content: '\2192'; color: var(--status-duplicate-fg); font-weight: 700; flex: 0 0 auto; }
+.dm-consequence strong { color: var(--color-text); font-weight: 700; }
+
+.dm-blocked {
+  border: 1px solid color-mix(in srgb, var(--color-danger) 40%, transparent);
+  background: color-mix(in srgb, var(--color-danger) 6%, var(--color-surface));
+  border-radius: var(--radius-sm); padding: 13px 14px 14px;
+  display: flex; flex-direction: column; gap: 11px;
+}
+.dm-blocked h5 { font-size: 13px; font-weight: 750; color: var(--color-danger); }
+.dm-blocked-note { margin: 0; font-size: 12.5px; color: color-mix(in srgb, var(--color-text) 76%, transparent); }
+
+.dm-payload { border: 1px solid var(--color-border); border-radius: var(--radius-sm); overflow: hidden; }
+.dm-payload-head {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 10px; flex-wrap: wrap;
+  padding: 10px 13px; border-bottom: 1px solid var(--color-border);
+  background: color-mix(in srgb, var(--color-text) 3%, var(--color-surface));
+}
+.dm-payload-head h5 { font-size: 12.5px; font-weight: 750; }
+.dm-payload-head span { font-size: 11.5px; color: var(--color-muted); font-variant-numeric: tabular-nums; }
+.dm-payload-rows { display: flex; flex-direction: column; }
+.dm-prow {
+  display: grid; grid-template-columns: minmax(120px, 190px) 1fr auto; gap: 4px 14px;
+  padding: 8px 13px; border-bottom: 1px solid var(--color-border); align-items: baseline;
+}
+.dm-prow:last-child { border-bottom: 0; }
+.dm-prow-k { font-size: 12px; font-weight: 650; color: var(--color-muted); }
+.dm-prow-v { font-size: 13px; color: var(--color-text); overflow-wrap: anywhere; min-width: 0; white-space: pre-wrap; }
+.dm-prow-v em { font-style: italic; color: var(--color-muted); }
+.dm-prow--changed { background: color-mix(in srgb, var(--color-primary) 6%, var(--color-surface)); }
+.dm-prow--changed .dm-prow-k { color: var(--color-primary); }
+.dm-prow--empty .dm-prow-v { color: var(--color-muted); }
+.dm-prow-tag {
+  font-size: 10px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase;
+  border-radius: 999px; padding: 2px 7px; white-space: nowrap;
+  color: var(--color-primary);
+  border: 1px solid color-mix(in srgb, var(--color-primary) 40%, transparent);
+}
+.dm-prow-was { grid-column: 2 / -1; font-size: 11.5px; color: var(--color-muted); }
+.dm-sk-rows { display: flex; flex-direction: column; gap: 10px; padding: 13px; }
+
+.dm-nested { border: 1px dashed var(--color-border); border-radius: var(--radius-sm); min-width: 0; }
+.dm-nested > summary {
+  list-style: none; cursor: pointer; display: flex; align-items: center; gap: 9px;
+  padding: 10px 12px; font-size: 13px; font-weight: 650;
+}
+.dm-nested > summary::-webkit-details-marker { display: none; }
+.dm-nested > summary:hover { background: color-mix(in srgb, var(--color-primary) 5%, var(--color-surface)); }
+.dm-nested-hint { font-size: 12.5px; font-weight: 400; color: var(--color-muted); flex: 1 1 auto; }
+.dm-caret { flex: 0 0 auto; font-size: 11px; line-height: 1; color: var(--color-muted); }
+.dm-caret::after { content: '\25be'; }
+.dm-nested[open] > summary .dm-caret::after { content: '\25b4'; }
+.dm-pre-scroll { overflow: auto; max-height: 34vh; border-top: 1px dashed var(--color-border); }
+.dm-pre-scroll pre {
+  margin: 0; padding: 12px 14px;
+  font-family: ui-monospace, 'Cascadia Mono', 'Segoe UI Mono', Consolas, monospace;
+  font-size: 12px; line-height: 1.65; color: var(--color-text);
+  background: color-mix(in srgb, var(--color-text) 3%, var(--color-surface));
+  white-space: pre;
+}
+
+/* ── Footer ── */
+.dm-foot { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 12px 20px; position: relative; }
+.dm-foot-state {
+  margin: 0; flex: 1 1 200px; min-width: 0;
+  font-size: 12.5px; color: var(--color-muted); font-variant-numeric: tabular-nums;
+}
+.dm-foot-state--dirty { color: var(--color-primary); font-weight: 650; }
+.dm-foot-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.dm-menu-wrap { position: relative; }
+/* The overflow menu opens upward out of the footer. */
+.dm-foot .admin-menu-list { top: auto; bottom: calc(100% + 6px); }
+
+/* ── EasyVista confirm, stacked over the modal ── */
+.dm-confirm-backdrop {
+  position: fixed; inset: 0; z-index: 210;
+  background: rgba(15, 23, 42, .55);
+  display: grid; place-items: center; padding: 20px;
+}
+.dm-confirm {
+  width: min(660px, 100%); max-height: 88vh;
+  background: var(--color-surface); color: var(--color-text);
+  border: 1px solid var(--color-border); border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-lg);
+  display: grid; grid-template-rows: auto 1fr auto; overflow: hidden;
+}
+.dm-confirm-head { padding: 15px 20px 14px; border-bottom: 1px solid var(--color-border); }
+.dm-confirm-head h3 { font-size: 16px; font-weight: 700; }
+.dm-confirm-body { padding: 18px 20px 20px; display: flex; flex-direction: column; gap: 14px; overflow-y: auto; min-height: 0; }
+.dm-confirm-body > * { flex: none; }
+.dm-confirm .dm-foot { border-top: 1px solid var(--color-border); }
+
+/* ── Narrow: driven by the modal's own width, not the window's ── */
+@container (max-width: 480px) {
+  .dm-tabs { display: none; }
+  .dm-tabselect { display: block; }
+  .dm-fixed { padding: 12px 14px 0; }
+  .dm-panel { padding: 14px 14px 18px; gap: 14px; }
+  .dm-identity { padding: 12px 13px 13px; }
+  .dm-groups { grid-template-columns: 1fr; gap: 16px; }
+  /* Two per row rather than one full-width square, which would be enormous. */
+  .dm-modal .thumb-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .dm-prow { grid-template-columns: 1fr; gap: 2px; }
+  .dm-prow-was { grid-column: 1; }
+  .dm-alert { grid-template-columns: 1fr; }
+  .dm-alert-glyph { grid-row: auto; }
+  .dm-foot { flex-direction: column; align-items: stretch; padding: 12px 14px; }
+  .dm-foot-actions { margin-left: 0; flex-direction: column; align-items: stretch; }
+  .dm-foot-actions .bs-btn { width: 100%; }
+  .dm-menu-wrap { width: 100%; }
+  .dm-foot .admin-menu-list { left: 0; right: 0; }
+}
+
+/* ── "Send as" — the outgoing type is a choice, not an inference ── */
+.dm-sendas {
+  margin: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 11px 14px 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  min-width: 0;
+}
+.dm-sendas > legend {
+  padding: 0 6px;
+  margin-left: -6px;
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+  color: var(--color-primary);
+}
+/* A Cleanup Only task has no default, so the control is the blocker. */
+.dm-sendas--required {
+  border-color: color-mix(in srgb, var(--color-danger) 45%, transparent);
+  background: color-mix(in srgb, var(--color-danger) 6%, var(--color-surface));
+}
+.dm-sendas--required > legend { color: var(--color-danger); }
+.dm-sendas-options { display: flex; flex-wrap: wrap; gap: 8px; }
+.dm-sendas-opt {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 8px 14px 8px 11px;
+  border: 1px solid color-mix(in srgb, var(--color-text) 22%, var(--color-surface));
+  border-radius: 999px;
+  background: var(--color-surface);
+  transition: border-color .15s, background .15s, color .15s;
+}
+.dm-sendas-opt:hover { border-color: color-mix(in srgb, var(--color-primary) 55%, var(--color-surface)); }
+.dm-sendas-opt:has(input:checked) {
+  border-color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 10%, var(--color-surface));
+  color: var(--color-primary);
+}
+.dm-sendas-opt:has(input:focus-visible) { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+.dm-sendas-opt:has(input:disabled) { opacity: .55; cursor: not-allowed; }
+.dm-sendas-opt input { margin: 0; width: 15px; height: 15px; accent-color: var(--color-primary); }
+.dm-sendas-note {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--color-muted);
+  max-width: 68ch;
+}
+.dm-sendas--required .dm-sendas-note { color: color-mix(in srgb, var(--color-text) 80%, transparent); }
+
+/* ── The outgoing-payload table doubles as the form: editable rows ── */
+.dm-prow-input {
+  width: 100%;
+  min-width: 0;
+  font: inherit;
+  font-size: 13px;
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  padding: 5px 8px;
+  margin: -3px 0;
+  transition: border-color .15s, box-shadow .15s, background .15s;
+}
+/* Quiet until you reach for it — the same idea as the queue's inline editors,
+   so a table of 17 inputs does not read as a wall of boxes. */
+.dm-prow-input:hover { border-color: var(--color-border); }
+.dm-prow-input:focus {
+  outline: none;
+  background: var(--dm-input-bg, var(--color-surface));
+  border-color: var(--blue-500);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, .14);
+}
+textarea.dm-prow-input { resize: vertical; min-height: 60px; line-height: 1.5; }
+select.dm-prow-input { cursor: pointer; }
+.dm-prow--missing .dm-prow-input { border-color: color-mix(in srgb, var(--color-danger) 45%, transparent); }
+.dm-prow--missing .dm-prow-k { color: var(--color-danger); }
+
+/* Long-form read-only values on the Report tab keep their line breaks. */
+.dm-ro--block { white-space: pre-wrap; }
+
+/* ── EasyVista file picker: which files travel with the submission ── */
+.dm-evfiles {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.dm-evfiles > .dm-payload-head { border-bottom: 1px solid var(--color-border); }
+.dm-evfiles > .bs-field,
+.dm-evfiles > .bs-field-hint { padding: 0 13px; }
+.dm-evfiles > .bs-field { padding-top: 12px; }
+.dm-evfiles > .bs-field-hint { padding-bottom: 13px; margin-top: 7px; }
+
+
+/* ════════════════════════════════════════════════════════════════════════
+   Detail modal — review fixes
+   ════════════════════════════════════════════════════════════════════════ */
+
+/* ── Read-only pairs: the rule closes the item, it does not sit between the
+   label and its own value. A rule in the middle reads as a separator from the
+   label ABOVE, which made every value look like a heading for the next one. ── */
+.dm-rofield { gap: 3px; padding-bottom: 11px; border-bottom: 1px solid var(--color-border); }
+.dm-rofield:last-child { padding-bottom: 0; border-bottom: 0; }
+.dm-rofield > span { color: var(--color-muted); font-size: 12px; font-weight: 650; }
+.dm-ro { border-top: 0; padding: 0; }
+
+/* ── Report tab: short reference fields pair on one row, prose runs full
+   width beneath them. ── */
+.dm-report-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px 22px;
+  align-items: start;
+}
+.dm-report-wide { grid-column: 1 / -1; min-width: 0; }
+
+/* ── Collapsible header region ── */
+.dm-identity { position: relative; }
+.dm-id-toggle {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  appearance: none;
+  border: 1px solid color-mix(in srgb, var(--color-primary) 30%, transparent);
+  background: var(--color-surface);
+  border-radius: 999px;
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 650;
+  color: var(--color-primary);
+  cursor: pointer;
+  padding: 3px 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: background .15s, border-color .15s;
+}
+.dm-id-toggle:hover { background: color-mix(in srgb, var(--color-primary) 10%, var(--color-surface)); }
+.dm-id-toggle[aria-expanded='true'] .dm-caret::after { content: '\25b4'; }
+.dm-id-toggle .dm-caret { color: inherit; }
+/* Keep the summary clear of the toggle when expanded. */
+.dm-identity:not(.dm-identity--compact) .dm-id-summary { padding-right: 118px; }
+
+.dm-identity--compact {
+  flex-direction: row;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 12px 9px 14px;
+  flex-wrap: nowrap;
+  overflow: hidden;
+}
+.dm-identity--compact .dm-id-toggle { position: static; flex: 0 0 auto; }
+.dm-id-oneline {
+  font-size: 13.5px;
+  font-weight: 700;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dm-id-alertcount {
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--status-duplicate-fg);
+  background: color-mix(in srgb, var(--status-duplicate-bg) 65%, var(--color-surface));
+  border: 1px solid color-mix(in srgb, var(--status-duplicate-fg) 35%, transparent);
+  border-radius: 999px;
+  padding: 3px 9px;
+  white-space: nowrap;
+}
+/* Collapsed: the whole strip is one line, so give the panes the room back. */
+.dm-fixed--collapsed { padding-bottom: 0; }
+
+@container (max-width: 480px) {
+  .dm-report-grid { grid-template-columns: 1fr; }
+  .dm-identity:not(.dm-identity--compact) .dm-id-summary { padding-right: 0; }
+  .dm-id-toggle { position: static; align-self: flex-start; }
+  .dm-identity--compact { flex-wrap: wrap; }
+  .dm-id-oneline { flex: 1 1 100%; white-space: normal; }
+}
+
+/* ── EasyVista file picker: thumbnails, selectable ── */
+.dm-evgrid { padding: 12px 13px 0; }
+.dm-evthumb { gap: 6px; }
+.dm-evthumb--on {
+  border-color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 8%, var(--color-surface));
+}
+.dm-evthumb-pick {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+}
+.dm-evthumb--on .dm-evthumb-pick { color: var(--color-primary); }
+.dm-evthumb-pick input {
+  margin: 0;
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+  accent-color: var(--color-primary);
+}
+/* At the cap, unchosen files read as unavailable rather than broken. */
+.dm-evthumb-pick:has(input:disabled) { opacity: .55; cursor: not-allowed; }
+.dm-evthumb-pick:has(input:focus-visible) { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+
+/* ── The consequence card, folded ── */
+.dm-consequence--fold { padding: 0; gap: 0; }
+.dm-consequence--fold > summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 10px 13px;
+  font-size: 13px;
+  font-weight: 750;
+  color: var(--status-duplicate-fg);
+}
+.dm-consequence--fold > summary::-webkit-details-marker { display: none; }
+.dm-consequence--fold > summary .dm-caret { color: inherit; }
+.dm-consequence--fold[open] > summary .dm-caret::after { content: '\25b4'; }
+.dm-consequence--fold[open] > summary { border-bottom: 1px solid color-mix(in srgb, var(--status-duplicate-fg) 25%, transparent); }
+.dm-consequence--fold > ul { padding: 11px 13px 12px; }

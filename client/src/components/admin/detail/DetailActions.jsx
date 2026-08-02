@@ -1,10 +1,23 @@
-import { Button, Notice } from '../../bite-size/BitsizeUI';
+import { useState } from 'react';
+import { Button, Modal, Notice } from '../../bite-size/BitsizeUI';
+import { AdminMenu, AdminMenuItem } from '../AdminHeader';
 import { SaveWithTooltip } from './SaveWithTooltip';
 import { buildRespondToUserMailto } from '../../../utils/formatUtils';
 
 /**
- * Footer actions row (Save / Retire-Unretire / Respond-to-User /
- * Submit-to-EasyVista) plus the trailing notices.
+ * The pinned action bar.
+ *
+ * These four actions used to sit inside the scroll region in one flat row —
+ * primary Save eight pixels from a red Retire, with the irreversible EasyVista
+ * hand-off styled more quietly than either. Expanding any section pushed all of
+ * them out of view, which is why Save had to be duplicated into the header.
+ *
+ * Now: one primary, the outbound action beside it, and the two rarely-used
+ * actions behind an overflow menu. Retiring asks first — it is a state change
+ * with no undo in the modal, and the queue's bulk retire already confirms.
+ *
+ * The menu is a DOM descendant of the modal, never a portal: a portal's clicks
+ * would land on the backdrop, whose close handler discards staged attachments.
  */
 export function DetailActions({
   detail,
@@ -17,15 +30,25 @@ export function DetailActions({
   saveEdits,
   retireCurrentItem,
   unretireCurrentItem,
-  submitEasyVista,
   modalBottomNotice,
   easyVistaConfirmation,
+  locked,
+  onReview,
 }) {
+  const [confirmRetire, setConfirmRetire] = useState(false);
   const respondMailto = buildRespondToUserMailto(detail);
+  const resultNotice = modalBottomNotice || easyVistaConfirmation;
+
   return (
-    <>
-      {/* ── Actions ── */}
-      <div className="bs-actions">
+    <div className="dm-foot">
+      <p className={`dm-foot-state${hasPendingChanges ? ' dm-foot-state--dirty' : ''}`}>
+        {working
+          ? 'Saving…'
+          : resultNotice
+            || (hasPendingChanges ? 'Unsaved changes' : 'No unsaved changes.')}
+      </p>
+
+      <div className="dm-foot-actions">
         <SaveWithTooltip
           show={showFooterSaveTooltip}
           setShow={setShowFooterSaveTooltip}
@@ -34,47 +57,69 @@ export function DetailActions({
           saveDisabledReason={saveDisabledReason}
           onSave={() => saveEdits('footer')}
         />
-        {edit.is_retired ? (
-          <Button
-            kind="secondary"
-            onClick={unretireCurrentItem}
-            disabled={working}
-          >
-            Unretire Item
-          </Button>
-        ) : (
-          <Button
-            kind="danger"
-            onClick={retireCurrentItem}
-            disabled={working}
-          >
-            Retire Item
-          </Button>
-        )}
+        {/* Routes to the EasyVista tab rather than sending. Nothing outbound
+            happens without the admin seeing the payload first. */}
         <Button
           kind="secondary"
-          onClick={() => { window.location.href = respondMailto; }}
+          onClick={onReview}
+          disabled={working || locked}
         >
-          Respond to User
+          {detail.easyvista_ticket_id ? 'Re-submit to EasyVista…' : 'Submit to EasyVista…'}
         </Button>
-        <Button
-          kind="secondary"
-          onClick={submitEasyVista}
-          disabled={working}
+        <AdminMenu
+          label="More actions"
+          triggerClassName="bs-btn bs-btn-ghost"
+          trigger={<><span aria-hidden="true">⋯</span> More</>}
         >
-          {detail.easyvista_ticket_id ? 'Re-submit to EasyVista' : 'Submit to EasyVista'}
-        </Button>
+          {({ close }) => (
+            <>
+              <AdminMenuItem onClick={() => { close(); window.location.href = respondMailto; }}>
+                Respond to User
+              </AdminMenuItem>
+              {edit.is_retired ? (
+                <AdminMenuItem
+                  disabled={working || locked}
+                  onClick={() => { close(); unretireCurrentItem(); }}
+                >
+                  Unretire Item
+                </AdminMenuItem>
+              ) : (
+                <AdminMenuItem
+                  disabled={working || locked}
+                  onClick={() => { close(); setConfirmRetire(true); }}
+                >
+                  Retire Item…
+                </AdminMenuItem>
+              )}
+            </>
+          )}
+        </AdminMenu>
       </div>
-      {!working && !hasPendingChanges && (
-        <p className="muted" style={{ marginTop: -4, fontSize: 13 }}>
-          No unsaved changes.
-        </p>
-      )}
-      {modalBottomNotice && <Notice text={modalBottomNotice} kind="success" />}
-      {easyVistaConfirmation && <Notice text={easyVistaConfirmation} kind="success" />}
-      {detail.easyvista_ticket_id && (
-        <p className="muted" style={{ fontSize: 13 }}>EasyVista ticket: <strong>{detail.easyvista_ticket_id}</strong></p>
-      )}
-    </>
+
+      <Modal
+        open={confirmRetire}
+        onClose={() => setConfirmRetire(false)}
+        title="Retire this item?"
+      >
+        <div className="stack">
+          <p>
+            Submission #{detail.id} will be hidden from the active queue and its status
+            locked. You can bring it back with Unretire Item.
+          </p>
+          {hasPendingChanges && (
+            <Notice
+              text="You have unsaved changes. Retiring saves the retired flag only — your other edits stay unsaved."
+              kind="info"
+            />
+          )}
+          <div className="bs-actions">
+            <Button kind="danger" onClick={() => { setConfirmRetire(false); retireCurrentItem(); }}>
+              Retire Item
+            </Button>
+            <Button kind="ghost" onClick={() => setConfirmRetire(false)}>Cancel</Button>
+          </div>
+        </div>
+      </Modal>
+    </div>
   );
 }

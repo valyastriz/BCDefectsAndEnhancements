@@ -290,6 +290,12 @@ export const api = {
     request(`/api/admin/attachments/${id}`, {
       method: 'DELETE',
     }),
+  previewEasyVista: (id, draft, sendAsType, attachmentIds) =>
+    request(`/api/admin/submissions/${id}/easyvista-preview`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ draft, sendAsType, attachmentIds }),
+    }),
   submitToEasyVista: (id, data) =>
     request(`/api/admin/submissions/${id}/submit-easyvista`, {
       method: 'POST',
