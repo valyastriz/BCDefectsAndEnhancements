@@ -250,6 +250,48 @@ test('a ticket endorsed by the LLM is not repeated in the keyword section', () =
   assert.deepEqual(section.map((c) => c.id), [8]);
 });
 
+test('the two sections are disjoint: a ticket lands in the keyword list ONLY if it missed the AI list', () => {
+  // Mirrors the exact wiring in runAiSearch, under the worst overlap available:
+  // ticket 1 is a top-K semantic candidate AND an identifier hit AND endorsed;
+  // ticket 7 is both an identifier hit and a keyword hit AND endorsed; ticket 9
+  // is a literal hit that the LLM ignored. Only 9 may appear below.
+  const topK = [
+    { id: 1, match: 0.9, score: 0.95 },
+    { id: 2, match: 0.8, score: 0.85 },
+  ];
+  const identifierHits = [
+    { id: 1, match: 0.9, score: 0.95, matchedOn: ['policy_num'] },
+    { id: 7, match: 0.2, score: 0.24, matchedOn: ['easyvista_ticket_id'] },
+  ];
+  const keywordHits = [
+    { id: 7, match: 0.2, score: 0.24 }, // same ticket, reached by both paths
+    { id: 9, match: 0.1, score: 0.13 },
+  ];
+  const llmCandidates = unionKeywordHits(topK, [...identifierHits, ...keywordHits], 30);
+  const aiMatches = [
+    { submission_id: 1, relevance: 'high', why: '' },
+    { submission_id: 7, relevance: 'medium', why: '' },
+  ];
+
+  const semantic = composeFinalResults({ candidates: llmCandidates, aiMatches, limit: 20 });
+  const keyword = composeKeywordMatches({
+    identifierHits,
+    keywordHits,
+    excludeIds: semantic.map((c) => c.id),
+    limit: 20,
+  });
+
+  assert.deepEqual(semantic.map((c) => c.id), [1, 7], 'endorsed tickets stay in the AI section');
+  assert.deepEqual(keyword.map((c) => c.id), [9], 'only the unendorsed literal hit falls through');
+
+  const semanticIds = new Set(semantic.map((c) => c.id));
+  const overlap = keyword.filter((c) => semanticIds.has(c.id)).map((c) => c.id);
+  assert.deepEqual(overlap, [], `a ticket appeared in both sections: ${overlap.join(', ')}`);
+  // Reaching the keyword list by two paths must not list it twice either.
+  assert.equal(new Set(keyword.map((c) => c.id)).size, keyword.length, 'keyword section has duplicates');
+  assert.equal(new Set(semantic.map((c) => c.id)).size, semantic.length, 'AI section has duplicates');
+});
+
 test('composeKeywordMatches puts identifier hits first and respects the limit', () => {
   const identifierHits = [{ id: 5, match: 0, score: 0.02, matchedOn: ['easyvista_ticket_id'] }];
   const keywordHits = [
