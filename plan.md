@@ -3,6 +3,59 @@
 Living record of notable features/changes. See `CLAUDE.md` for architecture and
 per-app details.
 
+## Submit a Request Page Redesign — built, awaiting UI sign-off (2026-08-02)
+
+Carries the queue and detail-modal vocabulary out to the one page reps actually use.
+Design approved as Artifact **v2** before any code
+(https://claude.ai/code/artifact/e9839aff-f9c0-4cae-88e9-2b205eebb052). Redesigned from
+the rep's job — *tell the BC team fast, and don't file something already reported* —
+rather than by rearranging the old form. No DB, endpoint or payload change:
+`POST /api/submissions` is untouched.
+
+**The duplicate check moved into the summary field** (`components/public/DuplicateCheck.jsx`).
+The old page put `AiSearchPanel` above the form, so a rep typed their issue into the search
+box and then retyped the same sentence into "Summary of Issue". Now the summary *is* the
+query, and the check renders inline beneath it: idle → loading skeletons → hits (AI summary
++ `PublicItemCard` results, collapsible) → nothing-found → error. Editing the summary after
+a check flips the control to "Re-check" rather than leaving stale matches looking current.
+Searches **all time**, unlike the panel's 24-month default — for a duplicate check an old
+Deployed ticket is exactly the answer the rep needs. Self-disables with the feature.
+
+`AiSearchPanel` is deliberately **untouched** — it is a search tool with its own query box,
+system scope and time window, and it still serves the admin queue and the status board. The
+two share `api.aiSearch`, not a component.
+
+**A "Before you submit" rail** (`components/public/SubmitReadinessRail.jsx`) ticks required
+fields off as they are typed, holds the screenshot nudge next to the button that needs it,
+and owns the primary action plus a "what happens next" 1-2-3 (New → Approved → Submitted).
+The old form only revealed missing fields *after* Submit, as one concatenated string.
+Failed submit now also marks each field inline and focuses the first one. Under 980px the
+rail stacks and a sticky bottom bar takes over as the always-reachable Submit — it is a
+sibling of the rail, not nested in the form column, so it still lands last once stacked.
+
+**Screenshots got a real drop zone** (`components/public/ScreenshotDropZone.jsx`): drag,
+browse, or **Ctrl+V paste** — the way reps actually capture screens. Mirrors the server's
+allow-list (`middleware/upload.js`) so an oversized or non-image file is refused inline with
+a reason instead of coming back as a 400 after the whole form is filled. Object-URL
+lifecycle stays in the page, where `files` is local state — as a prop it trips
+`react-hooks/set-state-in-effect`.
+
+**Type choice is two descriptive cards**, since it reshapes the whole form. **Confirmation**
+keeps the reference number, a recap of what the team will see, and a link to the Status
+Board (true: rep tickets are created `is_public: 1`).
+
+Styles are a new `rs-` namespace at the end of `index.css`, semantic vars + `color-mix()`
+only, so there are no dark-theme overrides to keep in sync. `.section-label` and `.thumb-*`
+were left alone — five admin components render them. Removed with the page that owned them:
+`.type-picker`, `.submit-page-wrap`, `.submitted-card`, `.submitted-icon`.
+
+Also dropped the dead `desired_completion_date` from the form payload — it was in
+`initialForm` and always sent empty. Admins fill it in before the EasyVista hand-off.
+
+Not verified: no browser was driven, so the rendered layout, both themes, and the
+narrow-width behaviour are unconfirmed. API paths, lint, build and the server suite were
+exercised.
+
 ## FIXED — enhancements were being sent to EasyVista as defects (2026-08-01)
 
 Found while building the EasyVista preview; not introduced by the redesign. Resolved by
