@@ -107,10 +107,20 @@ changes:
   draft and writes nothing.
 - The tab states the consequences a re-submit actually has — it **forks the record**
   rather than updating the ticket — lists all 18 fields that never reach EasyVista,
-  marks rows changed by unsaved edits, and offers the raw string.
+  marks rows changed by unsaved edits, and shows the outgoing description.
 - Blocked sends are **editable inline** on the EasyVista tab, wired to the same `edit`
-  state as the other tabs. The footer's send button opens the tab; the tab's opens a
-  confirm. Nothing outbound happens without the payload being seen first.
+  state as the other tabs.
+- **The action bar sends outright when there is nothing left to decide** — a first send,
+  a resolved send-as type, no missing required fields (`canSubmitEasyVistaDirectly` in
+  `useDetailModal`). Routing every send through the tab meant a detour past a page that
+  had nothing to say. The three cases that do need a decision still go there: a resubmit
+  (it forks), a blocked send (fields to fill), a Cleanup Only task (no type yet). The
+  button's ellipsis tracks which is which — present only when the click opens something.
+- The confirm dialog's **"See the full outgoing text" renders the description as
+  EasyVista lays it out**, not as HTML markup. It is a label/value table, so showing the
+  tags made the admin parse markup to read their own ticket; the literal `Description`
+  string is one disclosure further in. Both come from `preview.rows` / `preview.raw`,
+  which the server builds from the same rows, so neither can drift from what is sent.
 
 **"Send as" — the outgoing type is chosen, not inferred.** EasyVista accepts a defect or
 an enhancement and nothing else, so the admin picks which one a send goes out as, on both
@@ -198,9 +208,20 @@ the confirm dialog and inline blocked-field editing exercised for real, and an
 **EasyVista is wired but deliberately not connected.** `EASYVISTA_ENABLED` is a master
 switch that defaults OFF; credentials alone are not enough, because the endpoint path and
 the response shape are still assumptions. While it is off, a send records a placeholder
-`EV-#####` id and transmits nothing, and both the EasyVista tab and the success message
-say so — a stubbed send still writes a realistic-looking id onto a real record, so it
-must not read as a genuine ticket.
+`EV-#####` id and transmits nothing.
+
+**How that is presented is a second switch, `EASYVISTA_DEMO_MODE` (default ON).** The
+integration exists to be shown to stakeholders before go-live, so by default an un-wired
+send is presented exactly as the real one will be: press send, get an incident number
+back, ticket moves to Submitted, no caveats anywhere. Setting it to `false` restores the
+honest wording on all three surfaces — the EasyVista tab banner, the confirm dialog
+footer, and the result message — for when a stubbed send writing a realistic-looking id
+onto a real record must not read as a genuine ticket.
+
+The flag is only consulted when the integration is **not** live (`easyVistaDemoMode()`
+returns false outright once `easyVistaIsLive()` is true), so it can never dress up or
+quiet a warning about a real transmission. The client reads it as `preview.demo` on the
+dry-run response, and as `source: 'demo'` rather than `'stub'` on the send response.
 
 To connect it, in order: confirm `EASYVISTA_REQUESTS_PATH` and the response shape, fill
 in `sendEasyVistaAttachments` (the only unimplemented function — the picker, the four-file

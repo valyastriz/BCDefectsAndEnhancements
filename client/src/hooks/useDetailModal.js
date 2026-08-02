@@ -208,6 +208,19 @@ export function useDetailModal({ loadRows, setRows, setError, currentUsername })
     return missing;
   }, [detail, edit, resolvedSendAsType]);
 
+  // Whether the action bar can send outright instead of routing to the
+  // EasyVista tab first. A first send with nothing blocking is unambiguous —
+  // the tab has nothing to tell the admin that the button has not. The three
+  // cases excluded here each need a decision made there: a resubmit forks the
+  // record into a new submission and a new ticket, a missing required field has
+  // to be typed in, and a Cleanup Only task has no type until one is chosen.
+  const canSubmitEasyVistaDirectly = Boolean(
+    detail
+    && !detail.easyvista_ticket_id
+    && resolvedSendAsType
+    && easyVistaMissingRequirements.length === 0,
+  );
+
   const hasPendingChanges = useMemo(
     () => (
       hasPendingModalChanges(detail, edit)
@@ -493,6 +506,9 @@ export function useDetailModal({ loadRows, setRows, setError, currentUsername })
       setShowEasyVistaRequirements(false);
       // A stubbed send still stores a realistic-looking ticket id, so say so
       // rather than letting a placeholder read as a real EasyVista ticket.
+      // `demo` is the same fabricated id deliberately presented as real, for
+      // walkthroughs of the flow before EasyVista is switched on — it gets no
+      // caveat, which is the point.
       const simulated = result?.source === 'stub';
       const suffix = simulated
         ? ' (placeholder — EasyVista is not connected yet, nothing was transmitted)'
@@ -562,6 +578,7 @@ export function useDetailModal({ loadRows, setRows, setError, currentUsername })
     easyVistaAttachmentIds,
     setEasyVistaAttachmentIds,
     easyVistaMissingRequirements,
+    canSubmitEasyVistaDirectly,
     hasPendingChanges,
     visibleExistingAttachments,
     pendingAttachmentItems,

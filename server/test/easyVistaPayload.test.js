@@ -288,8 +288,10 @@ test('the table and the preview rows come from one source', () => {
 // ── Attachments ───────────────────────────────────────────────────────────
 
 const {
+  submitToEasyVista,
   sendEasyVistaAttachments,
   easyVistaIsLive,
+  easyVistaDemoMode,
   EASYVISTA_MAX_ATTACHMENTS,
 } = require('../src/easyvista');
 
@@ -301,13 +303,28 @@ function withEnv(vars, fn) {
     if (value === undefined) delete process.env[key];
     else process.env[key] = value;
   }
-  try {
-    return fn();
-  } finally {
+  const restore = () => {
     for (const [key, value] of Object.entries(previous)) {
       if (value === undefined) delete process.env[key];
       else process.env[key] = value;
     }
+  };
+  try {
+    const result = fn();
+    // An async `fn` is still mid-flight when it hands back its promise, so the
+    // env has to survive until that settles — restoring in `finally` would pull
+    // it out from under everything after the first await.
+    if (result && typeof result.then === 'function') {
+      return result.then(
+        (value) => { restore(); return value; },
+        (error) => { restore(); throw error; },
+      );
+    }
+    restore();
+    return result;
+  } catch (error) {
+    restore();
+    throw error;
   }
 }
 
@@ -338,6 +355,45 @@ test('live requires the switch and both credentials', () => {
       () => assert.equal(easyVistaIsLive(), true, `"${flag}" should enable it`),
     );
   }
+});
+
+// ── Demo mode ─────────────────────────────────────────────────────────────
+
+test('demo mode is on by default while EasyVista is not wired up', async () => {
+  await withEnv(
+    { EASYVISTA_ENABLED: undefined, EASYVISTA_DEMO_MODE: undefined },
+    async () => {
+      assert.equal(easyVistaDemoMode(), true);
+      const result = await submitToEasyVista({ type: 'defect' });
+      assert.match(result.ticketId, /^EV-\d{5}$/, 'the walkthrough needs a realistic incident number');
+      assert.equal(result.source, 'demo', 'the client caveats "stub", not "demo"');
+    },
+  );
+});
+
+test('demo mode can be switched off for the honest wording', async () => {
+  await withEnv(
+    { EASYVISTA_ENABLED: undefined, EASYVISTA_DEMO_MODE: 'false' },
+    async () => {
+      assert.equal(easyVistaDemoMode(), false);
+      const result = await submitToEasyVista({ type: 'defect' });
+      assert.equal(result.source, 'stub', 'so the confirmation says nothing was transmitted');
+    },
+  );
+});
+
+test('demo mode can never dress up a real send', () => {
+  // Guard: once the integration is live the flag must stop meaning anything,
+  // so it can never suppress a caveat about an actual transmission.
+  withEnv(
+    {
+      EASYVISTA_ENABLED: 'true',
+      EASYVISTA_BASE_URL: 'https://ev.example',
+      EASYVISTA_API_KEY: 'k',
+      EASYVISTA_DEMO_MODE: 'true',
+    },
+    () => assert.equal(easyVistaDemoMode(), false),
+  );
 });
 
 const file = (id) => ({ id, filename: `f${id}.png`, mime_type: 'image/png', file_path: `u/f${id}.png` });

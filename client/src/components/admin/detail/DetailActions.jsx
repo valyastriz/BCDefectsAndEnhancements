@@ -33,7 +33,8 @@ export function DetailActions({
   modalBottomNotice,
   easyVistaConfirmation,
   locked,
-  onReview,
+  sendsDirectly,
+  onEasyVista,
 }) {
   const [confirmRetire, setConfirmRetire] = useState(false);
   const respondMailto = buildRespondToUserMailto(detail);
@@ -57,14 +58,19 @@ export function DetailActions({
           saveDisabledReason={saveDisabledReason}
           onSave={() => saveEdits('footer')}
         />
-        {/* Routes to the EasyVista tab rather than sending. Nothing outbound
-            happens without the admin seeing the payload first. */}
+        {/* Sends outright when there is nothing left to decide, and routes to
+            the EasyVista tab when there is — a resubmit to confirm the fork, a
+            blocked send to fill the fields in, a Cleanup Only task to pick a
+            type. The ellipsis tracks that: it is there only when the click
+            opens something rather than sending. */}
         <Button
           kind="secondary"
-          onClick={onReview}
+          onClick={onEasyVista}
           disabled={working || locked}
         >
-          {detail.easyvista_ticket_id ? 'Re-submit to EasyVista…' : 'Submit to EasyVista…'}
+          {detail.easyvista_ticket_id
+            ? 'Re-submit to EasyVista…'
+            : `Submit to EasyVista${sendsDirectly ? '' : '…'}`}
         </Button>
         <AdminMenu
           label="More actions"

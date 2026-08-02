@@ -187,8 +187,10 @@ export function DetailEasyVistaSection({
       </div>
 
       {/* A stubbed send still writes a realistic-looking EV-##### onto the
-          record, so the admin has to be told it was not real. */}
-      {preview && !preview.live && (
+          record, so the admin has to be told it was not real — unless the
+          server is in demo mode, where showing the flow as it will work once
+          EasyVista is switched on is the whole point. */}
+      {preview && !preview.live && !preview.demo && (
         <Notice
           kind="info"
           text={'The EasyVista connection is not switched on yet. Sending records a placeholder '
@@ -550,21 +552,40 @@ function EasyVistaConfirm({
             </div>
           )}
 
+          {/* The description EasyVista receives, laid out the way it renders
+              there. It is a label/value table, so showing it as markup made the
+              admin parse tags to read their own ticket. The literal string is
+              still one click further in, for checking the payload itself. */}
           <details className="dm-nested">
             <summary>
               <span className="dm-caret" aria-hidden="true" />
               <span>See the full outgoing text</span>
               <span className="dm-nested-hint">{`${preview.rows.length} fields`}</span>
             </summary>
-            <div className="dm-pre-scroll">
-              <pre>{preview.raw}</pre>
+            <div className="dm-payload-rows">
+              {preview.rows.map((row) => (
+                <div className="dm-prow" key={row.key}>
+                  <span className="dm-prow-k">{row.label}</span>
+                  <span className="dm-prow-v">{row.value === '' ? <em>empty</em> : row.value}</span>
+                </div>
+              ))}
             </div>
+            <details className="dm-nested dm-nested--inner">
+              <summary>
+                <span className="dm-caret" aria-hidden="true" />
+                <span>HTML source</span>
+                <span className="dm-nested-hint">the literal Description string</span>
+              </summary>
+              <div className="dm-pre-scroll">
+                <pre>{preview.raw}</pre>
+              </div>
+            </details>
           </details>
         </div>
 
         <div className="dm-foot">
           <p className="dm-foot-state">
-            {preview.live
+            {preview.live || preview.demo
               ? 'Nothing is sent until you confirm.'
               : 'Not connected yet — this records a placeholder ticket number only.'}
           </p>
