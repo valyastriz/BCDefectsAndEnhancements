@@ -1,109 +1,93 @@
-import { Card, Input, Select, Textarea } from '../../bite-size/BitsizeUI';
-import {
-  formatDateOnly,
-  isAutoEasyVistaReporter,
-} from '../../../utils/formatUtils';
+import { DetailGroup } from './DetailPane';
+import { formatDateTime } from '../../../utils/formatUtils';
 
 /**
- * Submission Details, the More Submission Details <details>, and the
- * "As Submitted To EasyVista" preview block.
+ * Report — the form as it came in, read-only.
+ *
+ * This is a record, not a working copy, so it reads from `detail` rather than
+ * the `edit` draft. The editable versions of these fields live on the EasyVista
+ * Submission tab, which is the only reason to change them.
+ *
+ * TODO(snapshots): once `reported_snapshot` / `easyvista_snapshot` exist this
+ * switches to showing the captured values, and the original stays reachable
+ * after a submission. Until then it shows the current saved values and says so —
+ * see `reportSource` below.
  */
-export function DetailSubmissionSection({
-  detail,
-  edit,
-  setEdit,
-  effectiveType,
-  dynamicApplications,
-}) {
+function reportSource(detail) {
+  if (detail.easyvista_ticket_id) {
+    return {
+      label: 'Submitted to EasyVista',
+      note: `Raised as ${detail.easyvista_ticket_id}. Showing the current saved values —`
+        + ' this ticket predates the capture of what was originally reported.',
+    };
+  }
+  return {
+    label: 'As reported',
+    note: 'Not yet sent to EasyVista. Showing the current saved values.',
+  };
+}
+
+/** One read-only value. Long-form text keeps its line breaks. */
+function ReportValue({ label, value, block = false }) {
+  const isEmpty = value === null || value === undefined || String(value).trim() === '';
+  return (
+    <div className="bs-field dm-rofield">
+      <span>{label}</span>
+      <p className={`dm-ro${block ? ' dm-ro--block' : ''}${isEmpty ? ' dm-ro--empty' : ''}`}>
+        {isEmpty ? 'Not given' : value}
+      </p>
+    </div>
+  );
+}
+
+export function DetailSubmissionSection({ detail, effectiveType }) {
+  const isDefect = effectiveType === 'defect' || !effectiveType;
+  const { label, note } = reportSource(detail);
+
   return (
     <>
-      {/* ── Submission details ── */}
-      <p className="section-label">Submission Details</p>
-      <Input label="Summary" value={edit.summary_of_issue} onChange={(e) => setEdit((p) => ({ ...p, summary_of_issue: e.target.value }))} />
-      <div className="bs-grid two">
-        <Input label="Reported Date" value={formatDateOnly(detail.created_at)} readOnly />
-        <Input label="Requester Name" value={detail.created_by || ''} readOnly />
+      <div className="dm-ev-head">
+        <h4>{label}</h4>
+        <p>{note}</p>
       </div>
 
-      <details>
-        <summary style={{ cursor: 'pointer', fontWeight: 600 }}>More Submission Details</summary>
-        <div className="bs-form" style={{ marginTop: 12 }}>
-          {(effectiveType === 'defect' || !effectiveType) && (
-            <Input label="Date / Time of Error" type="datetime-local" value={edit.date_time_of_error} onChange={(e) => setEdit((p) => ({ ...p, date_time_of_error: e.target.value }))} />
-          )}
-          {(effectiveType === 'defect' || !effectiveType) && (
-            <Textarea label="Exact Details / What Happened" rows={3} value={edit.what_happened_exact_details} onChange={(e) => setEdit((p) => ({ ...p, what_happened_exact_details: e.target.value }))} />
-          )}
-          {effectiveType === 'enhancement' && (
-            <Textarea label="Request Details" rows={3} value={edit.request} onChange={(e) => setEdit((p) => ({ ...p, request: e.target.value }))} />
-          )}
-          {(effectiveType === 'defect' || !effectiveType) && (
-            <Textarea label="Steps to Reproduce" rows={3} value={edit.steps_to_reproduce} onChange={(e) => setEdit((p) => ({ ...p, steps_to_reproduce: e.target.value }))} />
-          )}
-          <div className="bs-grid two">
-            <Select
-              label="Application"
-              value={edit.application_name || 'Billing Center'}
-              onChange={(e) => setEdit((p) => ({ ...p, application_name: e.target.value }))}
-            >
-              {dynamicApplications.map((application) => (
-                <option key={application} value={application}>{application}</option>
-              ))}
-            </Select>
-            <Input label="Policy #" value={edit.policy_num} onChange={(e) => setEdit((p) => ({ ...p, policy_num: e.target.value }))} />
-            <Input label="Account #" value={edit.account_num} onChange={(e) => setEdit((p) => ({ ...p, account_num: e.target.value }))} />
-            <Input label="Transaction #" value={edit.transaction_num} onChange={(e) => setEdit((p) => ({ ...p, transaction_num: e.target.value }))} />
-            <Input label="Fingerprint" value={edit.fingerprint} onChange={(e) => setEdit((p) => ({ ...p, fingerprint: e.target.value }))} />
-          </div>
-          <Input label="Screen Title" value={edit.screen_title} onChange={(e) => setEdit((p) => ({ ...p, screen_title: e.target.value }))} />
-        </div>
-      </details>
+      {/* The short reference fields pair up on one row; Details runs full width
+          beneath them, because it holds multi-paragraph prose that is unreadable
+          squeezed into a third of the modal. */}
+      <div className="dm-report-grid">
+        <DetailGroup label="Record references">
+          <ReportValue label="Policy #" value={detail.policy_num} />
+          <ReportValue label="Account #" value={detail.account_num} />
+          <ReportValue label="Transaction #" value={detail.transaction_num} />
+        </DetailGroup>
 
-      {/* ── Description As Submitted To EasyVista ── */}
-      {detail.easyvista_ticket_id && isAutoEasyVistaReporter(detail.easyvista_submitted_by) && (() => {
-        const evDesc = [
-          `Type: ${detail.type || ''}`,
-          `Application: ${detail.application_name || ''}`,
-          `Created By: ${detail.created_by || ''} (${detail.created_by_email || ''})`,
-          `Policy #: ${detail.policy_num || 'N/A'}`,
-          `Account #: ${detail.account_num || 'N/A'}`,
-          `Transaction #: ${detail.transaction_num || 'N/A'}`,
-          `Screen Title: ${detail.screen_title || ''}`,
-          `Date/Time of Error: ${detail.date_time_of_error || ''}`,
-          `Desired Completion Date: ${detail.desired_completion_date || 'N/A'}`,
-          `Enhancement Request Type: ${detail.enhancement_request_type || 'N/A'}`,
-          `Priority Level: ${detail.priority_level || 'N/A'}`,
-          `JIRA Number: ${detail.jira_number || 'N/A'}`,
-          '',
-          'Summary:',
-          detail.summary_of_issue || '',
-          '',
-          'Steps to Reproduce:',
-          detail.steps_to_reproduce || '',
-          '',
-          'What Happened (Exact Details):',
-          `${detail.created_by || 'Requester'} submitted the following:`,
-          detail.what_happened_exact_details || '',
-          '',
-          'Request:',
-          detail.request || '',
-          '',
-          'Impact Details:',
-          detail.impact_details || 'N/A',
-        ].join('\n');
-        return (
-          <details>
-            <summary style={{ cursor: 'pointer', fontWeight: 600, color: 'var(--color-primary)' }}>
-              As Submitted To EasyVista
-            </summary>
-            <Card className="inner" style={{ marginTop: 10 }}>
-              <pre style={{ margin: 0, fontFamily: 'inherit', fontSize: 13, whiteSpace: 'pre-wrap', wordBreak: 'break-word', color: 'var(--color-text)', background: 'var(--color-surface)', padding: 12, borderRadius: 6, border: '1px solid var(--color-border)' }}>
-                {evDesc}
-              </pre>
-            </Card>
-          </details>
-        );
-      })()}
+        <DetailGroup label="Where it happened">
+          <ReportValue label="Application" value={detail.application_name} />
+          <ReportValue label="Screen Title" value={detail.screen_title} />
+          {isDefect && (
+            <ReportValue label="Date / Time of Error" value={formatDateTime(detail.date_time_of_error)} />
+          )}
+        </DetailGroup>
+
+        <div className="dm-report-wide">
+          <DetailGroup label="Details">
+            <ReportValue label="Summary" value={detail.summary_of_issue} block />
+            {isDefect && (
+              <ReportValue
+                label="Exact Details / What Happened"
+                value={detail.what_happened_exact_details}
+                block
+              />
+            )}
+            {effectiveType === 'enhancement' && (
+              <ReportValue label="Request Details" value={detail.request} block />
+            )}
+            {isDefect && (
+              <ReportValue label="Steps to Reproduce" value={detail.steps_to_reproduce} block />
+            )}
+          </DetailGroup>
+        </div>
+      </div>
     </>
   );
 }

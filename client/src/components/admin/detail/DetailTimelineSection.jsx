@@ -1,55 +1,50 @@
-import { Card } from '../../bite-size/BitsizeUI';
 import {
   formatDateTime,
   formatTimelineStatus,
 } from '../../../utils/formatUtils';
 
 /**
- * Status Timeline card.
+ * The status trail, as the first block of the History & reference tab.
+ *
+ * One list with its own scroll boundary, newest first. Previously the latest
+ * event was always expanded and older ones sat behind a second nested
+ * disclosure, so a long-lived ticket buried everything below it.
  */
 export function DetailTimelineSection({
   detail,
   dynamicCoreStatusSet,
   dynamicCleanupStatusSet,
 }) {
+  const events = detail.status_events || [];
+
+  if (events.length === 0) {
+    return (
+      <div className="queue-state queue-state--inset">
+        <span className="queue-state-icon" aria-hidden="true">✦</span>
+        <h4>No status history found.</h4>
+        <p>
+          This ticket has not changed status since it was created. Set a status in Triage
+          and the change will be recorded here.
+        </p>
+      </div>
+    );
+  }
+
   return (
-    <>
-      <p className="section-label">Status Timeline</p>
-      <Card className="inner">
-        {!detail.status_events || detail.status_events.length === 0 ? (
-          <p className="muted">No status history found.</p>
-        ) : (
-          <div className="bs-form" style={{ gap: 10 }}>
-            <div style={{ borderBottom: '1px solid var(--slate-200)', paddingBottom: 8 }}>
-              <p style={{ margin: 0 }}>
-                <strong>{formatTimelineStatus(detail.status_events[0].status, dynamicCoreStatusSet, dynamicCleanupStatusSet)}</strong> on {formatDateTime(detail.status_events[0].changed_at)}
-              </p>
-              <p className="muted" style={{ margin: 0, fontSize: 13 }}>
-                Updated by: {detail.status_events[0].changed_by || 'Unknown'}
-              </p>
-            </div>
-            {detail.status_events.length > 1 && (
-              <details>
-                <summary style={{ cursor: 'pointer', fontWeight: 600 }}>
-                  Show previous statuses ({detail.status_events.length - 1})
-                </summary>
-                <div className="bs-form" style={{ gap: 8, marginTop: 10 }}>
-                  {detail.status_events.slice(1).map((event) => (
-                    <div key={event.id} style={{ borderBottom: '1px solid var(--slate-200)', paddingBottom: 8 }}>
-                      <p style={{ margin: 0 }}>
-                        <strong>{formatTimelineStatus(event.status, dynamicCoreStatusSet, dynamicCleanupStatusSet)}</strong> on {formatDateTime(event.changed_at)}
-                      </p>
-                      <p className="muted" style={{ margin: 0, fontSize: 13 }}>
-                        Updated by: {event.changed_by || 'Unknown'}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              </details>
-            )}
-          </div>
-        )}
-      </Card>
-    </>
+    <div className="dm-timeline-scroll">
+      <ol className="dm-timeline">
+        {events.map((event, index) => (
+          <li key={event.id} className={`dm-event${index === 0 ? ' dm-event--latest' : ''}`}>
+            <span className="dm-event-dot" aria-hidden="true" />
+            <p className="dm-event-title">
+              {formatTimelineStatus(event.status, dynamicCoreStatusSet, dynamicCleanupStatusSet)}
+            </p>
+            <p className="dm-event-meta">
+              {formatDateTime(event.changed_at)} · {event.changed_by || 'Unknown'}
+            </p>
+          </li>
+        ))}
+      </ol>
+    </div>
   );
 }

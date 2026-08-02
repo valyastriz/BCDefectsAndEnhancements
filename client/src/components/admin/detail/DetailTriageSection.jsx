@@ -1,19 +1,20 @@
 import { Input, Select, Textarea } from '../../bite-size/BitsizeUI';
+import { DetailGroup } from './DetailPane';
 import { CLEANUP_ONLY_STATUS, STATUS_TO_CLEANUP } from '../../../constants/adminConstants';
-import {
-  formatMetaTypeLabel,
-  formatCreatedViaLabel,
-  isAutoEasyVistaReporter,
-} from '../../../utils/formatUtils';
+import { formatMetaTypeLabel } from '../../../utils/formatUtils';
 
 const cleanupOnlyStatus = CLEANUP_ONLY_STATUS;
 const statusToCleanup = STATUS_TO_CLEANUP;
 
 /**
- * Triage grid plus the Triage/Release Info <details> block.
+ * Triage — the decisions an admin makes on nearly every ticket, and the tab you
+ * land on.
+ *
+ * Provenance and external identifiers live in History & reference; Decision
+ * Notes came up out of a collapsed block, and the public-visibility toggle came
+ * in from where it used to float above Attachments with no heading of its own.
  */
 export function DetailTriageSection({
-  detail,
   edit,
   setEdit,
   dynamicCleanupStatuses,
@@ -21,11 +22,9 @@ export function DetailTriageSection({
   runtimeStatusOptions,
 }) {
   return (
-    <>
-      {/* ── Triage ── */}
-      <p className="section-label">Triage</p>
-      <div className="bs-grid two">
-        <label className="toggle-row" style={{ cursor: 'pointer' }}>
+    <div className="dm-groups">
+      <DetailGroup label="Classification">
+        <label className="dm-check">
           <input
             type="checkbox"
             checked={Boolean(edit.is_cleanup)}
@@ -100,40 +99,61 @@ export function DetailTriageSection({
         >
           {runtimeStatusOptions.map((s) => <option key={s} value={s}>{s}</option>)}
         </Select>
-        <Select
-          label="Cleanup Status"
-          value={edit.cleanup_status || 'New'}
-          onChange={(e) => setEdit((p) => ({ ...p, cleanup_status: e.target.value }))}
-          disabled={!edit.is_cleanup}
-        >
-          {dynamicCleanupStatuses.map((s) => <option key={s} value={s}>{s}</option>)}
-        </Select>
-        <Input label="Reviewer" value={edit.reviewer} onChange={(e) => setEdit((p) => ({ ...p, reviewer: e.target.value }))} />
-        <Input label="Duplicate Reference (EasyVista / JIRA / ID)" value={edit.duplicate_of} onChange={(e) => setEdit((p) => ({ ...p, duplicate_of: e.target.value }))} />
+        {edit.is_retired && (
+          <p className="bs-field-hint">Unretire the item to change its status.</p>
+        )}
+
+        {/* Only rendered for cleanup tickets — it used to sit permanently
+            disabled in the grid for every other ticket. */}
+        {edit.is_cleanup && (
+          <Select
+            label="Cleanup Status"
+            value={edit.cleanup_status || 'New'}
+            onChange={(e) => setEdit((p) => ({ ...p, cleanup_status: e.target.value }))}
+          >
+            {dynamicCleanupStatuses.map((s) => <option key={s} value={s}>{s}</option>)}
+          </Select>
+        )}
+      </DetailGroup>
+
+      <DetailGroup label="Ownership & tracking">
         <Input
-          label="Submitted to EV By"
-          value={edit.easyvista_submitted_by}
-          readOnly={isAutoEasyVistaReporter(edit.easyvista_submitted_by)}
-          onChange={(e) => setEdit((p) => ({ ...p, easyvista_submitted_by: e.target.value }))}
-          placeholder="Unknown"
+          label="Reviewer"
+          value={edit.reviewer}
+          onChange={(e) => setEdit((p) => ({ ...p, reviewer: e.target.value }))}
         />
         <Input
-          label="Created Via"
-          value={formatCreatedViaLabel(edit.created_via || detail.created_via || '')}
-          readOnly
-          placeholder="—"
+          label="JIRA Number"
+          value={edit.jira_number}
+          onChange={(e) => setEdit((p) => ({ ...p, jira_number: e.target.value }))}
+          placeholder="JIRA-123"
         />
-        <Input label="JIRA Number" value={edit.jira_number} onChange={(e) => setEdit((p) => ({ ...p, jira_number: e.target.value }))} placeholder="JIRA-123" />
-        <Input label="EasyVista Ticket" value={detail.easyvista_ticket_id || ''} readOnly placeholder="—" />
-      </div>
-      <details>
-        <summary style={{ cursor: 'pointer', fontWeight: 600 }}>Triage/Release Info</summary>
-        <div className="bs-form" style={{ marginTop: 12 }}>
-          <Textarea label="Decision Notes" rows={2} value={edit.decision_notes} onChange={(e) => setEdit((p) => ({ ...p, decision_notes: e.target.value }))} />
-          <Input label="Release #" placeholder="e.g. v1.2.0" value={edit.release_number} onChange={(e) => setEdit((p) => ({ ...p, release_number: e.target.value }))} />
-          <Textarea label="Release Notes" rows={3} value={edit.release_notes} onChange={(e) => setEdit((p) => ({ ...p, release_notes: e.target.value }))} />
-        </div>
-      </details>
-    </>
+        <label className="dm-check">
+          <input
+            type="checkbox"
+            checked={Boolean(edit.logged_defect)}
+            onChange={(e) => setEdit((p) => ({ ...p, logged_defect: e.target.checked }))}
+          />
+          <span>In JIRA</span>
+        </label>
+      </DetailGroup>
+
+      <DetailGroup label="Decision">
+        <Textarea
+          label="Decision Notes"
+          rows={3}
+          value={edit.decision_notes}
+          onChange={(e) => setEdit((p) => ({ ...p, decision_notes: e.target.value }))}
+        />
+        <label className="dm-check dm-check--consequence">
+          <input
+            type="checkbox"
+            checked={Boolean(edit.is_public)}
+            onChange={(e) => setEdit((p) => ({ ...p, is_public: e.target.checked }))}
+          />
+          <span>Visible on Public Status Board</span>
+        </label>
+      </DetailGroup>
+    </div>
   );
 }

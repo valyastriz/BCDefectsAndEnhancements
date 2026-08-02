@@ -878,42 +878,145 @@ Retiring a ticket that is already retired (or unretiring an active one) is a qui
 
 ### Detail Modal
 
-The full submission editor — opens when clicking a table row. Contains the following sections:
+The full submission editor — opens when clicking a table row. It is built around the
+one job an admin does here: **triage a single ticket**, and shows one pane at a time.
 
-#### 1. Triage
-The primary decision-making section:
-- **Type** — Defect / Enhancement
-- **D/E Status** — Dropdown of all statuses. When the item is retired, this dropdown is **disabled** and an info notice reads: *"This item is retired."*
-- **Cleanup Task** toggle — Mark as cleanup work
-- **Cleanup Status** — Not Started / In Progress / Completed (only if cleanup is enabled)
-- **Reviewer** — Who is reviewing this item
-- **Duplicate Reference** — Link to the original if this is a duplicate
-- **EasyVista Ticket** — The EV ticket ID (populated after EasyVista submission)
-- **JIRA Number** — JIRA card reference
-- **Created Via** — Shows origin: rep_form, admin_backdated, admin_cleanup, etc.
-- **Submitted to EV By** — Which Product Owner submitted to EasyVista
+The layout has four parts: an **identity band**, an **alerts region**, a **tab strip**,
+and an **action footer** pinned as the modal's own bottom row. Identity, alerts and the
+footer sit *outside* the tab strip, so nothing that needs attention can hide behind an
+inactive tab — and a tab that is holding a required-but-empty field says so on its label.
 
-#### 2. Triage / Release Info *(collapsible)*
-- **Decision Notes** — Free-text notes on the triage decision
-- **Release Number** — Which release this is targeted for
-- **Release Notes** — Notes about the release
+Tabs: **Triage** (where you land) · **Impact** · **Report** · **Files** · **History &
+reference** · **EasyVista**, the last set apart at the right end because it is an
+outbound action rather than more ticket content. Below roughly 480px of modal width the
+strip becomes a labelled dropdown carrying the same badges as text.
 
-#### 3. Submission Details
-- **Summary** — The issue or request summary
-- **Reported Date** — When the item was submitted
-- **Requester Name** — Who reported it
-- **Email** — Requester's email
+Keyboard: the strip is one tab stop; arrow keys move between tabs and Home/End jump to
+the ends.
 
-#### 4. More Submission Details *(collapsible)*
-- **Date/Time of Error** — When the error occurred
-- **What Happened (Exact Details)** — Full description
-- **Steps to Reproduce** — Steps to reproduce the issue
-- **Application** — Billing Center, Policy Center, etc.
-- **Policy / Account / Transaction Numbers** — Reference numbers
-- **Fingerprint** — Unique signature
-- **Screen Title** — Where the error occurred
+#### Identity band
+Always visible at the top, carrying the queue row's identity into the modal so the
+transition reads as a zoom-in:
+- Badges for type, status, and — when they apply — Clean Up, Retired, Public,
+  Resubmitted, Resubmit of. These track the dropdowns live as you edit.
+- The summary, as the largest text in the body.
+- A meta line: application · reported date and requester · EasyVista ticket · JIRA
+  number · last updated. This is the single place the EasyVista ID appears.
 
-#### 5. As Submitted to EasyVista *(collapsible)*
+#### Alerts region
+Every warning the modal can raise, in one region ordered by severity: an edit conflict
+(with the field-by-field resolver), a recovered unsaved draft, a presence hold from
+another admin, load or save errors, blocked EasyVista requirements, resubmission links,
+and the retired notice. Past two alerts the region caps and scrolls, so warnings can
+never push the first section below the fold.
+
+#### Tab 1 — Triage
+The decisions made on nearly every ticket, in three groups:
+- **Classification** — Clean Up Task toggle, Type (Defect / Enhancement), D/E Status,
+  and Cleanup Status. The status dropdown is disabled while the item is retired.
+  Cleanup Status renders only for cleanup tickets rather than sitting permanently
+  disabled.
+- **Ownership & tracking** — Reviewer, JIRA Number, In JIRA.
+- **Decision** — Decision Notes, and the **Visible on Public Status Board** toggle. New
+  tickets are public by default — switch this off to make an item private
+  (cleanup-only tasks default to private).
+
+#### Tab 2 — Impact
+One judgement in one pane:
+- **Dollar impact** — Policy Premium Impact, Direct Dollar Impact, Policies Affected.
+  Dollar inputs show the formatted currency underneath.
+- **Frequency** — # of Occurrences, Per How Many, Time Frame, plus a derived read-only
+  line showing how it reads (`12 per Week`).
+- **Priority** *(enhancements only)* — Request Type, Priority Level, Desired Completion
+  Date.
+- **Impact Details** *(enhancements only)* and **Impact Notes**, full width.
+
+#### Tab 3 — Report
+What the requester wrote. Summary, Date/Time of Error, Exact Details, Request Details,
+Steps to Reproduce, Application, Screen Title, and the Policy / Account / Transaction
+reference numbers. Defect-only and enhancement-only fields appear per type.
+
+#### Tab 4 — Files
+- Upload new files (up to 10 per submission, 10 MB each)
+- Image thumbnails, click to enlarge in a preview modal
+- Remove with undo — uploads and removals stage until you save
+- The grid caps its height and scrolls, so a file-heavy ticket cannot stretch the body
+
+#### Tab 5 — History & reference
+The full chronological status trail, newest first, with its own scroll boundary. Each
+entry shows the status value, who changed it, and when.
+
+Below it, provenance, external identifiers and release metadata — consulted
+occasionally, edited almost never:
+- **Provenance** — Created Via, Submitted to EV By, Requester, Fingerprint (all
+  read-only; Fingerprint is a system dedup hash, not an editable field)
+- **External IDs** — EasyVista Ticket (read-only), Duplicate Reference
+- **Release** — Release #, Release Notes
+
+Read-only values render as text under a rule rather than in an input box, so they can
+never be mistaken for something typeable.
+
+#### Tab 6 — EasyVista
+
+The outbound hand-off, and the answer to "what am I actually about to send?"
+
+**Send as — Defect or Enhancement**
+
+EasyVista accepts those two and nothing else, so the outgoing type is a choice rather
+than something the app infers:
+
+- It is pre-filled with the ticket's own type, and applies to first-time sends and
+  re-submits alike.
+- A **Cleanup Only** task has no valid default and must be chosen. That is how a cleanup
+  task reaches EasyVista — you no longer have to re-tag the ticket in Triage just to send
+  it.
+- **The choice decides which fields block the send.** Enhancement needs Impact Details
+  and Request Type; Defect needs Screen Title and Description.
+- **A ticket that already has a valid type is never reclassified by sending it.** What
+  happens to the record depends on whether an EasyVista ticket already exists:
+
+| | First send (no ticket yet) | Re-submit (ticket exists) |
+|---|---|---|
+| New submission created? | **No** — updated in place | **Yes** — forks |
+| New EasyVista ticket? | Yes, the first one | Yes, a second one |
+| Defect / Enhancement ticket | Keeps its type | Keeps its type; the **new** submission gets the chosen type |
+| **Cleanup Only** task | **Retagged** to Cleanup + the chosen type | Stays Cleanup Only; the **new** submission is Cleanup + the chosen type |
+| Original's history | `Tagged as Enhancement on first EasyVista submission (EV-…)` | `…as Submission #1503, sent as Enhancement` |
+
+A Cleanup Only task is retagged on its first send because the choice is resolving an
+incomplete classification, not overriding a good one — EasyVista has no "Cleanup Only".
+
+Worked example: reported as a defect → EasyVista defect ticket raised → turns out to be
+working as designed → marked Cleanup Only → later needs to go out as an enhancement.
+Because a ticket already exists, that send **forks**: a new submission and a new
+EasyVista ticket as an Enhancement, with the original defect ticket left intact.
+
+**What it shows**
+
+- **The consequences, stated up front.** A re-submit does not update the existing
+  ticket — it **forks the record**: a new submission with a new EasyVista id, every
+  attachment copied across, the original left untouched but linked, and three timeline
+  entries written. A first-time send instead stores the new id and sets the status to
+  Submitted.
+- **The exact outgoing payload**, field by field, with anything your unsaved edits
+  changed marked and showing its previous value.
+- **The 18 fields that never leave this app** — Reviewer, Decision Notes, the impact
+  dollars, frequency, release info, public visibility and the rest. Editing them has no
+  effect on the EasyVista ticket. (`status` and `fingerprint` do go out, in the payload's
+  `metadata` rather than the description.)
+- **The raw description string**, exactly as the API receives it.
+
+**Where it comes from.** `POST /api/admin/submissions/:id/easyvista-preview` runs the
+real submit path in dry-run mode and returns immediately before the outbound call, so
+the preview cannot disagree with the request. It carries the unsaved draft, so it
+reflects what you are looking at, and it writes nothing. The format itself has one
+definition, `server/src/helpers/easyVistaPayload.js`, shared by the preview and the send.
+
+**Sending.** Both the EasyVista tab and the footer button open a confirm dialog first:
+consequences, then only what changed, with the full text behind a disclosure. Nothing
+outbound happens until you confirm.
+
+#### The description EasyVista receives
 
 This section appears when the submission has already been submitted to EasyVista. It shows a **formatted, read-only preview** of the exact payload that was sent to EasyVista — the same structured text that lives in the EasyVista ticket. This includes:
 
@@ -950,21 +1053,8 @@ N/A
 
 This is useful for Product Owners to verify exactly what EasyVista/GTS sees, and to confirm the requester name prefix is present in the details.
 
-#### 6. Status Timeline
-A **chronological history** of every status change — each entry shows:
-- The status value (e.g., "New" → "Approved" → "Submitted")
-- Who made the change
-- When the change occurred
+#### How frequency is calculated
 
-This provides a complete audit trail of the submission's lifecycle.
-
-#### 7. Impact Analysis
-Financial impact tracking fields:
-- **Policy Premium Impact ($)** — Dollar amount of premium affected
-- **Direct Dollar Impact ($)** — Direct financial impact
-- **Policies Affected (#)** — Number of policies impacted
-
-#### 8. Frequency
 Tracks how often the issue occurs. Three input fields work together:
 - **# of Occurrences** — How many times the issue happens (e.g., `10`)
 - **Per How Many** — The count of time periods (e.g., `1`, `3`)
@@ -980,35 +1070,41 @@ Where days per unit: Day = 1, Week = 7, Month = 30.44, Quarter = 91.31, Year = 3
 
 This normalized rate is stored as `occurrence_rate` and used for sorting the Frequency column, so items occurring "10 per week" correctly sort higher than "5 per month."
 
-**Table display:** The frequency column shows a human-readable format: `"10 per week"`, `"25 per 3 months"`, etc.
-
-#### 9. Impact Notes *(collapsible)*
-Free-text field for describing the broader impact of the issue.
-
-#### 10. Enhancement Fields *(if applicable)*
-Only shown for enhancement-type submissions:
-- **Impact Details** — Required before submitting to EasyVista
-- **Enhancement Request Type** — Required before submitting to EasyVista (dropdown from metadata)
-- **Priority Level** — 1-Urgent through 4-Low
-- **Desired Completion Date** — Target date for the enhancement
-
-#### 11. Public Visibility
-Toggle to control whether this item appears on the public Status Board, with explanation text. New tickets are **public by default** — switch this off to make an item private. (Cleanup-only tasks default to private.)
-
-#### 12. Attachments
-- Upload new files (up to 10 per submission, 10 MB each)
-- Preview existing image attachments as thumbnails, click to enlarge in a modal
-- Delete attachments with an undo capability (pending delete indicators)
+**Table display:** The frequency column shows a human-readable format: `"10 per week"`, `"25 per 3 months"`, etc. The modal shows the same phrasing as a derived, read-only line beneath the three inputs.
 
 #### Modal Footer Actions
 
+The footer is pinned as the modal's bottom row, so the actions stay reachable no matter
+how many sections are expanded. The left side reports save state (`No unsaved changes.`
+/ `Unsaved changes` / `Saving…`) and is also where a save or EasyVista result lands.
+
 | Button | Behavior |
 |--------|----------|
-| **Save Changes** | Only enabled when fields have been modified (change detection compares current state to loaded state) |
-| **Retire Item** | Soft-archives the submission — hides it from the default queue view. The item is NOT deleted. A "Retired" status event is logged to the timeline. When retired, the D/E Status dropdown becomes disabled. Also available for many tickets at once — see [Bulk Actions (Multi-Select)](#bulk-actions-multi-select). |
-| **Unretire Item** | Reverses a retire — brings the item back into the active queue. An "Unretired" status event is logged to the timeline. Also available in bulk. |
-| **Submit to EasyVista** | Validates required fields (type-specific), constructs the payload with requester name prefix, submits to EasyVista API, stores the returned ticket ID, updates status to "Submitted" |
-| **Re-submit to EasyVista** | Creates a new linked submission (in **Submitted** status), copies attachments, preserves the resubmission chain, and submits the updated version |
+| **Save Changes** | Primary action. Only enabled when fields have been modified (change detection compares current state to loaded state). Hovering while disabled explains why. |
+| **Submit / Re-submit to EasyVista…** | Opens the **EasyVista tab** rather than sending. Nothing outbound happens until you have seen the payload and confirmed. |
+| **⋯ More → Respond to User** | Opens a prefilled email to the requester |
+| **⋯ More → Retire Item…** | Soft-archives the submission — hides it from the default queue view. The item is NOT deleted. **Asks for confirmation first.** A "Retired" status event is logged to the timeline. When retired, the D/E Status dropdown becomes disabled. Also available for many tickets at once — see [Bulk Actions (Multi-Select)](#bulk-actions-multi-select). |
+| **⋯ More → Unretire Item** | Reverses a retire — brings the item back into the active queue. An "Unretired" status event is logged to the timeline. Also available in bulk. |
+
+#### Blocked EasyVista submissions
+
+A tab must never hide the field that is blocking a send. When requirements are missing:
+
+- the tab that owns each field carries a **warning marker**,
+- the modal switches to the **EasyVista tab**, where every blocked field is **editable
+  inline** — those inputs write to the same state as the ones in Triage and Report, so
+  there is one value underneath and it saves with everything else,
+- **Send stays disabled** until they are filled.
+
+Required fields are type-specific: an enhancement needs Impact Details, Request Type and
+Desired Completion Date; a defect needs Summary of Issue, Screen Title and Description.
+
+#### When another admin has the ticket open
+
+Presence is live. If someone else is editing, an alert says so and the form controls go
+`inert` — but the section bodies stay fully readable and scrollable, and attachments
+stay openable. **Edit anyway** releases the hold on your side; if the other admin saves
+first you get the conflict resolver.
 
 ### Stat Tiles
 
@@ -1182,7 +1278,7 @@ The application uses a hand-built component library — no external UI dependenc
 | `Textarea` | Labeled textarea with optional required indicator |
 | `Button` | Styled button — variants: `primary`, `secondary`, `ghost`, `danger` |
 | `Badge` | Color-coded status/type pill (auto-colors by value name) |
-| `Modal` | Overlay dialog with Escape-to-close, scrollable body, title bar |
+| `Modal` | Overlay dialog with Escape-to-close, scrollable body, title bar, and an optional pinned footer row (`footer` prop) |
 | `Notice` | Alert banner — variants: `error`, `success`, `info` |
 | `AppShell` | Top-level layout with responsive nav, hamburger menu, dark/light theme toggle |
 

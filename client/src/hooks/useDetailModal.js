@@ -37,6 +37,9 @@ export function useDetailModal({ loadRows, setRows, setError, currentUsername })
   const [showHeaderSaveTooltip, setShowHeaderSaveTooltip] = useState(false);
   const [showFooterSaveTooltip, setShowFooterSaveTooltip] = useState(false);
   const [showEasyVistaRequirements, setShowEasyVistaRequirements] = useState(false);
+  const [sendAsType, setSendAsType] = useState(null);
+  // null = "not chosen", which the server reads as "all of them, up to the cap".
+  const [easyVistaAttachmentIds, setEasyVistaAttachmentIds] = useState(null);
 
   const previousDetailEditRef = useRef(null);
   const previousDetailPendingFilesCountRef = useRef(0);
@@ -78,6 +81,10 @@ export function useDetailModal({ loadRows, setRows, setError, currentUsername })
       if (!preserveEdit) {
         setEasyVistaConfirmation('');
         setShowEasyVistaRequirements(false);
+        // A send-as choice and a file selection belong to the ticket they were
+        // made on.
+        setSendAsType(null);
+        setEasyVistaAttachmentIds(null);
       }
       const data = await api.getAdminSubmissionDetail(id);
       setDetail(data);
@@ -168,21 +175,38 @@ export function useDetailModal({ loadRows, setRows, setError, currentUsername })
     return edit.type || '';
   }, [edit]);
 
+  // EasyVista accepts a defect or an enhancement and nothing else, so the admin
+  // picks which one a send goes out as. Pre-filled with the ticket's own type;
+  // a Cleanup Only task is neither, so it stays null until they choose.
+  // Mirrors `defaultSendAsType` in server/src/helpers/easyVistaPayload.js.
+  const defaultSendAsType = useMemo(() => {
+    if (!edit) return null;
+    if (edit.is_cleanup) {
+      if (!edit.cleanup_tag_type || edit.cleanup_tag_type === 'cleanup_only') return null;
+      return edit.cleanup_tag_type === 'enhancement' ? 'enhancement' : 'defect';
+    }
+    return edit.type === 'enhancement' ? 'enhancement' : 'defect';
+  }, [edit]);
+
+  const resolvedSendAsType = sendAsType || defaultSendAsType;
+
+  // Which fields block a send follows the chosen type, not the ticket's type —
+  // send a cleanup task as an enhancement and it must satisfy enhancement rules.
   const easyVistaMissingRequirements = useMemo(() => {
     if (!detail || !edit) return [];
     const missing = [];
-    if (effectiveType === 'enhancement') {
+    if (resolvedSendAsType === 'enhancement') {
       if (!String(edit.impact_details || '').trim()) missing.push('Impact Details');
       if (!String(edit.enhancement_request_type || '').trim()) missing.push('Request Type');
       if (!String(edit.desired_completion_date || '').trim()) missing.push('Desired Completion Date');
     }
-    if (effectiveType === 'defect') {
+    if (resolvedSendAsType === 'defect') {
       if (!String(edit.summary_of_issue || '').trim()) missing.push('Summary of Issue');
       if (!String(edit.screen_title || '').trim()) missing.push('Screen Title');
       if (!String(edit.what_happened_exact_details || '').trim()) missing.push('Description');
     }
     return missing;
-  }, [detail, edit, effectiveType]);
+  }, [detail, edit, resolvedSendAsType]);
 
   const hasPendingChanges = useMemo(
     () => (
@@ -433,6 +457,10 @@ export function useDetailModal({ loadRows, setRows, setError, currentUsername })
     setShowEasyVistaRequirements(true);
     setEasyVistaConfirmation('');
     setDetailError('');
+    if (!resolvedSendAsType) {
+      setDetailError('Choose whether this goes to EasyVista as a Defect or an Enhancement.');
+      return;
+    }
     if (easyVistaMissingRequirements.length > 0) return;
     try {
       setWorking(true);
@@ -446,10 +474,11 @@ export function useDetailModal({ loadRows, setRows, setError, currentUsername })
         });
       }
 
-      const result = await api.submitToEasyVista(
-        openId,
-        isResubmit ? { draft: draftPayload } : undefined,
-      );
+      const result = await api.submitToEasyVista(openId, {
+        ...(isResubmit ? { draft: draftPayload } : {}),
+        sendAsType: resolvedSendAsType,
+        ...(easyVistaAttachmentIds ? { attachmentIds: easyVistaAttachmentIds } : {}),
+      });
 
       let refreshed = null;
       if (result?.submission) {
@@ -462,12 +491,20 @@ export function useDetailModal({ loadRows, setRows, setError, currentUsername })
 
       await loadRows();
       setShowEasyVistaRequirements(false);
+      // A stubbed send still stores a realistic-looking ticket id, so say so
+      // rather than letting a placeholder read as a real EasyVista ticket.
+      const simulated = result?.source === 'stub';
+      const suffix = simulated
+        ? ' (placeholder — EasyVista is not connected yet, nothing was transmitted)'
+        : '';
       if (result?.resubmission) {
         setEasyVistaConfirmation(
-          `Successfully re-submitted to EasyVista. New card #${result?.submission?.id || ''}, Ticket: ${result?.ticketId || 'created'}`,
+          `Re-submitted. New card #${result?.submission?.id || ''}, Ticket: ${result?.ticketId || 'created'}${suffix}`,
         );
       } else {
-        setEasyVistaConfirmation(`Successfully submitted to EasyVista. Ticket: ${result?.ticketId || 'created'}`);
+        setEasyVistaConfirmation(
+          `Submitted. Ticket: ${result?.ticketId || 'created'}${suffix}`,
+        );
       }
     } catch (submitError) {
       setEasyVistaConfirmation('');
@@ -518,6 +555,12 @@ export function useDetailModal({ loadRows, setRows, setError, currentUsername })
     discardDraft,
     modalTitle,
     effectiveType,
+    sendAsType,
+    setSendAsType,
+    resolvedSendAsType,
+    defaultSendAsType,
+    easyVistaAttachmentIds,
+    setEasyVistaAttachmentIds,
     easyVistaMissingRequirements,
     hasPendingChanges,
     visibleExistingAttachments,

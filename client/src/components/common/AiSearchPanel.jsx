@@ -262,7 +262,7 @@ export function AiSearchPanel({
             marginTop: 14,
             padding: 14,
             borderRadius: 8,
-            // Same token pattern as .lock-banner (index.css) so the block follows the theme.
+            // Same token pattern as .dm-alert--info (index.css) so the block follows the theme.
             background: 'color-mix(in srgb, var(--color-primary) 10%, var(--color-surface))',
             border: '1px solid color-mix(in srgb, var(--color-primary) 35%, transparent)',
           }}

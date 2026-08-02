@@ -22,10 +22,20 @@ Monorepo with two apps:
 
 ## Important project facts
 
-- **Database:** `server/.env` has `DB_PROVIDER=postgres` pointing at a **live
-  Supabase** DB — local runs hit production data. Local sandbox mode is
-  `DB_PROVIDER=sqljs` / `DB_MODE=local` (local SQLite file). Confirm before
-  doing anything destructive.
+- **Database — read `server/.env`, do not assume.** Two modes, selected by
+  `DB_PROVIDER` (`db/sequelize.js:16`, defaulting from `DB_MODE`):
+  - `sqljs` / `DB_MODE=local` — a local sql.js file with seeded sample data.
+    Safe to write to freely.
+  - `postgres` / `DB_MODE=hosted` — the **live Supabase** DB, i.e. production
+    data. Requires `DATABASE_URL`; `db/sequelize.js:24` throws without it.
+
+  **As of 2026-08-01 `.env` is `sqljs` / `local` with an empty `DATABASE_URL`,
+  so local runs are sandboxed.** This flips, so check the file rather than
+  trusting this line, and confirm before anything destructive when hosted.
+
+  Note: `[keepAlive] Supabase heartbeat OK` in the server log does **not** mean
+  you are on Supabase data — it is a separate keep-alive ping (`keepAlive.js`)
+  that runs regardless of provider.
 - **Auth & security:** session cookie `bc_sid` (httpOnly); admin routes use
   `ensureAdmin`. CSRF is double-submit (`bc_csrf` cookie + `X-CSRF-Token`
   header) enforced on `/api/admin/*` mutations — the client sends it via the

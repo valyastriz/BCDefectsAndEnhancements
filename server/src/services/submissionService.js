@@ -30,7 +30,19 @@ const { SUBMISSION_INSERT_COLUMNS, buildInsertPayload } = require('../helpers/su
 const { mapSubmission, mapPublicSubmission } = require('../helpers/mappers');
 const { emitAdminNotification, emitPublicUpdate } = require('../socket');
 const { scheduleEmbeddingRefresh } = require('./embeddingIndexService');
-const { submitToEasyVista } = require('../easyvista');
+const {
+  submitToEasyVista,
+  sendEasyVistaAttachments,
+  easyVistaIsLive,
+  EASYVISTA_MAX_ATTACHMENTS,
+} = require('../easyvista');
+const {
+  buildDescriptionRows,
+  buildDescriptionHtml,
+  resolveEasyVistaEffectiveType,
+  defaultSendAsType,
+  normalizeSendAsType,
+} = require('../helpers/easyVistaPayload');
 
 const SUBMISSION_LOOKUP_JOINS = `
   LEFT JOIN defect_enhancement_statuses st ON st.id = s.status_id
@@ -1166,7 +1178,7 @@ async function bulkUpdateRetired(db, opts = {}) {
 // on success. Moved verbatim from the easyvista route handler; the order of
 // every Submission.update / Attachment write / logStatusChange and emit, plus
 // the first-time-vs-resubmission branching and response bodies, is preserved.
-async function submitSubmissionToEasyVista(db, { id, body, username }) {
+async function submitSubmissionToEasyVista(db, { id, body, username, dryRun = false }) {
   const dbModels = dbApi.getModels() || {};
   const Submission = dbModels.Submission;
   const Attachment = dbModels.Attachment;
@@ -1187,7 +1199,11 @@ async function submitSubmissionToEasyVista(db, { id, body, username }) {
     ...submission,
   };
 
-  if (isResubmissionRequest && draftPayload) {
+  // A real first-time send ignores the draft because the client saves the row
+  // first and then submits. A dry run happens BEFORE that save, so it has to
+  // merge the draft itself or the preview would show stale values for exactly
+  // the case the admin is trying to check.
+  if ((isResubmissionRequest || dryRun) && draftPayload) {
     const allowedStatuses = await getDefectEnhancementStatuses(db, { includeRetired: false });
     const allowedSubmissionTypes = await getSubmissionTypes(db);
     const allowedCleanupStatuses = await getCleanupStatuses(db);
@@ -1293,14 +1309,62 @@ async function submitSubmissionToEasyVista(db, { id, body, username }) {
     }
   }
 
-  if (source.is_cleanup && source.cleanup_tag_type === 'cleanup_only') {
+  // EasyVista accepts a defect or an enhancement and nothing else, so the admin
+  // picks which one this goes out as. For an ordinary ticket the choice is
+  // pre-filled with its own type; a Cleanup Only task has no sensible default,
+  // so it must be chosen — which is also how a cleanup task now reaches
+  // EasyVista at all, without having to be reclassified first.
+  const requestedSendAsType = normalizeSendAsType(body && body.sendAsType);
+
+  // Which of this ticket's files go to EasyVista. Absent means "all of them,
+  // up to the cap" so an older client that does not send a selection keeps
+  // working.
+  const submissionAttachments = await Attachment.findAll({
+    where: { submission_id: Number(submission.id) },
+    order: [['uploaded_at', 'ASC']],
+    raw: true,
+  });
+  const requestedAttachmentIds = Array.isArray(body?.attachmentIds)
+    ? body.attachmentIds.map(Number).filter((id) => Number.isInteger(id))
+    : null;
+  const selectedAttachments = requestedAttachmentIds
+    // Filtering against the ticket's own rows is what stops an id from another
+    // submission being attached to this one.
+    ? submissionAttachments.filter((att) => requestedAttachmentIds.includes(Number(att.id)))
+    : submissionAttachments.slice(0, EASYVISTA_MAX_ATTACHMENTS);
+
+  if (selectedAttachments.length > EASYVISTA_MAX_ATTACHMENTS) {
     return {
-      error: 'Cleanup Only tasks cannot be submitted to EasyVista. Tag as Defect or Enhancement first.',
+      error: `EasyVista accepts at most ${EASYVISTA_MAX_ATTACHMENTS} files. Deselect ${selectedAttachments.length - EASYVISTA_MAX_ATTACHMENTS} to continue.`,
       status: 400,
     };
   }
+  const effectiveType = resolveEasyVistaEffectiveType(source, requestedSendAsType);
 
-  const effectiveType = source.cleanup_tag_type === 'enhancement' ? 'enhancement' : 'defect';
+  if (!effectiveType) {
+    if (dryRun) {
+      return {
+        status: 200,
+        preview: {
+          isResubmission: isResubmissionRequest,
+          currentTicketId: submission.easyvista_ticket_id || null,
+          requiresChoice: true,
+          sendAsType: null,
+          defaultSendAsType: null,
+          effectiveType: null,
+          declaredType: source.type,
+          missing: [],
+          rows: [],
+          raw: '',
+          live: easyVistaIsLive(),
+        },
+      };
+    }
+    return {
+      error: 'Choose whether this Cleanup Only task goes to EasyVista as a Defect or an Enhancement.',
+      status: 400,
+    };
+  }
 
   const missing = [];
   if (effectiveType === 'enhancement') {
@@ -1328,6 +1392,55 @@ async function submitSubmissionToEasyVista(db, { id, body, username }) {
     }
   }
 
+  // ── Dry run: report what a send would transmit, then stop ───────────────
+  // Everything above this point is the real submit path, so the preview and the
+  // request can never disagree about the payload, the effective type, or which
+  // fields are blocking.
+  if (dryRun) {
+    const outgoing = { ...source, type: effectiveType };
+    // Baseline for the diff: the saved record as it would go out under the same
+    // chosen type, so a type change does not read as every field having changed.
+    const saved = { ...submission, type: effectiveType };
+    const savedRows = buildDescriptionRows(saved);
+    const savedByKey = new Map(savedRows.map((row) => [row.key, row.value]));
+
+    return {
+      status: 200,
+      preview: {
+        isResubmission: isResubmissionRequest,
+        currentTicketId: submission.easyvista_ticket_id || null,
+        requiresChoice: false,
+        sendAsType: requestedSendAsType,
+        defaultSendAsType: defaultSendAsType(source),
+        effectiveType,
+        declaredType: source.type,
+        missing,
+        rows: buildDescriptionRows(outgoing).map((row) => ({
+          ...row,
+          changed: savedByKey.get(row.key) !== row.value,
+          previous: savedByKey.get(row.key) ?? '',
+        })),
+        // The description EasyVista receives. Deliberately the HTML table and
+        // not the whole request body: the body carries EasyVista's repurposed
+        // field names, which are an internal translation detail and would only
+        // confuse an admin reading this.
+        raw: buildDescriptionHtml(outgoing),
+        // False means a send records a placeholder id and transmits nothing.
+        live: easyVistaIsLive(),
+        maxAttachments: EASYVISTA_MAX_ATTACHMENTS,
+        attachments: submissionAttachments.map((att) => ({
+          id: att.id,
+          filename: att.filename,
+          mime_type: att.mime_type,
+          // Needed so the picker can show a real thumbnail rather than a
+          // filename. Already exposed on the admin detail response.
+          file_path: att.file_path,
+          selected: selectedAttachments.some((chosen) => chosen.id === att.id),
+        })),
+      },
+    };
+  }
+
   if (missing.length > 0) {
     const typeLabel = effectiveType === 'enhancement' ? 'Enhancement' : 'Defect';
     return {
@@ -1336,7 +1449,48 @@ async function submitSubmissionToEasyVista(db, { id, body, username }) {
     };
   }
 
-  const result = await submitToEasyVista({ ...source, type: effectiveType });
+  const sentAsLabel = effectiveType === 'enhancement' ? 'Enhancement' : 'Defect';
+
+  // A Cleanup Only task has no EasyVista-valid type, so the send-as choice is
+  // resolving an incomplete classification rather than overriding a good one.
+  // On a FIRST send — no existing ticket, so this record is updated in place
+  // and nothing is forked — that resolution is persisted: the task becomes
+  // cleanup work tagged with the type it was raised under. A ticket that
+  // already has a valid type is never reclassified by sending it.
+  const resolvesCleanupOnly = Boolean(source.is_cleanup)
+    && (!source.cleanup_tag_type || source.cleanup_tag_type === 'cleanup_only');
+
+  // Resolved BEFORE the outbound call: a missing lookup must not leave an
+  // EasyVista ticket created against a record we then failed to tag.
+  let cleanupRetagIds = {};
+  if (!isResubmissionRequest && resolvesCleanupOnly) {
+    const [retagTypeId, retagTagTypeId] = await Promise.all([
+      getLookupIdByName(db, 'submission_types', effectiveType),
+      getLookupIdByName(db, 'cleanup_tag_types', effectiveType),
+    ]);
+    if (!retagTypeId || !retagTagTypeId) {
+      return {
+        error: `Cannot tag this task as ${sentAsLabel}: that value is missing from Manage Metadata. Add it, then submit.`,
+        status: 400,
+      };
+    }
+    cleanupRetagIds = { type_id: retagTypeId, cleanup_tag_type_id: retagTagTypeId };
+  }
+
+  // EasyVista's requestor/recipient is the admin who pressed send, not the
+  // person who reported the ticket.
+  const result = await submitToEasyVista(
+    { ...source, type: effectiveType },
+    { submitter: username },
+  );
+
+  // After the ticket exists, never before — and never fatal, because the ticket
+  // is already created by this point.
+  const attachmentResult = await sendEasyVistaAttachments(
+    result.ticketId,
+    selectedAttachments,
+    { submitter: username },
+  );
 
   const updatedAt = new Date().toISOString();
   const easyVistaReporter = username || 'Unknown';
@@ -1348,11 +1502,22 @@ async function submitSubmissionToEasyVista(db, { id, body, username }) {
     await Submission.update({
       easyvista_ticket_id: result.ticketId,
       ...(submittedStatusId ? { status_id: submittedStatusId } : {}),
+      ...cleanupRetagIds,
       updated_at: updatedAt,
       easyvista_submitted_by: easyVistaSubmittedBy,
     }, {
       where: { id: Number(submission.id) },
     });
+
+    if (resolvesCleanupOnly) {
+      await logStatusChange(
+        db,
+        submission.id,
+        `Cleanup Status: Tagged as ${sentAsLabel} on first EasyVista submission (${result.ticketId})`,
+        easyVistaSubmittedBy,
+        updatedAt,
+      );
+    }
 
     if (submission.status !== 'Submitted') {
       await logStatusChange(db, submission.id, 'Submitted', easyVistaSubmittedBy, updatedAt);
@@ -1368,6 +1533,7 @@ async function submitSubmissionToEasyVista(db, { id, body, username }) {
         ticketId: result.ticketId,
         source: result.source,
         resubmission: false,
+        attachments: attachmentResult,
         submission: mapSubmission(updated),
       },
     };
@@ -1376,13 +1542,22 @@ async function submitSubmissionToEasyVista(db, { id, body, username }) {
   // ── Resubmission (creates a new submission, already set to 'Submitted') ──
   // Resolve and validate every lookup BEFORE inserting, so a missing lookup can
   // never leave behind an orphaned resubmission row with a null status.
+  // The new record is what it was sent as. A Cleanup Only task sent as an
+  // Enhancement becomes a cleanup tagged Enhancement — it stays cleanup work,
+  // but it is no longer un-sendable, so a later re-submit needs no fresh choice.
+  const resubmissionCleanupTagType = source.is_cleanup
+    ? (source.cleanup_tag_type === 'cleanup_only' || !source.cleanup_tag_type
+        ? effectiveType
+        : source.cleanup_tag_type)
+    : source.cleanup_tag_type;
+
   const createdLookupIds = await resolveSubmissionLookupIds(db, {
     created_via: 'admin_easyvista_resubmission',
     type: effectiveType,
     application_name: source.application_name,
     status: 'Submitted',
     cleanup_status: source.cleanup_status,
-    cleanup_tag_type: source.cleanup_tag_type,
+    cleanup_tag_type: resubmissionCleanupTagType,
     enhancement_request_type: source.enhancement_request_type,
     priority_level: source.priority_level,
   });
@@ -1399,7 +1574,7 @@ async function submitSubmissionToEasyVista(db, { id, body, username }) {
     {
       idKey: 'cleanup_tag_type_id',
       label: 'Cleanup Tag Type',
-      required: Boolean(source.is_cleanup) && !isBlank(source.cleanup_tag_type),
+      required: Boolean(source.is_cleanup) && !isBlank(resubmissionCleanupTagType),
     },
     {
       idKey: 'enhancement_request_type_id',
@@ -1507,17 +1682,20 @@ async function submitSubmissionToEasyVista(db, { id, body, username }) {
     where: { id: Number(submission.id) },
   });
 
+  // The original is otherwise untouched by a resubmission — it keeps its own
+  // classification, including Cleanup Only. Its history records what went out
+  // and as which type; the fork carries the new classification.
   await logStatusChange(
     db,
     submission.id,
-    `Resubmission: From (EasyVista ${submission.easyvista_ticket_id}) to (EasyVista ${result.ticketId}) as Submission #${resubmissionId}`,
+    `Resubmission: From (EasyVista ${submission.easyvista_ticket_id}) to (EasyVista ${result.ticketId}) as Submission #${resubmissionId}, sent as ${sentAsLabel}`,
     easyVistaSubmittedBy,
     updatedAt,
   );
   await logStatusChange(
     db,
     resubmissionId,
-    `Resubmission: From (EasyVista ${submission.easyvista_ticket_id}) to (EasyVista ${result.ticketId}), Origin Submission #${submission.id}`,
+    `Resubmission: From (EasyVista ${submission.easyvista_ticket_id}) to (EasyVista ${result.ticketId}), Origin Submission #${submission.id}, sent as ${sentAsLabel}`,
     easyVistaSubmittedBy,
     updatedAt,
   );
@@ -1539,6 +1717,7 @@ async function submitSubmissionToEasyVista(db, { id, body, username }) {
       ticketId: result.ticketId,
       source: result.source,
       resubmission: true,
+      attachments: attachmentResult,
       originalSubmissionId: submission.id,
       submission: mapSubmission(newSubmission),
     },
