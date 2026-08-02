@@ -34,6 +34,7 @@ const {
   submitToEasyVista,
   sendEasyVistaAttachments,
   easyVistaIsLive,
+  easyVistaDemoMode,
   EASYVISTA_MAX_ATTACHMENTS,
 } = require('../easyvista');
 const {
@@ -1388,6 +1389,7 @@ async function submitSubmissionToEasyVista(db, { id, body, username, dryRun = fa
           rows: [],
           raw: '',
           live: easyVistaIsLive(),
+          demo: easyVistaDemoMode(),
         },
       };
     }
@@ -1458,6 +1460,9 @@ async function submitSubmissionToEasyVista(db, { id, body, username, dryRun = fa
         raw: buildDescriptionHtml(outgoing),
         // False means a send records a placeholder id and transmits nothing.
         live: easyVistaIsLive(),
+        // ...and `demo` says whether that placeholder send is meant to be shown
+        // as if it were real, which is how the pre-go-live walkthrough works.
+        demo: easyVistaDemoMode(),
         maxAttachments: EASYVISTA_MAX_ATTACHMENTS,
         attachments: submissionAttachments.map((att) => ({
           id: att.id,

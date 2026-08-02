@@ -2455,6 +2455,12 @@ tr[data-selected="true"] td { background: color-mix(in srgb, var(--color-primary
 .dm-caret { flex: 0 0 auto; font-size: 11px; line-height: 1; color: var(--color-muted); }
 .dm-caret::after { content: '\25be'; }
 .dm-nested[open] > summary .dm-caret::after { content: '\25b4'; }
+/* The outgoing description as EasyVista lays it out. Sits straight under a
+   disclosure summary, so it needs the same divider the <pre> variant carries. */
+.dm-nested > .dm-payload-rows { border-top: 1px dashed var(--color-border); }
+/* One disclosure inside another: a second dashed box would read as clutter, so
+   the inner one keeps only the divider. */
+.dm-nested--inner { border: 0; border-top: 1px dashed var(--color-border); border-radius: 0; }
 .dm-pre-scroll { overflow: auto; max-height: 34vh; border-top: 1px dashed var(--color-border); }
 .dm-pre-scroll pre {
   margin: 0; padding: 12px 14px;

@@ -60,6 +60,7 @@ export function DetailModal({
   easyVistaAttachmentIds,
   setEasyVistaAttachmentIds,
   easyVistaMissingRequirements,
+  canSubmitEasyVistaDirectly,
   hasPendingChanges,
   visibleAttachments,
   saveDisabledReason,
@@ -182,7 +183,11 @@ export function DetailModal({
           modalBottomNotice={modalBottomNotice}
           easyVistaConfirmation={easyVistaConfirmation}
           locked={locked}
-          onReview={() => selectTab(DETAIL_TABS.easyvista)}
+          sendsDirectly={canSubmitEasyVistaDirectly}
+          onEasyVista={() => {
+            if (canSubmitEasyVistaDirectly) submitEasyVista();
+            else selectTab(DETAIL_TABS.easyvista);
+          }}
         />
       )}
     >

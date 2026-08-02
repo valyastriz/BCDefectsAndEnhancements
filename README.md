@@ -596,7 +596,8 @@ Product Owners escalate issues to **Tier 2 GTS** by submitting tickets to the Ea
 |------|----------|
 | **First-time submit** | Constructs a detailed payload from submission fields, prefixes the description with the original requester's name, POSTs to EasyVista API, stores the returned ticket ID, updates status to "Submitted" |
 | **Resubmission** | Creates a new linked submission in **Submitted** status (maintaining the chain), copies attachments, preserves the original↔resubmit relationship with IDs |
-| **Stub mode** | When `EASYVISTA_BASE_URL` is not configured, generates fake `EV-XXXXX` ticket IDs for development |
+| **Demo mode** (default) | Until `EASYVISTA_ENABLED` is turned on, a send fabricates an `EV-XXXXX` ticket ID and otherwise behaves exactly like the real thing — status moves to Submitted, the ID is stored — so the flow can be walked through with stakeholders before go-live |
+| **Stub mode** | `EASYVISTA_DEMO_MODE=false` keeps the same fake IDs but labels them: the EasyVista tab, the confirm dialog and the result message all state that nothing was transmitted |
 
 **Type-specific validation before submit:**
 - **Defects** require: Summary, Screen Title, Description (What Happened)

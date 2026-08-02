@@ -15,6 +15,25 @@ function easyVistaIsLive() {
   return enabled && Boolean(process.env.EASYVISTA_BASE_URL) && Boolean(process.env.EASYVISTA_API_KEY);
 }
 
+/**
+ * Whether an un-wired send is presented as though it were real.
+ *
+ * The integration is built and waiting on EasyVista, so stakeholders are shown
+ * the flow end to end — press send, get an incident number back, watch the
+ * ticket move to Submitted. Demo mode is what lets that walkthrough read like
+ * the real thing instead of a caveat, and it is the behaviour this app has had
+ * for its whole life, so it is ON by default.
+ *
+ * It is only ever consulted when the integration is NOT live, so it can never
+ * quiet a warning about a real transmission. Set `EASYVISTA_DEMO_MODE=false` to
+ * get the "nothing was transmitted" wording back on every surface.
+ */
+function easyVistaDemoMode() {
+  if (easyVistaIsLive()) return false;
+  const flag = String(process.env.EASYVISTA_DEMO_MODE ?? '').trim().toLowerCase();
+  return !(flag === 'false' || flag === '0' || flag === 'no' || flag === 'off');
+}
+
 async function submitToEasyVista(submission, { submitter = null } = {}) {
   const baseUrl = process.env.EASYVISTA_BASE_URL;
   const apiToken = process.env.EASYVISTA_API_KEY;
@@ -23,7 +42,9 @@ async function submitToEasyVista(submission, { submitter = null } = {}) {
     const suffix = String(Math.floor(10000 + Math.random() * 89999));
     return {
       ticketId: `EV-${suffix}`,
-      source: 'stub',
+      // The fabricated id is identical either way; `source` is only how the
+      // client decides whether to caveat the confirmation it shows.
+      source: easyVistaDemoMode() ? 'demo' : 'stub',
     };
   }
 
@@ -103,7 +124,7 @@ async function sendEasyVistaAttachments(ticketId, attachments = [], { submitter 
   }
 
   if (!easyVistaIsLive()) {
-    return { sent: files.length, skipped, source: 'stub' };
+    return { sent: files.length, skipped, source: easyVistaDemoMode() ? 'demo' : 'stub' };
   }
 
   // eslint-disable-next-line no-unused-vars
@@ -119,5 +140,6 @@ module.exports = {
   submitToEasyVista,
   sendEasyVistaAttachments,
   easyVistaIsLive,
+  easyVistaDemoMode,
   EASYVISTA_MAX_ATTACHMENTS,
 };
