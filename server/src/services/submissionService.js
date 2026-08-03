@@ -42,6 +42,7 @@ const {
 const {
   buildDescriptionRows,
   buildDescriptionHtml,
+  easyVistaCatalogStatus,
   resolveEasyVistaEffectiveType,
   defaultSendAsType,
   normalizeSendAsType,
@@ -1564,6 +1565,16 @@ async function submitSubmissionToEasyVista(db, { id, body, username, viewer, dry
         raw: buildDescriptionHtml(outgoing),
         // False means a send records a placeholder id and transmits nothing.
         live: easyVistaIsLive(),
+        // Whether THIS application has a catalog of its own. Reported even while
+        // EasyVista is off, so the gap is visible in a walkthrough rather than
+        // surfacing for the first time on the day the integration is switched on.
+        catalog: await (async () => {
+          const application = dbModels.Application
+            ? await dbModels.Application.findOne({ where: { name: source.application_name }, raw: true })
+            : null;
+          const status = easyVistaCatalogStatus(application);
+          return { configured: status.configured, reason: status.reason };
+        })(),
         // ...and `demo` says whether that placeholder send is meant to be shown
         // as if it were real, which is how the pre-go-live walkthrough works.
         demo: easyVistaDemoMode(),
@@ -1617,11 +1628,33 @@ async function submitSubmissionToEasyVista(db, { id, body, username, viewer, dry
     cleanupRetagIds = { type_id: retagTypeId, cleanup_tag_type_id: retagTagTypeId };
   }
 
+  // Which application's catalog this goes into. Resolved from the ticket's
+  // application rather than a single global setting, because the payload's
+  // repurposed field names belong to one specific catalog.
+  const outgoingApplication = dbModels.Application
+    ? await dbModels.Application.findOne({ where: { name: source.application_name }, raw: true })
+    : null;
+
+  // Refuse a REAL send into a catalog that was never configured for this
+  // application — it would land in whichever application owns the environment's
+  // catalog, silently and under the wrong field names.
+  //
+  // Only on the live path. With EasyVista off, nothing is transmitted, so there
+  // is no catalog to land in and nothing to protect: an unconfigured application
+  // demonstrates end to end exactly like a configured one, which is what the
+  // pre-go-live walkthrough depends on.
+  if (easyVistaIsLive()) {
+    const catalog = easyVistaCatalogStatus(outgoingApplication);
+    if (!catalog.configured) {
+      return { error: catalog.reason, status: 400 };
+    }
+  }
+
   // EasyVista's requestor/recipient is the admin who pressed send, not the
   // person who reported the ticket.
   const result = await submitToEasyVista(
     { ...source, type: effectiveType },
-    { submitter: username },
+    { submitter: username, application: outgoingApplication },
   );
 
   // After the ticket exists, never before — and never fatal, because the ticket

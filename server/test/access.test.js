@@ -106,10 +106,16 @@ test('listAccess reports each account with the applications it holds', async () 
   const access = await listAccess(models);
 
   // Only ACTIVE applications can be granted, so the retired one is not offered.
-  assert.deepStrictEqual(access.applications, [
-    { id: 7, name: 'Billing Center', ticketCount: 0 },
-    { id: 9, name: 'Policy Center', ticketCount: 0 },
-  ]);
+  // Asserted field by field rather than as a whole object: the row also carries
+  // EasyVista catalog state, which depends on the environment and is covered by
+  // easyVistaCatalog.test.js.
+  assert.deepStrictEqual(
+    access.applications.map((app) => ({ id: app.id, name: app.name, ticketCount: app.ticketCount })),
+    [
+      { id: 7, name: 'Billing Center', ticketCount: 0 },
+      { id: 9, name: 'Policy Center', ticketCount: 0 },
+    ],
+  );
 
   const [admin, lead] = access.users;
   assert.strictEqual(admin.username, 'admin');
@@ -137,10 +143,13 @@ test('listAccess reports how many tickets each application holds', async () => {
 
   const access = await listAccess(models, sequelize);
 
-  assert.deepStrictEqual(access.applications, [
-    { id: 7, name: 'Billing Center', ticketCount: 82 },
-    { id: 9, name: 'Policy Center', ticketCount: 0 },
-  ]);
+  assert.deepStrictEqual(
+    access.applications.map((app) => ({ id: app.id, name: app.name, ticketCount: app.ticketCount })),
+    [
+      { id: 7, name: 'Billing Center', ticketCount: 82 },
+      { id: 9, name: 'Policy Center', ticketCount: 0 },
+    ],
+  );
   // Kept apart from the per-application totals: only a super user can see these.
   assert.strictEqual(access.unassignedTicketCount, 1);
 });

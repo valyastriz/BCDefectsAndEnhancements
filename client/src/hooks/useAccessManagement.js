@@ -161,6 +161,22 @@ export function useAccessManagement() {
     }
   }, [load]);
 
+  const setApplicationEasyVista = useCallback(async (applicationId, { catalogGuid, catalogCode }) => {
+    setError('');
+    setNotice('');
+    try {
+      const saved = await api.setApplicationEasyVista(applicationId, { catalogGuid, catalogCode });
+      await load({ quiet: true });
+      setNotice(saved.easyVista.configured
+        ? `${saved.name} now raises its tickets in its own EasyVista catalog.`
+        : `${saved.name} has no EasyVista catalog — a real send will be refused rather than misrouted.`);
+      return true;
+    } catch (saveError) {
+      setError(saveError?.message || 'That catalog could not be saved.');
+      return false;
+    }
+  }, [load]);
+
   const removeGroup = useCallback(async (id) => {
     setError('');
     setNotice('');
@@ -224,6 +240,7 @@ export function useAccessManagement() {
     applyBulk,
     addGroup,
     removeGroup,
+    setApplicationEasyVista,
     toggleSelected,
     toggleSelectAll,
     clearSelection,

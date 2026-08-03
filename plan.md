@@ -3,6 +3,50 @@
 Living record of notable features/changes. See `CLAUDE.md` for architecture and
 per-app details.
 
+## EasyVista catalog is per application (2026-08-03)
+
+Closes the first of the two gaps recorded in `docs(plan): record the two open EasyVista
+gaps`. Both claims in that note were verified against the code before acting on them,
+and both were accurate.
+
+**The gap.** One global `EASYVISTA_CATALOG_GUID`/`_CODE` from the environment, and a
+field map whose repurposed names (`E_KCL_CHECK_VOID_REASON` carries the summary, and so
+on) belong to Billing Center's catalog. `application_name` maps to `evField: null`, so
+the application was not even transmitted. Adding an application through Manage Metadata
+gave it a queue, access and a board lane while its tickets would have posted into
+Billing Center's catalog — silently, under a clean "Submitted" confirmation.
+
+**The fix.** `applications.easyvista_catalog_guid` / `_code`. The application's own
+catalog wins; the environment is a fallback for exactly ONE application, named by
+`EASYVISTA_DEFAULT_APPLICATION`, so the catalog configured before applications had their
+own keeps working and no other application inherits it. A real send into an unconfigured
+application is refused with a message naming it, rather than misrouted.
+
+**Deliberately not blocking application creation.** Requiring a catalog to add an
+application would make it impossible to add any today — EasyVista is switched off, and
+Policy Center already exists without one. The harm is in the send, so that is what is
+guarded.
+
+**The guard is live-only, because this deployment is a demonstration.** With EasyVista
+off, `submitToEasyVista` returns a fabricated id before it ever builds a payload —
+nothing is transmitted, so there is no catalog to land in and no misroute to prevent. An
+unconfigured application demonstrates end to end exactly like a configured one. The
+refusal exists for whoever implements the real integration later.
+
+The Access page grew an **EasyVista catalogs** card: which applications are configured,
+which are not, and a super user can set the catalog identifiers. Configured state is
+reported even while EasyVista is off, so the gap is visible in a walkthrough rather than
+on the day it is switched on. The EasyVista preview carries the same status.
+
+Verified: 243 server tests, client lint, build, and in Chrome — both applications start
+unconfigured, configuring Policy Center persists and re-reads, and **a demo send from an
+application with no catalog still returns `EV-17674 / source: demo`**.
+
+**Still open:** the second gap. `sendEasyVistaAttachments` is a stub returning `sent: 0`
+when live, and the confirmation reads only the submission's `source`, never the
+attachment result — so an admin would be told the ticket went with screenshots that
+never left. Harmless while `EASYVISTA_ENABLED` is off; must be fixed before it is on.
+
 ## Pinned queue scope — and the scope filter that never filtered (2026-08-03)
 
 A super user who owns one product had no way to make that their default queue: the

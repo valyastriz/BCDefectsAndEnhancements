@@ -130,17 +130,60 @@ function buildDescriptionHtml(submission) {
     + '</tbody></table>';
 }
 
-/** Values that are catalog configuration rather than ticket data. */
-function easyVistaConfig() {
+/**
+ * Values that are catalog configuration rather than ticket data.
+ *
+ * `application` is the row for the ticket's application and, when it carries a
+ * catalog, it WINS. The environment is a fallback for exactly one application —
+ * the one named by `EASYVISTA_DEFAULT_APPLICATION` — so the catalog that was
+ * configured before applications had their own keeps working, and no OTHER
+ * application silently inherits it. That inheritance was the bug: a Policy
+ * Center ticket posting into Billing Center's catalog with Billing Center's
+ * repurposed field names, with nothing to show for it.
+ */
+function easyVistaConfig(application = null) {
+  const ownGuid = value(application?.easyvista_catalog_guid).trim();
+  const ownCode = value(application?.easyvista_catalog_code).trim();
+
+  const defaultApplication = String(process.env.EASYVISTA_DEFAULT_APPLICATION || '').trim();
+  const inheritsEnv = Boolean(defaultApplication)
+    && value(application?.name).trim().toLowerCase() === defaultApplication.toLowerCase();
+  // No application at all (a preview built before one is known) keeps the old
+  // behaviour of reading the environment, so the dry-run preview still renders.
+  const mayUseEnv = inheritsEnv || !application;
+
   return {
-    catalogGuid: process.env.EASYVISTA_CATALOG_GUID || '',
-    catalogCode: process.env.EASYVISTA_CATALOG_CODE || '',
+    catalogGuid: ownGuid || (mayUseEnv ? process.env.EASYVISTA_CATALOG_GUID || '' : ''),
+    catalogCode: ownCode || (mayUseEnv ? process.env.EASYVISTA_CATALOG_CODE || '' : ''),
     // Medium. Matches the "3 - Medium" the service already defaults an
     // enhancement's priority to, so an unprioritised defect lands the same way.
     urgencyId: process.env.EASYVISTA_URGENCY_ID || '3',
     severityId: process.env.EASYVISTA_SEVERITY_ID || '40',
     origin: process.env.EASYVISTA_ORIGIN || '3',
     fallbackMail: process.env.EASYVISTA_FALLBACK_MAIL || '',
+  };
+}
+
+/**
+ * Whether this application can be sent to for real, and why not if it cannot.
+ *
+ * Only meaningful for a LIVE send. While EasyVista is off — the stub and demo
+ * paths — nothing is transmitted, so there is no catalog to land in and no
+ * misroute to prevent; an unconfigured application demos end to end exactly like
+ * a configured one.
+ */
+function easyVistaCatalogStatus(application = null) {
+  const config = easyVistaConfig(application);
+  const configured = Boolean(value(config.catalogGuid).trim() || value(config.catalogCode).trim());
+  return {
+    configured,
+    catalogGuid: config.catalogGuid,
+    catalogCode: config.catalogCode,
+    reason: configured
+      ? ''
+      : `${value(application?.name).trim() || 'This application'} has no EasyVista catalog configured, `
+        + 'so a real send would post into another application\'s catalog. '
+        + 'Set its catalog on the Access page first.',
   };
 }
 
@@ -183,8 +226,8 @@ function resolveSubmitterMail(user) {
 }
 
 /** The exact request body posted to EasyVista. */
-function buildEasyVistaPayload(submission, { now = null, submitter = null } = {}) {
-  const config = easyVistaConfig();
+function buildEasyVistaPayload(submission, { now = null, submitter = null, application = null } = {}) {
+  const config = easyVistaConfig(application);
   const stamp = formatEasyVistaDate(now || new Date().toISOString());
   const mail = resolveSubmitterMail(submitter);
 
@@ -274,6 +317,7 @@ module.exports = {
   buildDescriptionHtml,
   buildEasyVistaPayload,
   easyVistaConfig,
+  easyVistaCatalogStatus,
   resolveUrgencyId,
   resolveSubmitterMail,
   formatEasyVistaDate,

@@ -34,7 +34,7 @@ function easyVistaDemoMode() {
   return !(flag === 'false' || flag === '0' || flag === 'no' || flag === 'off');
 }
 
-async function submitToEasyVista(submission, { submitter = null } = {}) {
+async function submitToEasyVista(submission, { submitter = null, application = null } = {}) {
   const baseUrl = process.env.EASYVISTA_BASE_URL;
   const apiToken = process.env.EASYVISTA_API_KEY;
 
@@ -49,8 +49,9 @@ async function submitToEasyVista(submission, { submitter = null } = {}) {
   }
 
   // Built by the shared helper so the admin modal's preview and this request
-  // can never disagree about what gets sent.
-  const payload = buildEasyVistaPayload(submission, { submitter });
+  // can never disagree about what gets sent. The application decides the
+  // catalog — see easyVistaConfig.
+  const payload = buildEasyVistaPayload(submission, { submitter, application });
 
   // TODO(easyvista): confirm the path. `EASYVISTA_REQUESTS_PATH` overrides it
   // without a code change once the real endpoint is known.

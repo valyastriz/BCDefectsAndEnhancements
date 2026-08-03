@@ -282,6 +282,16 @@ function defineModels(sequelize) {
     name: { type: DataTypes.TEXT, allowNull: false, unique: true },
     sort_order: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
     is_active: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 1 },
+    // Which EasyVista catalog THIS application's tickets are raised in.
+    //
+    // Per application, not global, because the outbound payload's repurposed
+    // field names (helpers/easyVistaPayload.js) belong to one specific catalog.
+    // With a single global catalog, adding an application through Manage
+    // Metadata gave it a queue, access and a board lane while its tickets would
+    // have posted silently into the first application's catalog. Absent means
+    // NOT CONFIGURED, and the send is refused rather than misrouted.
+    easyvista_catalog_guid: { type: DataTypes.TEXT },
+    easyvista_catalog_code: { type: DataTypes.TEXT },
   }, { tableName: 'applications', timestamps: false });
 
   const EnhancementRequestType = sequelize.define('EnhancementRequestType', {

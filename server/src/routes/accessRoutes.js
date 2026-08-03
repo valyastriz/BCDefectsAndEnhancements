@@ -3,6 +3,7 @@ const dbApi = require('../../db');
 const { ensureSuperUser } = require('../auth');
 const {
   listAccess,
+  setApplicationEasyVista,
   setUserGrants,
   bulkSetAccess,
   setUserSuperUser,
@@ -86,6 +87,26 @@ router.put('/api/admin/access/users/:id/super-user', ensureSuperUser, async (req
       const result = await setUserSuperUser(models, {
         userId: req.params.id,
         isSuperUser: req.body?.isSuperUser,
+      });
+      if (result.error) {
+        return res.status(result.status).json({ error: result.error });
+      }
+      return res.status(result.status).json(result.body);
+    });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+// Which EasyVista catalog an application's tickets are raised in. Without one,
+// a real send is refused rather than posted into another application's catalog.
+router.put('/api/admin/access/applications/:id/easyvista', ensureSuperUser, async (req, res, next) => {
+  try {
+    return await withModels(res, async (models) => {
+      const result = await setApplicationEasyVista(models, {
+        applicationId: req.params.id,
+        catalogGuid: req.body?.catalogGuid,
+        catalogCode: req.body?.catalogCode,
       });
       if (result.error) {
         return res.status(result.status).json({ error: result.error });

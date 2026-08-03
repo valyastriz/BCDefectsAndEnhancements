@@ -8,6 +8,7 @@
 // Takes `models` and `sequelize` as parameters for the same reason viewerService
 // does — so the rules can be tested without a database.
 const { QueryTypes } = require('sequelize');
+const { easyVistaCatalogStatus } = require('../helpers/easyVistaPayload');
 const {
   APPLICATION_ROLES,
   APPLICATION_ROLE_ADMIN,
@@ -94,11 +95,26 @@ async function listAccess(models, sequelize) {
     : [];
 
   return {
-    applications: applications.map((row) => ({
-      id: Number(row.id),
-      name: String(row.name),
-      ticketCount: ticketCounts.get(Number(row.id)) || 0,
-    })),
+    applications: applications.map((row) => {
+      const status = easyVistaCatalogStatus(row);
+      return {
+        id: Number(row.id),
+        name: String(row.name),
+        ticketCount: ticketCounts.get(Number(row.id)) || 0,
+        // Which EasyVista catalog this application's tickets are raised in.
+        // Reported even while EasyVista is off, so a missing catalog is visible
+        // during a walkthrough rather than on the day it is switched on.
+        easyVista: {
+          configured: status.configured,
+          catalogGuid: String(row.easyvista_catalog_guid || ''),
+          catalogCode: String(row.easyvista_catalog_code || ''),
+          // True when the catalog comes from the environment rather than this
+          // row — the one application allowed to inherit it.
+          inherited: status.configured && !String(row.easyvista_catalog_guid || '').trim()
+            && !String(row.easyvista_catalog_code || '').trim(),
+        },
+      };
+    }),
     unassignedTicketCount,
     users: users.map((row) => ({
       id: Number(row.id),
@@ -416,8 +432,50 @@ async function removeAdGroupMapping(models, { id }) {
   return { status: 200, body: { id: mappingId } };
 }
 
+/**
+ * Set (or with blanks, clear) an application's EasyVista catalog.
+ *
+ * Stored per application because the outgoing payload's repurposed field names
+ * belong to one specific catalog. Clearing it does not break anything today —
+ * it simply means a REAL send is refused for that application rather than
+ * misrouted, and the walkthrough continues to work either way.
+ */
+async function setApplicationEasyVista(models, { applicationId, catalogGuid, catalogCode }) {
+  const id = Number(applicationId);
+  if (!isApplicationId(id)) {
+    return { error: 'Invalid application id', status: 400 };
+  }
+
+  const application = await models.Application.findByPk(id, { raw: true });
+  if (!application) {
+    return { error: 'Application not found', status: 404 };
+  }
+
+  const guid = String(catalogGuid ?? '').trim();
+  const code = String(catalogCode ?? '').trim();
+  if (guid.length > 200 || code.length > 200) {
+    return { error: 'Catalog identifiers must be under 200 characters', status: 400 };
+  }
+
+  await models.Application.update(
+    { easyvista_catalog_guid: guid || null, easyvista_catalog_code: code || null },
+    { where: { id } },
+  );
+
+  const status = easyVistaCatalogStatus({ ...application, easyvista_catalog_guid: guid, easyvista_catalog_code: code });
+  return {
+    status: 200,
+    body: {
+      id,
+      name: String(application.name),
+      easyVista: { configured: status.configured, catalogGuid: guid, catalogCode: code },
+    },
+  };
+}
+
 module.exports = {
   listAccess,
+  setApplicationEasyVista,
   setUserGrants,
   bulkSetAccess,
   setUserSuperUser,
