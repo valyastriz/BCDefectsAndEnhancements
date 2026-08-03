@@ -443,16 +443,22 @@ export function RepSubmitPage() {
               </section>
 
               {/* Defects only. An enhancement is by definition not stopping
-                  anyone today, so there is nothing to work around. */}
+                  anyone today, so there is nothing to work around.
+
+                  The wording is deliberately scoped to THIS case. "Blocked" or
+                  "to keep working" reads as the whole job being stopped, so a
+                  rep with one stuck account talks themselves out of ticking it
+                  — which is exactly the case the team can most easily help
+                  with. */}
               <section className="rs-card">
-                <p className="rs-grouplabel">Are you blocked?</p>
+                <p className="rs-grouplabel">Do you need a workaround?</p>
                 <label className="rs-flag">
                   <input
                     type="checkbox"
                     checked={form.needs_workaround}
                     onChange={(e) => updateField('needs_workaround', e.target.checked)}
                   />
-                  <span>I need a workaround to keep working</span>
+                  <span>I need a workaround to finish this specific case</span>
                 </label>
               </section>
             </>

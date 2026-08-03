@@ -629,9 +629,9 @@ export function AdminDashboardPage({ user, onLogout }) {
         }}
       />
 
-      {/* Below the new-submission banner but above the scope strip: a blocked
-          reporter outranks the queue's shape, and both banners are usually
-          absent so the two rarely stack. */}
+      {/* Below the new-submission banner but above the scope strip: a rep stuck
+          on a live case outranks the queue's shape, and both banners are
+          usually absent so the two rarely stack. */}
       <WorkaroundRequestsAlert
         count={workaroundRequestsCount}
         onViewWorkaroundRequests={() => {
