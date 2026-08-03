@@ -3,11 +3,41 @@
 Living record of notable features/changes. See `CLAUDE.md` for architecture and
 per-app details.
 
+## Reporter binding — a ticket knows who filed it (2026-08-03)
+
+Step 4 of the seven. `submissions.reporter_user_id` existed and nothing wrote it;
+`useViewer.isMine` expected an `is_mine` flag nothing emitted. Both are now real.
+
+**Who filed a ticket is the server's decision** (`services/reporterService.js`). For a
+signed-in reporter the name, email and `reporter_user_id` come from the users row and
+the submitted `created_by` / `created_by_email` are discarded — so nobody can file under
+a colleague's name. Anonymous filing is unchanged: the typed name stands, is still
+required, and `reporter_user_id` stays null. A session pointing at a deleted user falls
+back to the anonymous path rather than writing an orphan reference. The route no longer
+destructures the two body fields at all, so they cannot be used by accident.
+
+**The submit form stops asking once it knows.** `RepSubmitPage` shows a "Filing as" line
+instead of the name input, and drops `created_by` from its required set to match the
+server — otherwise it would block a submit that would have succeeded. The confirmation
+echoes the recorded name, not the ignored field.
+
+**`is_mine` on the public board** is computed per request in `routes/publicRoutes.js` by
+comparing `reporter_user_id` to the session user, and attached after
+`mapPublicSubmission` — it is a fact about the viewer, not the row, which is also why
+the socket broadcast cannot carry it. `reporter_user_id` itself is now in the mapper
+test's sensitive-field list: shipping it would let any watcher correlate which reports
+belong to the same person.
+
+Verified: 218 server tests, client lint, build, and an HTTP pass against a sandboxed
+copy — anonymous-without-a-name refused, a signed-in spoof attempt recorded under the
+real account, `is_mine` true only for the filer, and neither `reporter_user_id` nor
+`created_by_email` present in the public payload.
+
 ## Per-application access control + Access page (2026-08-03)
 
 Steps 1–3 of a seven-step identity/access plan on `feat/identity-access-and-redirect`.
-Steps 4–7 (reporter binding, the redirect ledger, the board redesign, final verification)
-are **not started**. Nothing here is committed yet.
+Steps 5–7 (the redirect ledger, the board redesign, final verification) are **not
+started**.
 
 **The model.** Triage rights are per application and per role. `user_application_roles`
 holds one row per (person, application, role); no row is no access. The catalog is

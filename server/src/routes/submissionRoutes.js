@@ -11,6 +11,7 @@ const {
 const { mapSubmission, mapPublicSubmission } = require('../helpers/mappers');
 const { persistUploadedFiles } = require('../helpers/storage');
 const { getSubmissionByIdWithLookups, logStatusChange } = require('../services/submissionService');
+const { resolveReporter } = require('../services/reporterService');
 const { scheduleEmbeddingRefresh } = require('../services/embeddingIndexService');
 const { emitAdminNotification, emitPublicUpdate } = require('../socket');
 const { imageUpload } = require('../middleware/upload');
@@ -18,9 +19,10 @@ const { imageUpload } = require('../middleware/upload');
 const router = express.Router();
 
 router.post('/api/submissions', imageUpload.array('attachments', 3), async (req, res) => {
+  // `created_by` / `created_by_email` are deliberately NOT read here: the
+  // reporter is resolved from the session below, and destructuring them would
+  // invite someone to use them by accident.
   const {
-    created_by,
-    created_by_email,
     type,
     application_name,
     policy_num,
@@ -44,13 +46,18 @@ router.post('/api/submissions', imageUpload.array('attachments', 3), async (req,
     return res.status(400).json({ error: 'Invalid submission type' });
   }
 
-  if (isBlank(created_by)) {
-    return res.status(400).json({ error: 'Requester Name is required' });
+  // Who this is from is the server's decision, not the form's — see
+  // services/reporterService.js. A signed-in reporter's own name is used and the
+  // submitted one discarded, so nobody can file under someone else's name.
+  await dbApi.init();
+  const reporter = await resolveReporter(dbApi.getModels() || {}, req, req.body);
+  if (reporter.error) {
+    return res.status(400).json({ error: reporter.error });
   }
 
   let normalized = {
-    created_by: String(created_by).trim(),
-    created_by_email: String(created_by_email || '-').trim() || '-',
+    created_by: reporter.createdBy,
+    created_by_email: reporter.createdByEmail,
     type: normalizedType,
     application_name: String(application_name || '').trim() || 'Billing Center',
     policy_num: policy_num || null,
@@ -148,6 +155,9 @@ router.post('/api/submissions', imageUpload.array('attachments', 3), async (req,
       created_via_id: lookupIds.created_via_id,
       created_by: normalized.created_by,
       created_by_email: normalized.created_by_email,
+      // Null for an anonymous filer. Once set, this — not the typed name — is
+      // what answers "is this one mine" and drives the home-application prefill.
+      reporter_user_id: reporter.reporterUserId,
       type_id: lookupIds.type_id,
       application_id: lookupIds.application_id,
       policy_num: normalized.policy_num,

@@ -13,6 +13,10 @@ const SENSITIVE_FIELDS = [
   'direct_dollar_impact',
   'policies_affected_count',
   'fingerprint',
+  // Ownership reaches the board as the boolean `is_mine`, computed per caller in
+  // routes/publicRoutes.js. The id it is computed FROM must never ship — it
+  // would let any watcher correlate which reports belong to the same person.
+  'reporter_user_id',
 ];
 
 function fullInternalRow(overrides = {}) {
@@ -33,6 +37,7 @@ function fullInternalRow(overrides = {}) {
     direct_dollar_impact: 999,
     policies_affected_count: 7,
     fingerprint: 'abc123',
+    reporter_user_id: 5,
     policy_num: 'P1',
     account_num: 'A1',
     easyvista_ticket_id: 'EV-1',

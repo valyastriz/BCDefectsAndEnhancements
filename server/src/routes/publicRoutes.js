@@ -11,7 +11,27 @@ router.get('/api/health', (_req, res) => {
   res.json({ ok: true });
 });
 
-router.get('/api/public/submissions', async (_req, res) => {
+/**
+ * Mark the rows this caller filed.
+ *
+ * Compared server-side against `reporter_user_id` and returned as a bare
+ * boolean — the reporter id itself is an internal field and stays out of the
+ * payload (mapPublicSubmission's allow-list is what enforces that). Always false
+ * for an anonymous caller, who has no identity to match against.
+ *
+ * Attached AFTER mapping rather than inside the mapper because it is a fact
+ * about the viewer, not about the row: the socket broadcast reaches every
+ * watcher at once and so cannot carry it.
+ */
+function markOwnership(req) {
+  const viewerUserId = Number(req?.session?.user?.id) || null;
+  return (row) => ({
+    ...mapPublicSubmission(row),
+    is_mine: Boolean(viewerUserId) && Number(row.reporter_user_id) === viewerUserId,
+  });
+}
+
+router.get('/api/public/submissions', async (req, res) => {
   return withDb(async (db) => {
     const dbModels = dbApi.getModels() || {};
     const Submission = dbModels.Submission;
@@ -67,7 +87,7 @@ router.get('/api/public/submissions', async (_req, res) => {
     });
 
     enrichedRows.sort((a, b) => String(b.updated_at || '').localeCompare(String(a.updated_at || '')));
-    return res.json(enrichedRows.map(mapPublicSubmission));
+    return res.json(enrichedRows.map(markOwnership(req)));
   });
 });
 
@@ -91,7 +111,7 @@ router.get('/api/public/submissions/:id', async (req, res) => {
     });
 
     return res.json({
-      ...mapPublicSubmission(submission),
+      ...markOwnership(req)(submission),
       attachments,
     });
   });
