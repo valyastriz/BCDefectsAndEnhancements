@@ -22,11 +22,16 @@ const BLANK_EMAIL = '-';
 /**
  * Resolve the reporter for an incoming submission.
  *
- * Returns `{ reporterUserId, createdBy, createdByEmail, isBound }` or
- * `{ error }` when an anonymous caller supplied no name. `isBound` says the
+ * Returns `{ reporterUserId, createdBy, createdByEmail, isBound }`, or
+ * `{ error, status }` when the caller cannot be identified. `isBound` says the
  * identity came from the session rather than the request body.
+ *
+ * `requireAuthenticated` (config.SUBMIT_REQUIRES_AUTH) closes the anonymous path
+ * entirely: with it on, an unsigned caller is a 401 and no typed name will do.
+ * The check sits here rather than in the route so the rule and the identity it
+ * guards cannot drift apart.
  */
-async function resolveReporter(models, req, body = {}) {
+async function resolveReporter(models, req, body = {}, { requireAuthenticated = false } = {}) {
   const sessionUserId = Number(req?.session?.user?.id) || null;
 
   if (sessionUserId && models?.User) {
@@ -44,9 +49,15 @@ async function resolveReporter(models, req, body = {}) {
     }
   }
 
+  // Nothing below this line can produce an identity, only a typed claim — so if
+  // one is required, refuse here rather than accepting the claim.
+  if (requireAuthenticated) {
+    return { error: 'Sign in to submit a report', status: 401 };
+  }
+
   const typedName = String(body.created_by || '').trim();
   if (!typedName) {
-    return { error: 'Requester Name is required' };
+    return { error: 'Requester Name is required', status: 400 };
   }
 
   return {

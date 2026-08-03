@@ -3235,6 +3235,18 @@ select.dm-prow-input { cursor: pointer; }
   .rs-skel, .rs-spin { animation: none; }
 }
 
+/* Filing needs a signed-in person and there isn't one. */
+.rs-locked {
+  max-width: 52ch; margin: 48px auto; text-align: center;
+  display: flex; flex-direction: column; align-items: center; gap: 12px;
+  padding: 32px 24px; background: var(--color-surface);
+  border: 1px solid var(--color-border); border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+.rs-locked h2 { margin: 0; font-size: 20px; font-weight: 650; text-wrap: balance; }
+.rs-locked p { margin: 0; color: var(--color-muted); font-size: 14.5px; }
+.rs-locked-alt { font-size: 13px; }
+
 /* Who the ticket will be filed as, when the server already knows. A statement
    rather than a field — the name is not the rep's to change. */
 .rs-reporter {

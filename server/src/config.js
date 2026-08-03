@@ -51,6 +51,21 @@ const toPositiveInt = (value, fallback) => {
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
 };
 
+// ── Who may file a ticket ────────────────────────────────────────────────────
+// The end state is that filing requires a signed-in person: a report is from
+// somebody, and an anonymous POST to /api/submissions is both unattributable and
+// an open door.
+//
+// It follows AUTH_MODE rather than being hardcoded on because SSO is the only
+// way a REP can sign in — the local login is admin-only. Forcing this on while
+// AUTH_MODE=local would leave the submit form reachable by nobody and take the
+// portal's whole purpose offline.
+//
+// So it arms itself the moment SSO is switched on. SUBMIT_REQUIRES_AUTH=true
+// forces it earlier (for testing the locked-out path), and =false would hold it
+// open past the SSO cutover.
+const SUBMIT_REQUIRES_AUTH = toBool(process.env.SUBMIT_REQUIRES_AUTH, AUTH_MODE === 'sso');
+
 // Master switch: 'openai' or 'anthropic'. Flip this per environment (demo vs
 // work). It drives BOTH the summary vendor and the embeddings vendor, so a
 // single line picks the whole stack — never a mix. The granular
@@ -137,6 +152,7 @@ module.exports = {
   SESSION_COOKIE_SECURE,
   SESSION_COOKIE_DOMAIN,
   AUTH_MODE,
+  SUBMIT_REQUIRES_AUTH,
   DEV_IMPERSONATION_ENABLED,
   SUPABASE_URL,
   SUPABASE_SERVICE_ROLE_KEY,

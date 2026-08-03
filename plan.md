@@ -28,10 +28,26 @@ the socket broadcast cannot carry it. `reporter_user_id` itself is now in the ma
 test's sensitive-field list: shipping it would let any watcher correlate which reports
 belong to the same person.
 
-Verified: 218 server tests, client lint, build, and an HTTP pass against a sandboxed
+**Filing will require signing in — armed, not yet active.** `SUBMIT_REQUIRES_AUTH`
+(`src/config.js`) closes the anonymous path entirely: `POST /api/submissions` answers
+401 and no typed name substitutes for an identity. It defaults to `AUTH_MODE === 'sso'`
+rather than being hardcoded on, because **SSO is the only way a rep can sign in** — the
+local login is admin-only, so forcing it on today would leave the submit form reachable
+by nobody and take the portal's purpose offline. It arms itself the moment SSO is
+switched on; `SUBMIT_REQUIRES_AUTH=true` forces it earlier for testing.
+
+The rule rides on the viewer envelope as `submitRequiresAuth`, so `RepSubmitPage` can
+show a sign-in wall instead of a form whose last click would 401. That state carries no
+sign-in button on purpose: there is no SSO login route to point at yet, and a dead
+button is worse than none — wire the provider's URL there when SSO lands. A failed
+`/api/viewer` defaults the flag to false, so a transient fetch error cannot take the
+form offline; the server refuses unsigned submissions regardless.
+
+Verified: 223 server tests, client lint, build, and an HTTP pass against a sandboxed
 copy — anonymous-without-a-name refused, a signed-in spoof attempt recorded under the
-real account, `is_mine` true only for the filer, and neither `reporter_user_id` nor
-`created_by_email` present in the public payload.
+real account, `is_mine` true only for the filer, neither `reporter_user_id` nor
+`created_by_email` in the public payload, and the gate proven both ways (forced on:
+anonymous 401 / signed-in 201; default off: anonymous 201).
 
 ## Per-application access control + Access page (2026-08-03)
 

@@ -195,6 +195,32 @@ export function RepSubmitPage() {
     }
   }
 
+  // Filing needs a signed-in person and there isn't one. Shown instead of the
+  // form rather than around it: a form that cannot be submitted is worse than an
+  // honest wall, and the server refuses the POST either way.
+  if (viewer.submitRequiresAuth && !viewer.isAuthenticated) {
+    return (
+      <div className="rs-page">
+        <section className="rs-locked">
+          <h2>Sign in to report an issue</h2>
+          <p>
+            Reports are filed under your name so the team can come back to you with
+            questions and you can follow your own tickets. Sign in with your work
+            account to continue.
+          </p>
+          {/* No sign-in button on purpose: there is no SSO login route to point
+              at yet, and a dead button is worse than none. Under a real provider
+              the redirect happens before this page ever renders — this state is
+              the fail-safe for when it somehow doesn't. Wire the provider's
+              login URL here when SSO lands. */}
+          <p className="rs-locked-alt">
+            You can still <Link to="/public">read the status board</Link> without signing in.
+          </p>
+        </section>
+      </div>
+    );
+  }
+
   if (submitted) {
     return (
       <div className="rs-page">

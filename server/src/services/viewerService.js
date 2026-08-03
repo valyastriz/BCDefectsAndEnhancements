@@ -6,7 +6,7 @@
 // decide what a caller may do. That is what makes switching to SSO a change in
 // `resolveSessionIdentity` below and nowhere else.
 const { QueryTypes } = require('sequelize');
-const { AUTH_MODE } = require('../config');
+const { AUTH_MODE, SUBMIT_REQUIRES_AUTH } = require('../config');
 const {
   APPLICATION_ROLE_ADMIN,
   APPLICATION_ROLE_VIEWER,
@@ -304,6 +304,10 @@ async function resolveViewer(req, { models, sequelize }) {
   const anonymousEnvelope = () => ({
     isAuthenticated: false,
     source: AUTH_MODE === 'sso' ? 'sso' : 'local',
+    // Advisory only — the server refuses an unsigned submission regardless. This
+    // is what lets the submit page show a sign-in prompt instead of a form that
+    // would 401 on the last click.
+    submitRequiresAuth: SUBMIT_REQUIRES_AUTH,
     impersonating: false,
     user: null,
     isSuperUser: false,
@@ -346,6 +350,7 @@ async function resolveViewer(req, { models, sequelize }) {
   return {
     isAuthenticated: true,
     source: AUTH_MODE === 'sso' ? 'sso' : 'local',
+    submitRequiresAuth: SUBMIT_REQUIRES_AUTH,
     impersonating: Boolean(req.session?.impersonating),
     user: {
       id: Number(user.id),

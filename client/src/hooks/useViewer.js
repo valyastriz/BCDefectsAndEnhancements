@@ -41,6 +41,11 @@ export function rememberFiledTicket(id) {
 const ANONYMOUS = {
   isAuthenticated: false,
   source: 'local',
+  // Whether filing a ticket needs a signed-in person. Defaults to false so a
+  // failed /api/viewer never locks the submit form: the server refuses an
+  // unsigned submission on its own, and guessing "locked" here would take the
+  // form offline over a transient fetch error.
+  submitRequiresAuth: false,
   impersonating: false,
   user: null,
   isSuperUser: false,

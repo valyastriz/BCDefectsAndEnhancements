@@ -110,3 +110,49 @@ test('a missing User model does not bind a reporter', async () => {
   assert.strictEqual(result.reporterUserId, null);
   assert.strictEqual(result.isBound, false);
 });
+
+// ── requireAuthenticated: the anonymous path closes entirely ─────────────────
+// Config gates this on SSO being live, because the local login is admin-only —
+// turning it on sooner would leave the submit form reachable by nobody.
+const REQUIRE = { requireAuthenticated: true };
+
+test('an anonymous filer is refused with 401, not asked for a name', async () => {
+  const result = await resolveReporter(makeModels(), {}, { created_by: 'Dana Field' }, REQUIRE);
+
+  assert.strictEqual(result.status, 401);
+  assert.match(result.error, /sign in/i);
+  assert.strictEqual(result.reporterUserId, undefined, 'no identity is invented');
+});
+
+test('a typed name cannot substitute for signing in', async () => {
+  // The whole point: a claim is not an identity.
+  const result = await resolveReporter(makeModels(), {}, {
+    created_by: 'Jane Rep', created_by_email: 'jane@example.com',
+  }, REQUIRE);
+
+  assert.strictEqual(result.status, 401);
+});
+
+test('a signed-in reporter is unaffected by the requirement', async () => {
+  const result = await resolveReporter(makeModels([JANE]), session(5), {}, REQUIRE);
+
+  assert.strictEqual(result.error, undefined);
+  assert.strictEqual(result.reporterUserId, 5);
+  assert.strictEqual(result.isBound, true);
+});
+
+test('a session pointing at a deleted user is refused rather than let through', async () => {
+  // The fallback to the typed name is exactly what must NOT happen here.
+  const result = await resolveReporter(makeModels([JANE]), session(999), {
+    created_by: 'Dana Field',
+  }, REQUIRE);
+
+  assert.strictEqual(result.status, 401);
+});
+
+test('the anonymous name requirement still answers 400, not 401', async () => {
+  // Two different failures; conflating them would tell an anonymous filer to
+  // sign in when the real problem is a blank field.
+  const result = await resolveReporter(makeModels(), {}, {});
+  assert.strictEqual(result.status, 400);
+});

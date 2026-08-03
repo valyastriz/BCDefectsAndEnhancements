@@ -12,6 +12,7 @@ const { mapSubmission, mapPublicSubmission } = require('../helpers/mappers');
 const { persistUploadedFiles } = require('../helpers/storage');
 const { getSubmissionByIdWithLookups, logStatusChange } = require('../services/submissionService');
 const { resolveReporter } = require('../services/reporterService');
+const { SUBMIT_REQUIRES_AUTH } = require('../config');
 const { scheduleEmbeddingRefresh } = require('../services/embeddingIndexService');
 const { emitAdminNotification, emitPublicUpdate } = require('../socket');
 const { imageUpload } = require('../middleware/upload');
@@ -50,9 +51,11 @@ router.post('/api/submissions', imageUpload.array('attachments', 3), async (req,
   // services/reporterService.js. A signed-in reporter's own name is used and the
   // submitted one discarded, so nobody can file under someone else's name.
   await dbApi.init();
-  const reporter = await resolveReporter(dbApi.getModels() || {}, req, req.body);
+  const reporter = await resolveReporter(dbApi.getModels() || {}, req, req.body, {
+    requireAuthenticated: SUBMIT_REQUIRES_AUTH,
+  });
   if (reporter.error) {
-    return res.status(400).json({ error: reporter.error });
+    return res.status(reporter.status || 400).json({ error: reporter.error });
   }
 
   let normalized = {
