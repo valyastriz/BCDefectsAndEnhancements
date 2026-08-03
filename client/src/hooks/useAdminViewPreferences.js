@@ -42,13 +42,27 @@ function readCache() {
   }
 }
 
-function writeCache(columns, filters) {
+function writeCache(columns, filters, pinnedApplication) {
   if (typeof window === 'undefined') return;
   try {
-    window.localStorage.setItem(ADMIN_VIEW_PREFS_STORAGE_KEY, JSON.stringify({ columns, filters }));
+    window.localStorage.setItem(
+      ADMIN_VIEW_PREFS_STORAGE_KEY,
+      JSON.stringify({ columns, filters, pinnedApplication }),
+    );
   } catch {
     // Cache is best-effort; the server remains the source of truth.
   }
+}
+
+// The queue scope this admin pinned, or null. A string is the application name;
+// '__all__' is an explicit pin on every application, which is NOT the same as
+// having no pin at all — one is a decision, the other is a blank slate that
+// falls back to the home application.
+function resolvePinned(raw) {
+  const value = raw?.pinnedApplication;
+  if (typeof value !== 'string') return null;
+  const text = value.trim();
+  return text || null;
 }
 
 /**
@@ -76,6 +90,10 @@ export function useAdminViewPreferences() {
   // known view; the server fetch below then reconciles to the source of truth.
   const [columns, setColumns] = useState(() => resolveColumns(readCache()));
   const [filters, setFiltersState] = useState(() => resolveFilters(readCache()));
+  const [pinnedApplication, setPinnedApplication] = useState(() => resolvePinned(readCache()));
+  // The queue must not pick a scope until the pin is known, or a pinned admin
+  // would see All applications flash past on every load.
+  const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -84,13 +102,16 @@ export function useAdminViewPreferences() {
         if (cancelled) return;
         const cols = resolveColumns(server);
         const fils = resolveFilters(server);
+        const pin = resolvePinned(server);
         setColumns(cols);
         setFiltersState(fils);
-        writeCache(cols, fils);
+        setPinnedApplication(pin);
+        writeCache(cols, fils, pin);
       })
       .catch(() => {
         // Offline / not authenticated yet — keep cached or default view.
-      });
+      })
+      .finally(() => { if (!cancelled) setLoaded(true); });
     return () => { cancelled = true; };
   }, []);
 
@@ -100,17 +121,41 @@ export function useAdminViewPreferences() {
     const cols = cleanCols.length > 0 ? cleanCols : DEFAULT_VISIBLE_COLUMN_KEYS;
     setColumns(cols);
     setFiltersState(cleanFils);
-    writeCache(cols, cleanFils);
+    writeCache(cols, cleanFils, pinnedApplication);
     try {
-      await api.saveAdminViewPreferences({ columns: cols, filters: cleanFils });
+      await api.saveAdminViewPreferences({
+        columns: cols,
+        filters: cleanFils,
+        // Carried through untouched: saving a column layout must not silently
+        // drop the pin, since the endpoint replaces the whole row.
+        pinnedApplication,
+      });
     } catch {
       // Optimistic update stands; the cache preserves the choice locally.
     }
-  }, []);
+  }, [pinnedApplication]);
+
+  /**
+   * Pin (or with null, unpin) the application queue this admin lands on.
+   *
+   * Applied optimistically — this is a preference, not data, and a failed save
+   * should not bounce the control back under someone who just clicked it.
+   */
+  const savePinnedApplication = useCallback(async (nextPinned) => {
+    const pin = typeof nextPinned === 'string' && nextPinned.trim() ? nextPinned.trim() : null;
+    setPinnedApplication(pin);
+    writeCache(columns, filters, pin);
+    try {
+      await api.saveAdminViewPreferences({ columns, filters, pinnedApplication: pin });
+    } catch {
+      // Optimistic update stands; the cache preserves the choice locally.
+    }
+  }, [columns, filters]);
 
   const resetView = useCallback(async () => {
     setColumns(DEFAULT_VISIBLE_COLUMN_KEYS);
     setFiltersState(DEFAULT_VISIBLE_FILTER_KEYS);
+    setPinnedApplication(null);
     if (typeof window !== 'undefined') {
       window.localStorage.removeItem(ADMIN_VIEW_PREFS_STORAGE_KEY);
     }
@@ -129,8 +174,11 @@ export function useAdminViewPreferences() {
   return {
     columns,
     filters,
+    pinnedApplication,
+    loaded,
     orderedVisibleColumns,
     saveView,
+    savePinnedApplication,
     resetView,
   };
 }
