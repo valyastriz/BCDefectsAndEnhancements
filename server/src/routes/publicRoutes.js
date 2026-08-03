@@ -12,6 +12,19 @@ router.get('/api/health', (_req, res) => {
   res.json({ ok: true });
 });
 
+// A triager changing the status writes the event as
+// "Defect/Enhancement Status: Deployed", while the create, EasyVista-send and
+// retire paths write the bare name. The board's per-status timestamps matched
+// only the bare form, so a status reached through the admin form — which is how
+// Approved, Deployed and Duplicate are ALWAYS reached — never produced a date.
+// Reading both shapes fixes the four existing timestamps as well as the new one.
+const STATUS_EVENT_PREFIX = 'Defect/Enhancement Status: ';
+
+function normalizeEventStatus(value) {
+  const text = String(value || '').trim();
+  return text.startsWith(STATUS_EVENT_PREFIX) ? text.slice(STATUS_EVENT_PREFIX.length) : text;
+}
+
 /**
  * Mark the rows this caller filed.
  *
@@ -70,7 +83,7 @@ router.get('/api/public/submissions', async (req, res) => {
       const sortedEvents = [...submissionEvents].sort((a, b) => new Date(b.changed_at) - new Date(a.changed_at));
       const latest = sortedEvents[0] || null;
       const maxByStatus = (status) => {
-        const matches = sortedEvents.filter((event) => String(event.status || '') === status);
+        const matches = sortedEvents.filter((event) => normalizeEventStatus(event.status) === status);
         return matches.length > 0 ? matches.reduce((max, event) => (
           !max || new Date(event.changed_at) > new Date(max) ? event.changed_at : max
         ), null) : null;
@@ -80,6 +93,9 @@ router.get('/api/public/submissions', async (req, res) => {
         ...row,
         latest_status_changed_at: latest?.changed_at || null,
         latest_status_value: latest?.status || null,
+        // The board draws a four-stop track — Reported, Approved, In EasyVista,
+        // Deployed — and needs the date under each stop it has reached.
+        approved_status_at: maxByStatus('Approved'),
         submitted_status_at: maxByStatus('Submitted'),
         deployed_status_at: maxByStatus('Deployed'),
         duplicate_status_at: maxByStatus('Duplicate'),

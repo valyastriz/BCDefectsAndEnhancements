@@ -3,6 +3,46 @@
 Living record of notable features/changes. See `CLAUDE.md` for architecture and
 per-app details.
 
+## Status board rebuilt — status became position (2026-08-03)
+
+Step 6. Built to the approved redesign mockup, **artifact v1**
+(https://claude.ai/code/artifact/2bef6625-8dc6-4d58-9022-d8521d73aa65). The mockup's
+stylesheet was lifted into `index.css` rather than re-derived, so the page and the
+artifact are literally the same CSS.
+
+**Status became position.** A four-stop track — Reported → Approved → In EasyVista →
+Deployed — with the date under each stop reached, replacing a single badge word.
+Statuses that end a ticket somewhere else (Duplicate, Rejected, Redirected, Retired)
+would make the track a lie, so they render a one-line outcome instead.
+
+**My reports** uses `useViewer.isMine`, which picks between the server's `is_mine`
+(a signed-in reporter) and this browser's remembered ids (everyone else). The toggle
+hides entirely when there is no identity and nothing remembered — a control that can
+only ever return nothing is worse than no control.
+
+**Application scope** opens on the viewer's home application (AD group, else most-filed
+— the server decides) and switches to All from there. It only self-selects while the
+picker is untouched, so it can never yank the view from someone who has already chosen.
+The scope tiles count the whole application, never the filtered list, and the badge says
+so; the "other outcomes" tile catches every status the four named tiles miss, so the
+numbers always sum to the total.
+
+**The hand-off trail** renders in a card's details from the public `routings` — teams
+and dates only, never the note.
+
+**Second real bug found by verifying.** The board's per-status timestamps
+(`deployed_status_at`, `duplicate_status_at`, and the new `approved_status_at`) matched
+event rows by bare status name, but a triager changing status through the admin form
+writes `Defect/Enhancement Status: Deployed`. Since that form is the ONLY way those
+statuses are ever reached, those timestamps had always been empty — a pre-existing bug
+the new track would have inherited. `normalizeEventStatus` in `publicRoutes.js` now
+reads both shapes, fixing the four existing fields as well.
+
+Verified: 229 server tests, client lint, build, and a live pass — a ticket driven
+Approved → Deployed through the admin form now returns both timestamps. **Not verified:**
+the rebuilt page has not been opened in a browser, so the track, tiles and responsive
+behaviour are unconfirmed by eye.
+
 ## Redirect between application queues (2026-08-03)
 
 Step 5, both halves.

@@ -72,6 +72,10 @@ const PUBLIC_SUBMISSION_FIELDS = [
   'is_retired',
   'latest_status_changed_at',
   'latest_status_value',
+  // The board's four-stop track needs a date under each stop reached. These are
+  // derived timestamps, not new information — every one of them is already
+  // implied by the status history the board renders.
+  'approved_status_at',
   'submitted_status_at',
   'deployed_status_at',
   'duplicate_status_at',
