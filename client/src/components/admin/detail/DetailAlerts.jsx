@@ -32,6 +32,7 @@ export function DetailAlerts({
   onUnlock,
   detailError,
   edit,
+  setEdit,
   detail,
   showEasyVistaRequirements,
   easyVistaMissingRequirements,
@@ -48,6 +49,10 @@ export function DetailAlerts({
   const showRequirements = showEasyVistaRequirements && easyVistaMissingRequirements.length > 0;
   const showResubmitted = Boolean(detail.has_resubmission && detail.latest_resubmission_easyvista_ticket_id);
   const showResubmissionOf = Boolean(detail.is_resubmission && detail.resubmission_of_easyvista_ticket_id);
+  // Keyed off the saved record, not the draft, so ticking Handled does not make
+  // the alert vanish before the change is saved — it changes tone instead.
+  const showWorkaround = Boolean(detail.needs_workaround && !detail.workaround_provided);
+  const workaroundStaged = Boolean(edit.workaround_provided);
 
   const count = [
     modalTopNotice,
@@ -56,6 +61,7 @@ export function DetailAlerts({
     isHeldByOther,
     detailError,
     showRequirements,
+    showWorkaround,
     showResubmitted,
     showResubmissionOf,
     edit.is_retired,
@@ -125,6 +131,35 @@ export function DetailAlerts({
       )}
 
       {detailError && <Alert tone="danger" title={detailError} />}
+
+      {/* Someone cannot do their job until this is answered, which is why it
+          outranks everything below it here. */}
+      {showWorkaround && (
+        <Alert
+          tone={workaroundStaged ? 'success' : 'danger'}
+          glyph={workaroundStaged ? '✓' : '!'}
+          title={workaroundStaged
+            ? 'Marked handled — save to record it'
+            : `${detail.created_by || 'The reporter'} is blocked and needs a workaround`}
+        >
+          <p>
+            {workaroundStaged
+              ? 'Save Changes writes it to the history with your name against it. The badge on the queue goes quiet once saved.'
+              : 'They asked for a way to keep working while this waits on the developer queue. Mark it handled once you have given them one.'}
+          </p>
+          {!workaroundStaged && (
+            <div className="bs-actions">
+              <Button
+                kind="ghost"
+                type="button"
+                onClick={() => setEdit((prev) => ({ ...prev, workaround_provided: true }))}
+              >
+                Mark handled
+              </Button>
+            </div>
+          )}
+        </Alert>
+      )}
 
       {showRequirements && (
         <Alert tone="warn" title="Complete before EasyVista submission">

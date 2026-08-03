@@ -85,6 +85,14 @@ export const COLUMN_DEFS = {
         <div style={{ fontWeight: 600, lineHeight: 1.4 }}>{row.summary_of_issue}</div>
         <div className="cell-summary-meta">
           <Badge value={inlineDisplayType(row)} />
+          {/* The rep is blocked right now, so it rides in the default view
+              rather than waiting to be found inside the ticket. It drops to a
+              quiet "Workaround given" once the team has handled it. */}
+          {row.needs_workaround && (
+            row.workaround_provided
+              ? <span className="cell-workaround cell-workaround--done">Workaround given</span>
+              : <span className="cell-workaround">Needs workaround</span>
+          )}
           {row.is_cleanup && row.cleanup_tag_type !== 'cleanup_only' && <Badge value="Clean Up" />}
           {row.is_retired && <Badge value="Retired" />}
           {row.application_name && <span>{row.application_name}</span>}

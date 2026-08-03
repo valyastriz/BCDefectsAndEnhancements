@@ -196,6 +196,7 @@ async function listFilteredAdminSubmissions(db, query = {}) {
     retiredFilter,
     year,
     inJira,
+    workaround,
     jiraNumber,
     easyvistaNumber,
     releaseNumber,
@@ -343,6 +344,16 @@ async function listFilteredAdminSubmissions(db, query = {}) {
 
     if (inJira === 'yes' && !Boolean(row.logged_defect)) return false;
     if (inJira === 'no' && Boolean(row.logged_defect)) return false;
+
+    // Three states, not two: a ticket the rep never flagged is neither open nor
+    // handled, so "handled" must not sweep it in.
+    if (workaround) {
+      const requested = Boolean(row.needs_workaround);
+      const handled = Boolean(row.workaround_provided);
+      if (workaround === 'open' && !(requested && !handled)) return false;
+      if (workaround === 'handled' && !(requested && handled)) return false;
+      if (workaround === 'any' && !requested) return false;
+    }
 
     if (jiraNumber && !containsIgnoreCase(row.jira_number, jiraNumber)) return false;
     if (easyvistaNumber && !containsIgnoreCase(row.easyvista_ticket_id, easyvistaNumber)) return false;
@@ -804,6 +815,17 @@ async function updateAdminSubmission(db, { id, body, username }) {
         : existing.policies_affected_count,
     logged_defect:
       typeof body.logged_defect === 'boolean' ? body.logged_defect : Boolean(existing.logged_defect),
+    // The rep's ask stays editable (a triager may raise it on their behalf, or
+    // clear one raised in error), but the pair is what matters: an open request
+    // is needs_workaround without workaround_provided.
+    needs_workaround:
+      typeof body.needs_workaround === 'boolean'
+        ? body.needs_workaround
+        : Boolean(existing.needs_workaround),
+    workaround_provided:
+      typeof body.workaround_provided === 'boolean'
+        ? body.workaround_provided
+        : Boolean(existing.workaround_provided),
     enhancement_request_type:
       body.enhancement_request_type ?? existing.enhancement_request_type,
     priority_level: body.priority_level ?? existing.priority_level,
@@ -919,6 +941,8 @@ async function updateAdminSubmission(db, { id, body, username }) {
     direct_dollar_impact: next.direct_dollar_impact,
     policies_affected_count: next.policies_affected_count,
     logged_defect: toBooleanSql(next.logged_defect),
+    needs_workaround: toBooleanSql(next.needs_workaround),
+    workaround_provided: toBooleanSql(next.workaround_provided),
     enhancement_request_type_id: lookupIds.enhancement_request_type_id,
     priority_level_id: lookupIds.priority_level_id,
     jira_number: next.jira_number,
@@ -1055,6 +1079,33 @@ async function updateAdminSubmission(db, { id, body, username }) {
       db,
       Number(id),
       next.is_retired ? 'Retired' : 'Unretired',
+      username || null,
+      updatedAt,
+    );
+  }
+
+  // Who handled the rep's workaround request, and when. The request itself is
+  // logged at submit time, so the two entries bracket how long the rep waited.
+  if (Boolean(next.workaround_provided) !== Boolean(existing.workaround_provided)) {
+    await logStatusChange(
+      db,
+      Number(id),
+      next.workaround_provided
+        ? 'Workaround: Marked handled'
+        : 'Workaround: Reopened — still needed',
+      username || null,
+      updatedAt,
+    );
+  }
+
+  // A triager raising or withdrawing the request itself, rather than the rep.
+  if (Boolean(next.needs_workaround) !== Boolean(existing.needs_workaround)) {
+    await logStatusChange(
+      db,
+      Number(id),
+      next.needs_workaround
+        ? 'Workaround: Requested'
+        : 'Workaround: Request withdrawn',
       username || null,
       updatedAt,
     );

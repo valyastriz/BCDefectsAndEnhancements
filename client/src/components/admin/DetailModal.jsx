@@ -227,6 +227,7 @@ export function DetailModal({
               onUnlock={() => setUnlockedFor(openId)}
               detailError={detailError}
               edit={edit}
+              setEdit={setEdit}
               detail={detail}
               showEasyVistaRequirements={showEasyVistaRequirements}
               easyVistaMissingRequirements={easyVistaMissingRequirements}

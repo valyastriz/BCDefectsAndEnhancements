@@ -71,6 +71,7 @@ export const ADMIN_FILTER_FIELDS = [
   { key: 'createdVia', label: 'Created Via' },
   { key: 'year', label: 'Year' },
   { key: 'inJira', label: 'In JIRA' },
+  { key: 'workaround', label: 'Workaround' },
   { key: 'easyvistaNumber', label: 'EASYVISTA #' },
   { key: 'jiraNumber', label: 'JIRA #' },
   { key: 'releaseNumber', label: 'Release #' },
@@ -108,7 +109,7 @@ export const DEFAULT_VISIBLE_FILTER_KEYS = ALL_FILTER_KEYS;
 // count on the page. Every other ADMIN_FILTER_FIELDS key appears exactly once
 // here — a key missing from both places would be unreachable.
 export const ADMIN_FILTER_GROUPS = [
-  { key: 'ticket', label: 'Ticket', filterKeys: ['statuses', 'types', 'year'] },
+  { key: 'ticket', label: 'Ticket', filterKeys: ['statuses', 'types', 'year', 'workaround'] },
   { key: 'cleanup', label: 'Cleanup', filterKeys: ['cleanupRequired', 'cleanupStatuses'] },
   { key: 'people', label: 'People & source', filterKeys: ['requester', 'submittedBy', 'createdVia'] },
   { key: 'refs', label: 'References', filterKeys: ['easyvistaNumber', 'jiraNumber', 'releaseNumber', 'inJira'] },

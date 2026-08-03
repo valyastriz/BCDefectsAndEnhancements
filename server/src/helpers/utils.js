@@ -4,6 +4,21 @@ function toBooleanSql(value) {
   return value ? 1 : 0;
 }
 
+/**
+ * A flag as it arrives from a request body.
+ *
+ * `toBooleanSql` is not enough on its own for anything posted as multipart or a
+ * query string: `false` crosses the wire as the STRING "false", which is
+ * truthy. Only the affirmative spellings count, so anything unrecognised —
+ * including that string — reads as off.
+ */
+function parseBooleanFlag(value) {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') return value === 1;
+  const text = String(value ?? '').trim().toLowerCase();
+  return text === 'true' || text === '1' || text === 'yes' || text === 'on';
+}
+
 function toIsoOrNow(input) {
   if (!input) return new Date().toISOString();
   const parsed = new Date(input);
@@ -59,6 +74,7 @@ function defectDateTimeIso(body) {
 
 module.exports = {
   toBooleanSql,
+  parseBooleanFlag,
   toIsoOrNow,
   isBlank,
   toSortableTimestamp,

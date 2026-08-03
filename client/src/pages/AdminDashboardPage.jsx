@@ -39,6 +39,7 @@ import { useExportModal } from '../hooks/useExportModal';
 import {
   AdminHeader,
   NewSubmissionsAlert,
+  WorkaroundRequestsAlert,
   QueueScopeStrip,
   FilteredViewBand,
   CommandBar,
@@ -107,6 +108,7 @@ export function AdminDashboardPage({ user, onLogout }) {
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
   const [newFormSubmissionsCount, setNewFormSubmissionsCount] = useState(0);
+  const [workaroundRequestsCount, setWorkaroundRequestsCount] = useState(0);
   // Totals for the whole-queue scope strip — always all non-retired items,
   // independent of UI filters. `cleanupOnly` is tracked separately because those
   // items are displayed under "Cleanup Only" rather than their underlying status,
@@ -169,6 +171,25 @@ export function AdminDashboardPage({ user, onLogout }) {
     }
   }, []);
 
+  // ── Independent count of open workaround requests (never depends on UI filters) ──
+  // Open means the rep asked and nobody has marked it handled yet, which is the
+  // same `workaround: 'open'` the banner's button then filters the table by.
+  const loadWorkaroundCount = useCallback(async () => {
+    try {
+      const data = await api.listAdminSubmissions({
+        workaround: 'open',
+        retiredFilter: 'non_retired',
+      });
+      const normalized = (data || []).map(normalizeAdminRow);
+      const count = normalized.filter(
+        (r) => r.needs_workaround && !r.workaround_provided && !r.is_retired,
+      ).length;
+      setWorkaroundRequestsCount(count);
+    } catch {
+      // Silently ignore — banner just won't update
+    }
+  }, []);
+
   // ── Load rows callback (page-level so hooks can share it) ─────────────────
   const loadRows = useCallback(async (filtersParam) => {
     const f = filtersParam ?? filtersRef.current;
@@ -195,10 +216,11 @@ export function AdminDashboardPage({ user, onLogout }) {
     } finally {
       setLoading(false);
     }
-    // Also refresh the filter-independent counts (new-form banner + top totals)
+    // Also refresh the filter-independent counts (the two banners + top totals)
     loadNewFormCount();
+    loadWorkaroundCount();
     loadBaselineCounts();
-  }, [loadNewFormCount, loadBaselineCounts]);
+  }, [loadNewFormCount, loadWorkaroundCount, loadBaselineCounts]);
 
   // ── Per-admin view preferences (visible columns/filters + column order) ────
   const viewPrefs = useAdminViewPreferences();
@@ -599,6 +621,23 @@ export function AdminDashboardPage({ user, onLogout }) {
             ...buildDefaultFilters(),
             statuses: ['New'],
             createdVia: 'rep_form',
+            retiredFilter: 'non_retired',
+          });
+          setTimeout(() => {
+            document.querySelector('.table-wrap')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          }, 100);
+        }}
+      />
+
+      {/* Below the new-submission banner but above the scope strip: a blocked
+          reporter outranks the queue's shape, and both banners are usually
+          absent so the two rarely stack. */}
+      <WorkaroundRequestsAlert
+        count={workaroundRequestsCount}
+        onViewWorkaroundRequests={() => {
+          setFilters({
+            ...buildDefaultFilters(),
+            workaround: 'open',
             retiredFilter: 'non_retired',
           });
           setTimeout(() => {

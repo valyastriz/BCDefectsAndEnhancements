@@ -20,6 +20,7 @@ const initialForm = {
   request: '',
   date_of_error: '',
   time_of_error: '',
+  needs_workaround: false,
 };
 
 const SUMMARY_MAX_LENGTH = 140;
@@ -62,8 +63,8 @@ function CheckIcon() {
   );
 }
 
-/** A labelled control with its own hint line, counter and inline error slot. */
-function Field({ name, label, required, optional, counter, hint, error, children }) {
+/** A labelled control with its counter and inline error slot. */
+function Field({ name, label, required, optional, counter, error, children }) {
   return (
     <div className={`rs-field${error ? ' is-bad' : ''}`}>
       <label htmlFor={`rs-${name}`}>
@@ -73,9 +74,7 @@ function Field({ name, label, required, optional, counter, hint, error, children
         {counter && <span className="rs-count">{counter}</span>}
       </label>
       {children}
-      {error
-        ? <p className="rs-bad">{error}</p>
-        : hint ? <p className="rs-hint">{hint}</p> : null}
+      {error && <p className="rs-bad">{error}</p>}
     </div>
   );
 }
@@ -152,6 +151,9 @@ export function RepSubmitPage() {
         application_name: isEnhancement ? 'Billing Center' : form.application_name || 'Billing Center',
         steps_to_reproduce: isDefect ? form.steps_to_reproduce || '-' : '-',
         request: isDefect ? '-' : form.request,
+        // Defect-only, and the server enforces that too — an enhancement is not
+        // stopping anyone today.
+        needs_workaround: isDefect && form.needs_workaround,
         date_time_of_error: isDefect ? `${form.date_of_error}T${form.time_of_error || '00:00'}` : '',
       };
       Object.entries(payload).forEach(([key, value]) => formData.append(key, value));
@@ -250,10 +252,6 @@ export function RepSubmitPage() {
               >
                 <span className="rs-type-mark" aria-hidden="true" />
                 <span className="rs-type-name">Defect</span>
-                <span className="rs-type-desc">
-                  Billing Center is doing something wrong — a screen errors, a figure is
-                  incorrect, a transaction won&rsquo;t process.
-                </span>
               </button>
               <button
                 type="button"
@@ -263,9 +261,6 @@ export function RepSubmitPage() {
               >
                 <span className="rs-type-mark" aria-hidden="true" />
                 <span className="rs-type-name">Enhancement</span>
-                <span className="rs-type-desc">
-                  Billing Center works, but a change would save time or prevent mistakes.
-                </span>
               </button>
             </div>
           </section>
@@ -300,7 +295,6 @@ export function RepSubmitPage() {
               name="created_by"
               label="Your name"
               required
-              hint="So the BC team knows who to come back to with questions."
               error={errorFor('created_by')}
             >
               <input
@@ -319,7 +313,6 @@ export function RepSubmitPage() {
                 label="Summarize it in one line"
                 required
                 counter={`${form.summary_of_issue.length} / ${SUMMARY_MAX_LENGTH}`}
-                hint="This is the line the BC team reads first — and what we check for duplicates."
                 error={errorFor('summary_of_issue')}
               >
                 <input
@@ -345,7 +338,6 @@ export function RepSubmitPage() {
                     name="screen_title"
                     label="Screen title"
                     required
-                    hint="The heading at the top of the Billing Center screen."
                     error={errorFor('screen_title')}
                   >
                     <input
@@ -382,7 +374,9 @@ export function RepSubmitPage() {
                 <div className="rs-sub">
                   <div className="rs-sub-head">
                     <b>Reference numbers</b>
-                    <span>Optional — but they let the team open the exact record you were looking at.</span>
+                    {/* The three fields below carry no required marker, so this
+                        chip is the only thing saying they are optional. */}
+                    <span className="rs-chip rs-chip--opt">Optional</span>
                   </div>
                   <div className="rs-row">
                     <Field name="policy_num" label="Policy number">
@@ -423,7 +417,6 @@ export function RepSubmitPage() {
                   label="Exactly what you saw"
                   required
                   counter={`${form.what_happened_exact_details.length} characters`}
-                  hint="Error text matters — paste or type it exactly."
                   error={errorFor('what_happened_exact_details')}
                 >
                   <textarea
@@ -438,7 +431,6 @@ export function RepSubmitPage() {
                   name="steps_to_reproduce"
                   label="Steps to reproduce"
                   optional
-                  hint="If it happens every time, the steps get it fixed much faster."
                 >
                   <textarea
                     id="rs-steps_to_reproduce"
@@ -448,6 +440,20 @@ export function RepSubmitPage() {
                     onChange={(e) => updateField('steps_to_reproduce', e.target.value)}
                   />
                 </Field>
+              </section>
+
+              {/* Defects only. An enhancement is by definition not stopping
+                  anyone today, so there is nothing to work around. */}
+              <section className="rs-card">
+                <p className="rs-grouplabel">Are you blocked?</p>
+                <label className="rs-flag">
+                  <input
+                    type="checkbox"
+                    checked={form.needs_workaround}
+                    onChange={(e) => updateField('needs_workaround', e.target.checked)}
+                  />
+                  <span>I need a workaround to keep working</span>
+                </label>
               </section>
             </>
           )}
@@ -460,7 +466,6 @@ export function RepSubmitPage() {
                 label="What should change, and why"
                 required
                 counter={`${form.request.length} characters`}
-                hint="The “why” is what gets an enhancement prioritised."
                 error={errorFor('request')}
               >
                 <textarea
@@ -487,13 +492,6 @@ export function RepSubmitPage() {
               onFilesChange={setFiles}
               onPreview={setPreviewImage}
             />
-            {isDefect && (
-              <p className="rs-hint">
-                Billing Center screens change over time. Without a picture a developer often
-                cannot tell what you were looking at — the most common reason a defect gets
-                closed unfixed.
-              </p>
-            )}
           </section>
 
         </div>

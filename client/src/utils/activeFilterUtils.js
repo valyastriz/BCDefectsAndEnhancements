@@ -10,6 +10,7 @@ const LABEL_BY_KEY = new Map(ADMIN_FILTER_FIELDS.map((field) => [field.key, fiel
 const NEVER_CHIPPED = new Set(['retiredFilter', 'sort']);
 
 const YES_NO_LABELS = { yes: 'Yes', no: 'No' };
+const WORKAROUND_LABELS = { open: 'Open request', handled: 'Handled', any: 'Requested' };
 
 /**
  * Human-readable value for one active filter, or '' when it isn't active.
@@ -28,6 +29,7 @@ function describe(key, value, statusOptionCount) {
   if (!text) return '';
   if (key === 'createdVia') return formatCreatedViaLabel(text);
   if (key === 'cleanupRequired' || key === 'inJira') return YES_NO_LABELS[text] || text;
+  if (key === 'workaround') return WORKAROUND_LABELS[text] || text;
   return text;
 }
 
