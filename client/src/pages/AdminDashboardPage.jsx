@@ -25,6 +25,7 @@ import { normalizeAdminRow } from '../utils/mappers';
 import { getActiveFilters } from '../utils/activeFilterUtils';
 
 // ── Custom hooks ────────────────────────────────────────────────────────────
+import { useViewer } from '../hooks/useViewer';
 import { useAdminMeta } from '../hooks/useAdminMeta';
 import { useAdminViewPreferences } from '../hooks/useAdminViewPreferences';
 import { useAdminNotifications } from '../hooks/useAdminNotifications';
@@ -93,6 +94,18 @@ const BULK_ACTIONS = {
 
 export function AdminDashboardPage({ user, onLogout }) {
   const navigate = useNavigate();
+  // Signposting only — every endpoint re-checks rights server-side, so this
+  // decides what to show, never what is allowed.
+  const { viewer } = useViewer();
+
+  // The applications this caller may actually look at. A super user sees every
+  // one; anyone else sees exactly what they were granted. Offering more than
+  // this would be a scope control that returns an empty table.
+  const scopeApplications = useMemo(() => {
+    if (viewer.isSuperUser) return viewer.applications;
+    const readable = new Set(viewer.readableApplicationIds || []);
+    return (viewer.applications || []).filter((app) => readable.has(app.id));
+  }, [viewer.applications, viewer.isSuperUser, viewer.readableApplicationIds]);
 
   // ── Page-level state (filters, rows, pagination, notices) ─────────────────
   const [filters, setFilters] = useState(defaultFilters);
@@ -607,6 +620,8 @@ export function AdminDashboardPage({ user, onLogout }) {
         onOpenBackdated={openBackdatedModal}
         onOpenCleanup={openCleanupModal}
         onNavigateMetadata={() => navigate('/admin/metadata')}
+        onNavigateAccess={() => navigate('/admin/access')}
+        canManageAccess={viewer.isSuperUser}
         onLogout={logout}
         onImportFileChange={analyzeImportFile}
       />
@@ -670,6 +685,8 @@ export function AdminDashboardPage({ user, onLogout }) {
         runtimeCreatedViaOptions={runtimeCreatedViaOptions}
         dynamicCleanupStatuses={dynamicCleanupStatuses}
         visibleFilters={viewPrefs.filters}
+        scopeApplications={scopeApplications}
+        canSeeUnassigned={viewer.isSuperUser}
         onOpenCustomize={() => setCustomizeOpen(true)}
         onResetSaved={resetSavedFilters}
         onClearAllFilters={clearAllFilters}

@@ -3,6 +3,77 @@
 Living record of notable features/changes. See `CLAUDE.md` for architecture and
 per-app details.
 
+## Per-application access control + Access page (2026-08-03)
+
+Steps 1–3 of a seven-step identity/access plan on `feat/identity-access-and-redirect`.
+Steps 4–7 (reporter binding, the redirect ledger, the board redesign, final verification)
+are **not started**. Nothing here is committed yet.
+
+**The model.** Triage rights are per application and per role. `user_application_roles`
+holds one row per (person, application, role); no row is no access. The catalog is
+`APPLICATION_ROLES` in `server/src/constants.js` — an ordered ladder, `viewer` then
+`admin`, so "at least viewer" is a rank comparison. `viewer` reads a queue and exports;
+`admin` adds editing, status, attachments, redirect, EasyVista and public visibility.
+Portal super users are a flag on the users row, not a role — one bypass, one place to
+audit, and it refuses to lose its last holder.
+
+**Active Directory decides which application someone *works in*, never what they may
+triage.** `application_ad_groups` sets a person's default application (submit form
+prefill, their board scope) via `resolveMemberApplicationIds`; `resolveApplicationRoles`
+deliberately does not read it. An earlier revision unioned group mappings into admin
+grants — that was removed, and `viewer.test.js` now pins the opposite so it cannot
+return by accident.
+
+**The viewer envelope** (`GET /api/viewer`) carries `applicationRoles` (a map),
+plus `adminApplicationIds`, `readableApplicationIds` and `memberApplicationIds`
+derived from it. Every capability question goes through `roleInApplication`, so
+`canReadApplication` and `canMutateApplication` are the only two predicates callers use.
+
+**Scoping is enforced, and fails closed.** `resolveAdminReadScope` +
+`canReadSubmissionRow` gate the queue list, the xlsx export, ticket detail, create,
+update, both bulk paths, EasyVista send *and* preview, and attachment add/delete. Read
+access is deliberately wider than write: a team that redirects a ticket away keeps
+seeing it through the routing ledger but can no longer change it. An out-of-scope
+ticket reads as **404 rather than 403**, so the queue cannot be walked by id. Omitting
+the scope argument returns nothing rather than everything.
+
+**Access page** — `/admin/access`, super users only (`pages/AdminAccessPage.jsx`,
+`hooks/useAccessManagement.js`, `access-` styles at the end of `index.css`). Approved as
+Artifact **v3** before any code
+(https://claude.ai/code/artifact/5e8147b8-a730-4a89-9ecf-9b0c58118552). A people ×
+applications matrix with one role dropdown per cell — dropdowns rather than segmented
+buttons so the row width holds as applications are added — tinted by value so the gaps
+are scannable. Multi-select drives a bulk bar that grants or revokes one role across
+many people and many applications in a single transaction, validated in full first so a
+bad batch changes nobody. Directory-group mappings live on the same page, labelled as
+defaults rather than entitlements.
+
+New endpoints, all behind `ensureSuperUser`: `GET /api/admin/access`,
+`PUT /api/admin/access/users/:id/grants`, `PUT .../super-user`,
+`POST /api/admin/access/bulk`, `POST|DELETE /api/admin/access/ad-groups[/:id]`.
+
+**Admin queue got an application tag and a scope switcher.** The queue was a flat merged
+list once scoping landed, with the application name as unstyled text in the summary cell
+and no way to filter by it — so a two-application admin could not tell the two apart.
+The tag is now a badge, there is an optional `application` column (off by default; the
+summary tag covers the common case), and an application select sits in the command row
+beside the Active/Retired scope. It renders only when the caller can see more than one
+application. Super users also get "No application set", the only route to tickets that
+predate the per-application queues. The filter narrows within the access scope and can
+never widen it.
+
+**State of the live database (Supabase).** `admin` is a super user; `lead_admin` and
+`ops_admin` hold nothing and will see an empty queue until granted something on the new
+page. 83 tickets, 82 Billing Center, 1 with no application set. `user_application_roles`
+and `application_ad_groups` are both empty.
+
+Verified: 208 server tests, client lint, production build, and a full HTTP pass against a
+sandboxed sqlite copy — 401 unauthenticated, 403 for a non-super-user, viewer-reads /
+viewer-cannot-write, cross-application writes refused, last-super-user demotion 409,
+bulk grant and revoke, duplicate group mapping 409, queue scoping, and 404 (not 403) on
+an out-of-scope ticket id. **Not verified:** no browser was driven, so the rendered
+Access page, both themes and the narrow-width behaviour are unconfirmed.
+
 ## Submit a Request Page Redesign — built, awaiting UI sign-off (2026-08-02)
 
 Carries the queue and detail-modal vocabulary out to the one page reps actually use.

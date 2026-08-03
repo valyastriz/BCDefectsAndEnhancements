@@ -54,6 +54,10 @@ export const ADMIN_TABLE_COLUMNS = [
   { key: 'directImpact', label: 'Direct Impact ($)', sortKey: 'directImpact' },
   { key: 'policiesImpacted', label: 'Policies Impacted', sortKey: 'policiesImpacted' },
   { key: 'frequency', label: 'Frequency', sortKey: 'frequency' },
+  // Which application's queue a ticket belongs to. Off by default because the
+  // summary cell already tags it — this is the dedicated column for anyone who
+  // wants to scan a merged, multi-application queue by that alone.
+  { key: 'application', label: 'Application', sortKey: null },
 ];
 
 // Canonical filter registry — keys match the filter fields in buildDefaultFilters()
@@ -62,6 +66,7 @@ export const ADMIN_TABLE_COLUMNS = [
 export const ADMIN_FILTER_FIELDS = [
   { key: 'statuses', label: 'Defect/Enhancement Status' },
   { key: 'retiredFilter', label: 'Retired' },
+  { key: 'application', label: 'Application' },
   { key: 'types', label: 'Type' },
   { key: 'cleanupRequired', label: 'Cleanup Required' },
   { key: 'cleanupStatuses', label: 'Cleanup Status' },
@@ -116,7 +121,17 @@ export const ADMIN_FILTER_GROUPS = [
 ];
 
 // Filters that render in the command row rather than the grouped panel.
-export const COMMAND_ROW_FILTER_KEYS = ['search', 'retiredFilter'];
+// `application` joins them for the same reason `retiredFilter` is there: for
+// someone who administers more than one application it is a scope, not a filter
+// — it decides which queue you are looking at, so every count on the page means
+// something different depending on it. It renders only when the caller can
+// actually see more than one application.
+export const COMMAND_ROW_FILTER_KEYS = ['search', 'retiredFilter', 'application'];
+
+// The application-scope value meaning "tickets with no application set". Only a
+// super user sees any, so only they are offered it. Mirrors
+// UNASSIGNED_APPLICATION in server/src/constants.js.
+export const UNASSIGNED_APPLICATION = '__unassigned__';
 
 export const SORT_COLS = {
   id:               { asc: 'id_asc',                      desc: 'id_desc' },

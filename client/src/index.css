@@ -3234,3 +3234,184 @@ select.dm-prow-input { cursor: pointer; }
 @media (prefers-reduced-motion: reduce) {
   .rs-skel, .rs-spin { animation: none; }
 }
+
+/* ─────────────────────────────────────────────
+   Access page (pages/AdminAccessPage.jsx)
+   Super-user only: who may triage which application.
+   ───────────────────────────────────────────── */
+.access-page { max-width: 1240px; margin: 0 auto; display: flex; flex-direction: column; gap: 18px; }
+.access-page .bs-header { margin-bottom: 0; }
+.access-signedin { font-size: 12.5px; margin: 0; }
+
+/* Summary — the count that matters is how many people see nothing. */
+.access-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(168px, 1fr)); gap: 12px; }
+.access-tile {
+  background: var(--color-surface); border: 1px solid var(--color-border);
+  border-radius: var(--radius); padding: 14px 16px; box-shadow: var(--shadow-sm);
+  display: flex; flex-direction: column; gap: 2px;
+}
+.access-tile-num { font-size: 26px; font-weight: 650; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.access-tile-lbl { font-size: 13px; color: var(--color-muted); }
+.access-tile--attention { border-color: #eab308; }
+.access-tile--attention .access-tile-num { color: var(--status-cleanup-only-fg); }
+
+.access-card { overflow: hidden; }
+.access-cardhead {
+  display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between;
+  padding: 14px 16px; border-bottom: 1px solid var(--color-border); background: var(--color-bg);
+}
+.access-cardhead h3 { margin: 0; font-size: 15px; font-weight: 650; }
+.access-cardhead p { margin: 2px 0 0; font-size: 13px; color: var(--color-muted); }
+.access-cardfoot {
+  padding: 12px 16px; border-top: 1px solid var(--color-border);
+  background: var(--color-bg); font-size: 12.5px; color: var(--color-muted);
+}
+
+.access-strip {
+  display: flex; gap: 12px; align-items: flex-start; padding: 12px 16px; font-size: 13.5px;
+  background: var(--status-cleanup-only-bg); color: var(--status-cleanup-only-fg);
+  border-bottom: 1px solid var(--color-border);
+}
+.access-strip-mark { font-weight: 700; flex: none; }
+
+/* Bulk bar — only rendered while something is selected. */
+.access-bulkbar {
+  display: flex; flex-wrap: wrap; gap: 10px 12px; align-items: center;
+  padding: 11px 16px; background: var(--blue-50); border-bottom: 1px solid var(--color-border);
+}
+:root[data-theme='dark'] .access-bulkbar { background: #17293f; }
+.access-bulkbar-count { font-weight: 650; font-size: 14px; white-space: nowrap; }
+.access-bulkbar label { font-size: 13.5px; color: var(--color-muted); }
+.access-bulkbar-sep { flex: 1 1 auto; }
+.access-btn-danger { color: var(--color-danger); border-color: var(--color-danger); }
+.access-btn-danger:hover:not(:disabled) { background: var(--color-danger); color: #fff; }
+
+.access-tablewrap { overflow-x: auto; }
+.access-table { width: 100%; border-collapse: collapse; }
+.access-table th, .access-table td { vertical-align: middle; }
+.access-col-pick { width: 44px; }
+/* Narrow on purpose: more applications fit before the grid has to scroll. */
+.access-col-app { width: 148px; }
+.access-col-sees { width: 210px; }
+.access-appcount {
+  display: block; font-weight: 400; text-transform: none; letter-spacing: 0;
+  font-size: 11.5px; color: var(--color-muted); font-variant-numeric: tabular-nums;
+}
+.access-row--picked { background: var(--blue-50); }
+:root[data-theme='dark'] .access-row--picked { background: #17293f; }
+
+.access-person { display: flex; flex-direction: column; gap: 1px; }
+.access-person-name { font-weight: 600; }
+.access-person-meta { font-size: 12.5px; color: var(--color-muted); }
+.access-allnote { font-size: 12.5px; color: var(--color-muted); font-style: italic; }
+.access-sees { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+.access-saved { font-size: 12.5px; font-weight: 600; color: var(--status-approved-fg); margin-left: 6px; }
+
+.access-check {
+  appearance: none; -webkit-appearance: none; margin: 0;
+  width: 18px; height: 18px; border: 1.5px solid var(--color-border); border-radius: var(--radius-sm);
+  background: var(--color-surface); cursor: pointer; position: relative; vertical-align: middle;
+  transition: background .12s ease, border-color .12s ease;
+}
+.access-check:hover:not(:disabled) { border-color: var(--color-primary); }
+.access-check:checked { background: var(--color-primary); border-color: var(--color-primary); }
+.access-check:checked::after {
+  content: ''; position: absolute; left: 5px; top: 1px; width: 5px; height: 10px;
+  border: solid var(--color-surface); border-width: 0 2px 2px 0; transform: rotate(45deg);
+}
+.access-check:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+.access-check:disabled { opacity: .35; cursor: not-allowed; }
+
+/* Role picker. The tint carries the state at a glance — a wall of untinted
+   dropdowns all reads alike, so finding the gaps would mean reading every one. */
+.access-role {
+  font: inherit; font-size: 13px; font-weight: 600;
+  padding: 5px 26px 5px 10px; width: 100%; max-width: 132px; cursor: pointer;
+  border: 1px solid var(--color-border); border-radius: var(--radius-sm);
+  background-color: var(--color-surface); color: var(--color-text);
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%2364748b' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 9px center;
+  appearance: none; -webkit-appearance: none;
+  transition: background-color .12s ease, border-color .12s ease, color .12s ease;
+}
+.access-role:hover:not(:disabled) { border-color: var(--color-muted); }
+.access-role:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 1px; }
+.access-role:disabled { opacity: .5; cursor: not-allowed; }
+.access-role--none { color: var(--color-muted); font-weight: 500; }
+.access-role--viewer { background-color: var(--status-redirected-bg); color: var(--status-redirected-fg); border-color: transparent; }
+.access-role--admin { background-color: var(--status-approved-bg); color: var(--status-approved-fg); border-color: transparent; }
+/* The open list is drawn by the OS, so options need their own contrast. */
+.access-role option { background: var(--color-surface); color: var(--color-text); font-weight: 500; }
+
+/* Super user is a different KIND of grant from the per-application roles, so it
+   gets a different control rather than a third option in the same dropdown. */
+.access-switch { display: inline-flex; align-items: center; cursor: pointer; }
+.access-switch input { position: absolute; opacity: 0; width: 0; height: 0; }
+.access-track {
+  width: 38px; height: 22px; border-radius: 999px; background: var(--slate-300);
+  position: relative; transition: background .14s ease; flex: none; display: inline-block;
+}
+:root[data-theme='dark'] .access-track { background: #3b4a63; }
+.access-track::after {
+  content: ''; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px;
+  border-radius: 50%; background: #fff; box-shadow: var(--shadow-sm); transition: transform .14s ease;
+}
+.access-switch input:checked + .access-track { background: var(--color-primary); }
+.access-switch input:checked + .access-track::after { transform: translateX(16px); }
+.access-switch input:focus-visible + .access-track { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+.access-switch input:disabled + .access-track { opacity: .5; cursor: not-allowed; }
+
+/* Directory groups */
+.access-adform {
+  display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+  padding: 14px 16px; border-bottom: 1px solid var(--color-border);
+}
+.access-adform .bs-inline-input { min-width: 240px; flex: 1 1 240px; }
+.access-adlist { list-style: none; margin: 0; padding: 0; }
+.access-adrow {
+  display: flex; flex-wrap: wrap; gap: 10px; align-items: center;
+  padding: 12px 16px; border-bottom: 1px solid var(--color-border);
+}
+.access-adrow:last-child { border-bottom: 0; }
+.access-adgroup { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 13px; }
+.access-adarrow { color: var(--color-muted); }
+
+/* Shared empty / error surface */
+.access-state { padding: 40px 20px; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.access-state h3 { margin: 0; font-size: 15.5px; font-weight: 650; }
+.access-state p { margin: 0; color: var(--color-muted); font-size: 14px; max-width: 48ch; }
+.access-state--error h3 { color: var(--color-danger); }
+
+.access-skel {
+  display: inline-block; height: 12px; border-radius: var(--radius-sm);
+  background: var(--color-border); animation: access-pulse 1.4s ease-in-out infinite;
+}
+@keyframes access-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }
+
+/* Under this width the matrix stops being a grid and becomes one card per
+   account — a row of dropdowns cannot survive a phone. */
+@media (max-width: 760px) {
+  .access-table thead {
+    position: absolute; width: 1px; height: 1px;
+    overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
+  }
+  .access-table, .access-table tbody, .access-table tr, .access-table td { display: block; width: 100%; }
+  .access-table tr {
+    border: 1px solid var(--color-border); border-radius: var(--radius);
+    margin-bottom: 10px; padding: 12px 14px; background: var(--color-surface);
+  }
+  .access-table td {
+    border: 0; padding: 6px 0; display: flex;
+    align-items: center; justify-content: space-between; gap: 12px;
+  }
+  .access-table td::before { content: attr(data-label); font-size: 13px; color: var(--color-muted); }
+  .access-col-pick, .access-col-app, .access-col-sees { width: auto; }
+  .access-tablewrap { overflow-x: visible; }
+  .access-bulkbar { gap: 8px; }
+  .access-bulkbar .bs-inline-select { flex: 1 1 auto; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .access-skel { animation: none; }
+  .access-track, .access-track::after, .access-role, .access-check { transition: none; }
+}

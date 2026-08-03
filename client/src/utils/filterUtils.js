@@ -20,6 +20,9 @@ export function buildDefaultFilters() {
   return {
     statuses: [],
     retiredFilter: 'non_retired',
+    // '' is every application the caller may see — the honest default, because
+    // guessing one would silently hide half a two-application admin's queue.
+    application: '',
     types: [],
     cleanupRequired: '',
     cleanupStatuses: [],
