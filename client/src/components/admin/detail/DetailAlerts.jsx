@@ -32,8 +32,9 @@ export function DetailAlerts({
   onUnlock,
   detailError,
   edit,
-  setEdit,
   detail,
+  markWorkaroundHandled,
+  working,
   showEasyVistaRequirements,
   easyVistaMissingRequirements,
 }) {
@@ -132,29 +133,32 @@ export function DetailAlerts({
 
       {detailError && <Alert tone="danger" title={detailError} />}
 
-      {/* Someone cannot do their job until this is answered, which is why it
-          outranks everything below it here. */}
+      {/* Someone has a case they cannot finish until this is answered, which is
+          why it outranks everything below it here. */}
       {showWorkaround && (
         <Alert
           tone={workaroundStaged ? 'success' : 'danger'}
           glyph={workaroundStaged ? '✓' : '!'}
           title={workaroundStaged
-            ? 'Marked handled — save to record it'
+            ? 'Marked handled in Triage — save to record it'
             : `${detail.created_by || 'The reporter'} needs a workaround for this case`}
         >
           <p>
             {workaroundStaged
-              ? 'Save Changes writes it to the history with your name against it. The badge on the queue goes quiet once saved.'
+              ? 'You ticked "Workaround provided" on the Triage tab, which is a staged edit. Save Changes writes it to the history with your name against it.'
               : 'They asked for a way to finish the case they reported, rather than waiting on the developer queue. Mark it handled once you have given them one.'}
           </p>
           {!workaroundStaged && (
             <div className="bs-actions">
+              {/* Saves on click — the label is a verb, and requiring a second
+                  trip to Save Changes is how requests were left open. */}
               <Button
                 kind="ghost"
                 type="button"
-                onClick={() => setEdit((prev) => ({ ...prev, workaround_provided: true }))}
+                disabled={working}
+                onClick={() => markWorkaroundHandled(true)}
               >
-                Mark handled
+                {working ? 'Saving…' : 'Mark handled and save'}
               </Button>
             </div>
           )}
