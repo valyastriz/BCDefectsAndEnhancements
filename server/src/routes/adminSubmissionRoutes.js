@@ -1,7 +1,8 @@
 const express = require('express');
 const XLSX = require('xlsx');
 const dbApi = require('../../db');
-const { ensureAdmin } = require('../auth');
+const { ensureAdmin, attachViewer } = require('../auth');
+const { resolveAdminReadScope, canReadSubmissionRow } = require('../services/viewerService');
 const { withDb } = require('../helpers/db');
 const { isBlank } = require('../helpers/utils');
 const { mapSubmission, toExportCellValue } = require('../helpers/mappers');
@@ -18,16 +19,20 @@ const {
 
 const router = express.Router();
 
-router.get('/api/admin/submissions', ensureAdmin, async (req, res) => {
+// The queue and its export read through the same scope, so what an admin can
+// download is exactly what they can see on screen.
+router.get('/api/admin/submissions', ensureAdmin, attachViewer, async (req, res) => {
   return withDb(async (db) => {
-    const rows = await listFilteredAdminSubmissions(db, req.query);
+    const scope = await resolveAdminReadScope(dbApi.getModels() || {}, req.viewer);
+    const rows = await listFilteredAdminSubmissions(db, req.query, scope);
     return res.json(rows);
   });
 });
 
-router.get('/api/admin/submissions/export-xlsx', ensureAdmin, async (req, res) => {
+router.get('/api/admin/submissions/export-xlsx', ensureAdmin, attachViewer, async (req, res) => {
   return withDb(async (db) => {
-    const rows = await listFilteredAdminSubmissions(db, req.query);
+    const scope = await resolveAdminReadScope(dbApi.getModels() || {}, req.viewer);
+    const rows = await listFilteredAdminSubmissions(db, req.query, scope);
     const requestedFieldKeys = String(req.query.fields || '')
       .split(',')
       .map((value) => value.trim())
@@ -63,7 +68,7 @@ router.get('/api/admin/submissions/export-fields', ensureAdmin, async (_req, res
   });
 });
 
-router.get('/api/admin/submissions/:id', ensureAdmin, async (req, res) => {
+router.get('/api/admin/submissions/:id', ensureAdmin, attachViewer, async (req, res) => {
   return withDb(async (db) => {
     const submissionId = Number.parseInt(String(req.params.id || ''), 10);
     if (!Number.isFinite(submissionId) || submissionId <= 0) {
@@ -77,7 +82,10 @@ router.get('/api/admin/submissions/:id', ensureAdmin, async (req, res) => {
       return res.status(500).json({ error: 'Required models are not available' });
     }
     const submission = await getSubmissionByIdWithLookups(db, submissionId);
-    if (!submission) {
+    // A ticket outside the caller's scope reads as absent rather than forbidden,
+    // so the queue cannot be walked by id to learn what other teams are handling.
+    const scope = await resolveAdminReadScope(dbModels, req.viewer);
+    if (!submission || !canReadSubmissionRow(scope, submission)) {
       return res.status(404).json({ error: 'Submission not found' });
     }
 
@@ -104,7 +112,7 @@ router.get('/api/admin/submissions/:id', ensureAdmin, async (req, res) => {
   });
 });
 
-router.post('/api/admin/submissions', ensureAdmin, async (req, res) => {
+router.post('/api/admin/submissions', ensureAdmin, attachViewer, async (req, res) => {
   const body = req.body || {};
   if (isBlank(body.created_by)) {
     return res.status(400).json({ error: 'Requester Name is required' });
@@ -117,6 +125,7 @@ router.post('/api/admin/submissions', ensureAdmin, async (req, res) => {
     const result = await createAdminSubmission(db, {
       body,
       username: req.session?.user?.username,
+      viewer: req.viewer,
     });
     if (result.error) {
       return res.status(result.status).json({ error: result.error });
@@ -128,13 +137,14 @@ router.post('/api/admin/submissions', ensureAdmin, async (req, res) => {
 // Static path — registered before the PUT `/:id` param route (different method, so
 // it can't be captured either way) so an admin can toggle visibility on many
 // tickets at once. Reuses the per-row update path for socket + embedding parity.
-router.post('/api/admin/submissions/bulk-visibility', ensureAdmin, async (req, res) => {
+router.post('/api/admin/submissions/bulk-visibility', ensureAdmin, attachViewer, async (req, res) => {
   const body = req.body || {};
 
   return withDb(async (db) => {
     const result = await bulkUpdateVisibility(db, {
       body,
       username: req.session?.user?.username,
+      viewer: req.viewer,
     });
     if (result.error) {
       return res.status(result.status).json({ error: result.error });
@@ -147,13 +157,14 @@ router.post('/api/admin/submissions/bulk-visibility', ensureAdmin, async (req, r
 // tickets at once via the per-row update path, so status-history logging
 // ("Retired"/"Unretired"), socket emits, and embedding scheduling match the
 // single-ticket retire action exactly.
-router.post('/api/admin/submissions/bulk-retire', ensureAdmin, async (req, res) => {
+router.post('/api/admin/submissions/bulk-retire', ensureAdmin, attachViewer, async (req, res) => {
   const body = req.body || {};
 
   return withDb(async (db) => {
     const result = await bulkUpdateRetired(db, {
       body,
       username: req.session?.user?.username,
+      viewer: req.viewer,
     });
     if (result.error) {
       return res.status(result.status).json({ error: result.error });
@@ -162,7 +173,7 @@ router.post('/api/admin/submissions/bulk-retire', ensureAdmin, async (req, res) 
   });
 });
 
-router.put('/api/admin/submissions/:id', ensureAdmin, async (req, res) => {
+router.put('/api/admin/submissions/:id', ensureAdmin, attachViewer, async (req, res) => {
   const body = req.body || {};
 
   return withDb(async (db) => {
@@ -170,6 +181,7 @@ router.put('/api/admin/submissions/:id', ensureAdmin, async (req, res) => {
       id: req.params.id,
       body,
       username: req.session?.user?.username,
+      viewer: req.viewer,
     });
     if (result.error) {
       return res.status(result.status).json({ error: result.error, ...(result.body || {}) });

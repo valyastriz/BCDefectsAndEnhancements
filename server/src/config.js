@@ -25,6 +25,13 @@ const SESSION_COOKIE_SAME_SITE = String(
 const SESSION_COOKIE_SECURE = String(process.env.SESSION_COOKIE_SECURE || (IS_PRODUCTION ? 'true' : 'false')).toLowerCase() === 'true';
 const SESSION_COOKIE_DOMAIN = String(process.env.SESSION_COOKIE_DOMAIN || '').trim() || null;
 
+// ── Identity ─────────────────────────────────────────────────────────────────
+// 'local' = the username/password admin login this app ships with.
+// 'sso'   = an external identity provider (Active Directory) asserts who the
+//           caller is. Only the viewer envelope's source changes for consumers;
+//           every page reads GET /api/viewer either way.
+const AUTH_MODE = String(process.env.AUTH_MODE || 'local').trim().toLowerCase();
+
 const SUPABASE_URL = String(process.env.SUPABASE_URL || '').trim();
 const SUPABASE_SERVICE_ROLE_KEY = String(process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
 const SUPABASE_STORAGE_BUCKET = String(process.env.SUPABASE_STORAGE_BUCKET || 'attachments').trim();
@@ -98,6 +105,22 @@ const EMBEDDINGS_MODEL = String(
 const VOYAGE_API_KEY = String(process.env.VOYAGE_API_KEY || '').trim();
 const OPENAI_API_KEY = String(process.env.OPENAI_API_KEY || '').trim();
 
+// ── Dev-only impersonation ───────────────────────────────────────────────────
+// Per-application admin roles and super users cannot be tested before SSO exists
+// without a way to become a different user. This is that way, and it is a
+// password-free login by design — so it is gated on THREE independent conditions
+// and its route is not even registered unless all three hold:
+//
+//   1. AUTH_MODE=local        — under SSO the provider is the only way in
+//   2. NODE_ENV != production — the deployed app can never expose it
+//   3. DEV_IMPERSONATION=true — explicit opt-in, off by default
+//
+// Any one of these being false makes it unreachable, so a single mis-set variable
+// cannot open it.
+const DEV_IMPERSONATION_ENABLED = AUTH_MODE === 'local'
+  && !IS_PRODUCTION
+  && toBool(process.env.DEV_IMPERSONATION, false);
+
 const uploadsRoot = path.join(__dirname, '..', 'uploads');
 const tempUploadDir = path.join(uploadsRoot, 'tmp');
 
@@ -113,6 +136,8 @@ module.exports = {
   SESSION_COOKIE_SAME_SITE,
   SESSION_COOKIE_SECURE,
   SESSION_COOKIE_DOMAIN,
+  AUTH_MODE,
+  DEV_IMPERSONATION_ENABLED,
   SUPABASE_URL,
   SUPABASE_SERVICE_ROLE_KEY,
   SUPABASE_STORAGE_BUCKET,

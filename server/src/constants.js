@@ -129,6 +129,7 @@ const ADMIN_VIEW_COLUMN_KEYS = [
   'directImpact',
   'policiesImpacted',
   'frequency',
+  'application',
 ];
 const ADMIN_VIEW_FILTER_KEYS = [
   'statuses',
@@ -146,7 +147,44 @@ const ADMIN_VIEW_FILTER_KEYS = [
   'easyvistaNumber',
   'jiraNumber',
   'releaseNumber',
+  'application',
 ];
+
+// ── Application roles ───────────────────────────────────────────────────────
+// What a person may do IN ONE APPLICATION's queue. Ordered weakest first, and
+// the order is load-bearing: a role confers everything the roles before it do,
+// so "at least viewer" is an index comparison rather than a list of exceptions.
+//
+// Deliberately a short code-level catalog rather than a lookup table: unlike
+// statuses or priorities, a role means nothing without the code paths that honour
+// it, so a row someone added by hand could only ever be a role that does nothing.
+//
+//   viewer — read the application's queue and its tickets; export. Changes nothing.
+//   admin  — everything in that application: edit, status, attachments, redirect,
+//            EasyVista, public visibility, retire, bulk.
+//
+// Portal super users are NOT in this list. That is a flag on the users row and it
+// spans every application — one bypass, one place to audit.
+// The application-scope filter value meaning "tickets with no application set".
+// A sentinel rather than an empty string, because empty already means "every
+// application" — and a literal application could never be named this.
+const UNASSIGNED_APPLICATION = '__unassigned__';
+
+const APPLICATION_ROLES = ['viewer', 'admin'];
+const APPLICATION_ROLE_ADMIN = 'admin';
+const APPLICATION_ROLE_VIEWER = 'viewer';
+
+/** Position in the ladder, or -1 for anything unrecognised (which grants nothing). */
+function applicationRoleRank(role) {
+  return APPLICATION_ROLES.indexOf(String(role || '').trim().toLowerCase());
+}
+
+/** True when `role` confers at least what `minimum` confers. Unknown roles fail closed. */
+function applicationRoleAtLeast(role, minimum) {
+  const held = applicationRoleRank(role);
+  const needed = applicationRoleRank(minimum);
+  return held >= 0 && needed >= 0 && held >= needed;
+}
 
 const LOOKUP_TABLES = {
   statuses: {
@@ -235,5 +273,11 @@ module.exports = {
   SUBMISSION_TO_CLEANUP_STATUS,
   ADMIN_VIEW_COLUMN_KEYS,
   ADMIN_VIEW_FILTER_KEYS,
+  UNASSIGNED_APPLICATION,
+  APPLICATION_ROLES,
+  APPLICATION_ROLE_ADMIN,
+  APPLICATION_ROLE_VIEWER,
+  applicationRoleRank,
+  applicationRoleAtLeast,
   LOOKUP_TABLES,
 };
