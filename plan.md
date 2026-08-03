@@ -40,7 +40,7 @@ a reason instead of coming back as a 400 after the whole form is filled. Object-
 lifecycle stays in the page, where `files` is local state — as a prop it trips
 `react-hooks/set-state-in-effect`.
 
-**Type choice is two descriptive cards**, since it reshapes the whole form. **Confirmation**
+**Type choice is two cards**, since it reshapes the whole form. **Confirmation**
 keeps the reference number, a recap of what the team will see, and a link to the Status
 Board (true: rep tickets are created `is_public: 1`).
 
@@ -55,6 +55,53 @@ Also dropped the dead `desired_completion_date` from the form payload — it was
 Not verified: no browser was driven, so the rendered layout, both themes, and the
 narrow-width behaviour are unconfirmed. API paths, lint, build and the server suite were
 exercised.
+
+## Submit form decluttered + "needs a workaround" flag (2026-08-03)
+
+**Every explanatory hint is gone from the form.** The eight `rs-hint` lines under the
+fields ("So the BC team knows who to come back to with questions", "Error text matters —
+paste or type it exactly", …), the descriptions inside the Defect/Enhancement cards, and
+the screenshot justification paragraph. The `hint` prop is removed from `Field` rather
+than left unused. Two signals were preserved rather than deleted: the Reference numbers
+sentence became an `Optional` chip (the three fields carry no required marker, so it was
+the only thing conveying that), and the screenshot argument still lands in the
+"Submit Without Screenshots?" dialog, at the moment it matters. `.rs-type` lost a row and
+its cards are now a single centred line.
+
+**A rep can flag that they are blocked** — a defect-only checkbox, "I need a workaround to
+keep working", for an issue that needs an answer today rather than a place in the
+developer queue.
+
+Two columns, not one: `needs_workaround` is the rep's ask, `workaround_provided` is the
+team closing it out, so handling a request does not erase that it was made. **An open
+request is the first without the second** — that pairing is the whole model, and the
+`open` / `handled` / `any` filter exists because a ticket nobody flagged is neither open
+nor handled.
+
+- **Server.** Both columns on `Submission` (INTEGER, default 0, added by the existing
+  `sync({ alter: true })` migration). `POST /api/submissions` accepts the flag and **drops
+  it for enhancements** regardless of what was posted. Parsing goes through a new
+  `parseBooleanFlag` in `helpers/utils.js`: the form is multipart, so `false` arrives as
+  the *string* `"false"`, which `toBooleanSql` would have read as true and flagged every
+  defect. Both flags are on `mapSubmission` as booleans and deliberately **absent from
+  `mapPublicSubmission`** — who is blocked is triage information.
+- **History.** Three entries, all attributed: `Workaround: Requested by reporter` at submit
+  time, then `Workaround: Marked handled` / `Reopened — still needed` against the admin who
+  did it. A triager raising or withdrawing the request itself logs too. The first and second
+  bracket how long the rep waited.
+- **Queue.** A red `Needs workaround` badge in the summary cell — default-visible, so it
+  does not wait to be found inside a ticket — going quiet as `Workaround given` once
+  handled. A `WorkaroundRequestsAlert` banner mirrors `NewSubmissionsAlert` (louder: this is
+  someone unable to work) and its button filters the table to `workaround: 'open'`.
+- **Detail modal.** An alert ranked above the resubmission notices with a **Mark handled**
+  button; it is keyed off the saved record, so ticking it changes the alert's tone rather
+  than making it vanish before Save. The two checkboxes live in Triage under `Workaround`.
+
+Verified end to end against a throwaway copy of the seeded sql.js file: migration adds the
+columns, a ticked box persists, an unticked one stays false, an enhancement cannot set it,
+both filters follow the state, and the history entries land with the right names. Not
+verified: no browser was driven, so the decluttered layout and the new controls are
+unconfirmed visually.
 
 ## FIXED — enhancements were being sent to EasyVista as defects (2026-08-01)
 

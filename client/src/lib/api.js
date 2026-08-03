@@ -22,6 +22,7 @@ function buildAdminSubmissionsQuery({
   retiredFilter = 'non_retired',
   year = '',
   inJira = '',
+  workaround = '',
   jiraNumber = '',
   easyvistaNumber = '',
   releaseNumber = '',
@@ -45,6 +46,7 @@ function buildAdminSubmissionsQuery({
   if (retiredFilter) params.set('retiredFilter', retiredFilter);
   if (year) params.set('year', year);
   if (inJira) params.set('inJira', inJira);
+  if (workaround) params.set('workaround', workaround);
   if (jiraNumber) params.set('jiraNumber', jiraNumber);
   if (easyvistaNumber) params.set('easyvistaNumber', easyvistaNumber);
   if (releaseNumber) params.set('releaseNumber', releaseNumber);
@@ -164,6 +166,7 @@ export const api = {
     retiredFilter = 'non_retired',
     year = '',
     inJira = '',
+    workaround = '',
     jiraNumber = '',
     easyvistaNumber = '',
     releaseNumber = '',
@@ -183,6 +186,7 @@ export const api = {
       retiredFilter,
       year,
       inJira,
+      workaround,
       jiraNumber,
       easyvistaNumber,
       releaseNumber,

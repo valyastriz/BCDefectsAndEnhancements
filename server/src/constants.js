@@ -142,6 +142,7 @@ const ADMIN_VIEW_FILTER_KEYS = [
   'createdVia',
   'year',
   'inJira',
+  'workaround',
   'easyvistaNumber',
   'jiraNumber',
   'releaseNumber',

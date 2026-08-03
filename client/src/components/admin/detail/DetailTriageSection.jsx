@@ -138,6 +138,29 @@ export function DetailTriageSection({
         </label>
       </DetailGroup>
 
+      {/* The alert at the top of the modal is the prompt; this is where the two
+          flags actually live, so a request can also be raised on a reporter's
+          behalf or reopened after the fact. */}
+      <DetailGroup label="Workaround">
+        <label className="dm-check">
+          <input
+            type="checkbox"
+            checked={Boolean(edit.needs_workaround)}
+            onChange={(e) => setEdit((p) => ({ ...p, needs_workaround: e.target.checked }))}
+          />
+          <span>Reporter needs a workaround</span>
+        </label>
+        <label className="dm-check">
+          <input
+            type="checkbox"
+            disabled={!edit.needs_workaround}
+            checked={Boolean(edit.workaround_provided)}
+            onChange={(e) => setEdit((p) => ({ ...p, workaround_provided: e.target.checked }))}
+          />
+          <span>Workaround provided</span>
+        </label>
+      </DetailGroup>
+
       <DetailGroup label="Decision">
         <Textarea
           label="Decision Notes"

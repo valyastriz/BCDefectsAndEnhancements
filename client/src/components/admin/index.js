@@ -1,5 +1,6 @@
 export { AdminHeader } from './AdminHeader';
 export { NewSubmissionsAlert } from './NewSubmissionsAlert';
+export { WorkaroundRequestsAlert } from './WorkaroundRequestsAlert';
 export { QueueScopeStrip } from './QueueScopeStrip';
 export { FilteredViewBand } from './FilteredViewBand';
 export { CommandBar } from './CommandBar';

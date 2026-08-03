@@ -84,6 +84,14 @@ function defineModels(sequelize) {
     direct_dollar_impact: { type: DataTypes.REAL },
     policies_affected_count: { type: DataTypes.INTEGER },
     logged_defect: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
+    // Raised by the rep on the submit form: they are blocked now and need a
+    // workaround ahead of the developer queue. Two columns rather than one so
+    // handling the request does not erase the fact that it was made —
+    // `needs_workaround` is the rep's ask, `workaround_provided` is the team
+    // closing it out. "Open request" therefore means the first without the
+    // second.
+    needs_workaround: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
+    workaround_provided: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
     enhancement_request_type_id: { type: DataTypes.INTEGER, allowNull: true },
     priority_level_id: { type: DataTypes.INTEGER, allowNull: true },
     jira_number: { type: DataTypes.TEXT },

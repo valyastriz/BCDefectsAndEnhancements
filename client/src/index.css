@@ -1907,6 +1907,22 @@ tr[data-selected="true"] td { background: color-mix(in srgb, var(--color-primary
   color: var(--color-muted);
 }
 
+/* An open workaround request means someone cannot do their job today, so it is
+   the one badge here allowed to shout. Handled, it goes quiet — still a fact
+   about the ticket, no longer a call to action. */
+.cell-workaround {
+  font-size: 10.5px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase;
+  border-radius: 999px; padding: 2px 8px; white-space: nowrap;
+  color: var(--color-danger);
+  background: color-mix(in srgb, var(--color-danger) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-danger) 40%, transparent);
+}
+.cell-workaround--done {
+  color: var(--color-muted);
+  background: transparent;
+  border-color: var(--color-border);
+}
+
 /* Inline editors: quiet until you reach for them, but still real selects */
 .bs-inline-select {
   border-color: transparent;
@@ -2829,21 +2845,22 @@ select.dm-prow-input { cursor: pointer; }
 
 /* ── Type picker: two cards, because this choice reshapes the whole form ── */
 .rs-types { display: grid; grid-template-columns: 1fr 1fr; gap: 11px; }
+/* One row: the mark and the name. The descriptions these cards used to carry
+   were the bulk of their height, so the padding comes down with them. */
 .rs-type {
-  text-align: left; cursor: pointer; display: grid; grid-template-columns: auto 1fr; gap: 3px 11px;
-  padding: 13px 15px 14px; border-radius: var(--radius); font: inherit;
+  text-align: left; cursor: pointer; display: grid; grid-template-columns: auto 1fr; gap: 11px;
+  align-items: center; padding: 13px 15px; border-radius: var(--radius); font: inherit;
   border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text);
   transition: border-color .15s, background .15s, box-shadow .15s;
 }
 .rs-type:hover { border-color: color-mix(in srgb, var(--color-primary) 45%, var(--color-border)); }
 .rs-type-mark {
-  grid-row: 1 / span 2; width: 19px; height: 19px; border-radius: 50%; margin-top: 2px;
+  width: 19px; height: 19px; border-radius: 50%;
   border: 2px solid color-mix(in srgb, var(--color-text) 25%, transparent);
   display: grid; place-items: center; flex-shrink: 0;
 }
 .rs-type-mark::after { content: ''; width: 9px; height: 9px; border-radius: 50%; background: transparent; }
 .rs-type-name { font-size: 14.5px; font-weight: 700; }
-.rs-type-desc { font-size: 12.5px; color: var(--color-muted); }
 .rs-type[aria-pressed='true'] {
   border-color: var(--color-primary);
   background: color-mix(in srgb, var(--color-primary) 8%, var(--color-surface));
@@ -2876,6 +2893,23 @@ select.dm-prow-input { cursor: pointer; }
 .rs-field textarea { resize: vertical; min-height: 92px; line-height: 1.55; }
 .rs-field-lead .rs-field input { font-size: 15.5px; padding: 11px 13px; font-weight: 550; }
 .rs-hint { margin: 0; font-size: 12.5px; color: var(--color-muted); }
+/* The whole row is the hit target — a 13px checkbox on its own is a poor one,
+   especially on a phone. */
+.rs-flag {
+  display: flex; align-items: center; gap: 10px; cursor: pointer;
+  padding: 11px 13px; border-radius: var(--radius-sm);
+  border: 1px solid color-mix(in srgb, var(--color-text) 22%, var(--color-surface));
+  font-size: 14px; font-weight: 550;
+}
+.rs-flag:hover { border-color: color-mix(in srgb, var(--color-primary) 45%, var(--color-border)); }
+.rs-flag input { width: 17px; height: 17px; flex-shrink: 0; accent-color: var(--color-primary); cursor: pointer; }
+.rs-flag:has(input:checked) {
+  border-color: var(--color-danger);
+  background: color-mix(in srgb, var(--color-danger) 7%, var(--color-surface));
+}
+.rs-flag:has(input:focus-visible) {
+  outline: 2px solid var(--color-primary); outline-offset: 2px;
+}
 .rs-bad { margin: 0; font-size: 12.5px; font-weight: 650; color: var(--color-danger); }
 .rs-field.is-bad input,
 .rs-field.is-bad textarea {

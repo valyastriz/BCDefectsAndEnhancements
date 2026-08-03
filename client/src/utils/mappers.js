@@ -62,6 +62,8 @@ export function editableFromDetail(detail) {
     duplicate_of: detail.duplicate_reference || detail.duplicate_of || '',
     is_retired: Boolean(detail.is_retired),
     is_public: Boolean(detail.is_public),
+    needs_workaround: Boolean(detail.needs_workaround),
+    workaround_provided: Boolean(detail.workaround_provided),
   };
 }
 
@@ -91,6 +93,8 @@ export function normalizeAdminRow(row) {
     has_resubmission: Boolean(row.has_resubmission),
     latest_resubmission_submission_id: row.latest_resubmission_submission_id || null,
     latest_resubmission_easyvista_ticket_id: row.latest_resubmission_easyvista_ticket_id || null,
+    needs_workaround: Boolean(row.needs_workaround),
+    workaround_provided: Boolean(row.workaround_provided),
   };
 }
 

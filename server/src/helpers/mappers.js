@@ -27,6 +27,8 @@ function mapSubmission(row) {
     status: baseStatus,
     defect_enhancement_status: baseStatus,
     is_public: Boolean(row.is_public),
+    needs_workaround: Boolean(row.needs_workaround),
+    workaround_provided: Boolean(row.workaround_provided),
     is_retired: isRetired,
     is_cleanup: isCleanup,
     // Always expose the stored name so the edit form can restore it after is_cleanup toggling

@@ -140,6 +140,19 @@ export function FilterPanel({
         <option value="no">No</option>
       </Select>
     ),
+    // Three states, because a ticket nobody flagged is neither open nor handled.
+    workaround: () => (
+      <Select
+        label="Workaround"
+        value={filters.workaround}
+        onChange={(e) => patch('workaround')(e.target.value)}
+      >
+        <option value="">All</option>
+        <option value="open">Open request</option>
+        <option value="handled">Handled</option>
+        <option value="any">Requested (either)</option>
+      </Select>
+    ),
   };
 
   // Groups with no visible filters left are dropped entirely rather than

@@ -1,7 +1,7 @@
 const express = require('express');
 const dbApi = require('../../db');
 const { withDb } = require('../helpers/db');
-const { isBlank, toIsoOrNow, defectDateTimeIso } = require('../helpers/utils');
+const { isBlank, toIsoOrNow, defectDateTimeIso, parseBooleanFlag } = require('../helpers/utils');
 const {
   resolveSubmissionLookupIds,
   collectMissingLookupIds,
@@ -35,6 +35,7 @@ router.post('/api/submissions', imageUpload.array('attachments', 3), async (req,
     date_of_error,
     time_of_error,
     desired_completion_date,
+    needs_workaround,
   } = req.body;
 
   const allowedSubmissionTypes = await withDb(async (db) => getSubmissionTypes(db));
@@ -173,6 +174,11 @@ router.post('/api/submissions', imageUpload.array('attachments', 3), async (req,
       // the public status board and in public AI search; an admin can switch an
       // individual ticket to private. (Rep submissions are never cleanup tasks.)
       is_public: 1,
+      // The rep is blocked and needs a way to keep working. Defect-only: an
+      // enhancement is by definition not stopping anyone today, and the form
+      // only offers the box on a defect — so a value sent with an enhancement is
+      // dropped here rather than trusted.
+      needs_workaround: normalized.type === 'defect' && parseBooleanFlag(needs_workaround) ? 1 : 0,
     };
 
     const createdSubmission = await Submission.create(createPayload);
@@ -180,6 +186,17 @@ router.post('/api/submissions', imageUpload.array('attachments', 3), async (req,
 
     await persistUploadedFiles(db, submissionId, req.files || [], 'rep');
     await logStatusChange(db, submissionId, 'New', normalized.created_by || 'rep', now);
+    // On the record from the start, so the history shows when the rep asked and
+    // — once an admin marks it handled — how long they waited.
+    if (createPayload.needs_workaround) {
+      await logStatusChange(
+        db,
+        submissionId,
+        'Workaround: Requested by reporter',
+        normalized.created_by || 'rep',
+        now,
+      );
+    }
 
     const created = await getSubmissionByIdWithLookups(db, submissionId);
     emitAdminNotification('submission:new', mapSubmission(created));
