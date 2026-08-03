@@ -3,6 +3,43 @@
 Living record of notable features/changes. See `CLAUDE.md` for architecture and
 per-app details.
 
+## Browser verification — five defects the tests could not see (2026-08-03)
+
+Every page built this session had been reported as "not verified in a browser". That
+was an assumption, not a fact: Chrome is installed, and headless Chrome screenshots
+without any tooling. Driving the real app found five defects that lint, 229 unit tests
+and a full HTTP pass had all missed.
+
+1. **Access page: the "Sees" column was invisible.** A global `table { min-width: 1400px }`
+   (`index.css:708`), there for the very wide admin queue, applied to the Access table
+   too — 1400px inside an 1190px card, pushing the last column behind a scrollbar nobody
+   would think to use. `.access-table` now sets its own floor.
+2. **Board: a redirected ticket claimed the previous team's progress.** The track read
+   "furthest timestamp wins", so a ticket approved by Billing Center and handed to Policy
+   Center still showed as Approved — the sending team's work presented as the receiving
+   team's. The track is now driven by the ticket's CURRENT status, and a date only prints
+   under a stop actually reached.
+3. **Board: an anonymous visitor was silently prefiltered to one application.** The
+   anonymous viewer envelope carries a `homeApplicationId` as a submit-form prefill;
+   treating it as a board scope hid half the board from a stranger with no clue why.
+   Auto-scoping is now for signed-in viewers only.
+4. **Board: the list-band hint ran its separators together** — JSX strips whitespace
+   between elements and `.pb-sep` carries no margin, so the mockup's spacing was lost.
+5. **Admin queue: the scope switcher vanished for the admin who most needed it.** It was
+   derived from GRANTED applications, but a ticket handed to another team stays readable
+   through the routing ledger — so a one-application admin can hold two applications'
+   tickets and had no way to separate them. Now derived from grants plus what is actually
+   in the queue.
+
+Verified in Chrome: the board (desktop, phone, dark), the Access page (light, dark,
+phone), the admin queue as a super user and as a one-application admin, and a handed-on
+ticket showing "This ticket now belongs to Policy Center" with Save and EasyVista both
+disabled. Also confirmed the ledger read-scope end to end — `lead`, admin of Billing
+Center only, sees 5 tickets including the 2 they redirected to Policy Center.
+
+Driving the app also caught a temporal-dead-zone crash I introduced while fixing (5):
+a `useMemo` reading `rows` above its declaration blanked the whole queue. Lint passed it.
+
 ## Status board rebuilt — status became position (2026-08-03)
 
 Step 6. Built to the approved redesign mockup, **artifact v1**

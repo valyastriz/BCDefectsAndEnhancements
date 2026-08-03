@@ -365,7 +365,7 @@ export function AdminAccessPage({ user }) {
                   />
                 </th>
                 <th scope="col">Account</th>
-                <th scope="col">Super user</th>
+                <th scope="col" className="access-col-super">Super user</th>
                 {applications.map((app) => (
                   <th key={app.id} scope="col" className="access-col-app">
                     {app.name}
@@ -419,7 +419,7 @@ export function AdminAccessPage({ user }) {
                         </span>
                       </td>
 
-                      <td data-label="Super user">
+                      <td className="access-col-super" data-label="Super user">
                         <SuperUserSwitch
                           checked={person.isSuperUser}
                           disabled={busy || isLastSuperUser}

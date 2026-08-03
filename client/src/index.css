@@ -3316,9 +3316,21 @@ select.dm-prow-input { cursor: pointer; }
 .access-btn-danger:hover:not(:disabled) { background: var(--color-danger); color: #fff; }
 
 .access-tablewrap { overflow-x: auto; }
-.access-table { width: 100%; border-collapse: collapse; }
+.access-table {
+  width: 100%;
+  border-collapse: collapse;
+  /* Overrides the global `table { min-width: 1400px }` (index.css:708), which
+     exists for the very wide admin queue. Inheriting it made this table 1400px
+     inside an 1190px card, pushing the "Sees" column out of sight behind a
+     scrollbar nobody would think to use. This floor is just wide enough for the
+     fixed columns plus two applications; more than that scrolls, by design. */
+  min-width: 680px;
+}
 .access-table th, .access-table td { vertical-align: middle; }
 .access-col-pick { width: 44px; }
+/* Constrained so the flexible Account column cannot starve the columns that
+   actually carry the decision. */
+.access-col-super { width: 116px; }
 /* Narrow on purpose: more applications fit before the grid has to scroll. */
 .access-col-app { width: 148px; }
 .access-col-sees { width: 210px; }

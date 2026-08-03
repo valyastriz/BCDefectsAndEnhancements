@@ -112,12 +112,21 @@ export function PublicUpdatesPage() {
   // see viewerService.resolveHomeApplicationId). Runs once, and only while the
   // picker is still untouched, so it can never yank the view out from under
   // someone who has already chosen.
+  //
+  // ONLY for a signed-in viewer. The anonymous envelope still carries a
+  // homeApplicationId — it is the submit form's prefill — but a stranger has no
+  // home application, and honouring it here silently hid half the board behind a
+  // picker they had no reason to touch.
   useEffect(() => {
     if (application !== '') return;
+    if (!viewer.isAuthenticated) {
+      setApplication(ALL_APPLICATIONS);
+      return;
+    }
     if (!viewer.homeApplicationId) return;
     const home = (viewer.applications || []).find((app) => app.id === viewer.homeApplicationId);
     setApplication(home ? home.name : ALL_APPLICATIONS);
-  }, [application, viewer.applications, viewer.homeApplicationId]);
+  }, [application, viewer.isAuthenticated, viewer.applications, viewer.homeApplicationId]);
 
   // ── Persist filters to localStorage ───────────────────────────────────────
   useEffect(() => {
@@ -470,12 +479,26 @@ export function PublicUpdatesPage() {
               <span className="pb-band-title">
                 <b>{visibleItems.length}</b> of {tileCounts.total} tickets
               </span>
+              {/* The explicit {' '} matter: JSX strips the whitespace between
+                  elements on separate lines, and .pb-sep carries no margin —
+                  without them the hint reads "filter·Billing Center·no filters". */}
               <span className="pb-band-hint">
                 Changes with every filter
+                {' '}
                 <span className="pb-sep">·</span>
+                {' '}
                 {scopeLabel}
-                {mineOnly && <><span className="pb-sep">·</span>Yours only</>}
+                {mineOnly && (
+                  <>
+                    {' '}
+                    <span className="pb-sep">·</span>
+                    {' '}
+                    Yours only
+                  </>
+                )}
+                {' '}
                 <span className="pb-sep">·</span>
+                {' '}
                 {activeFilterCount === 0
                   ? 'no filters applied'
                   : `${activeFilterCount} filter${activeFilterCount === 1 ? '' : 's'} applied`}

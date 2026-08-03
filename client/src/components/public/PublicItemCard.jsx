@@ -83,15 +83,30 @@ function ticketRef(item) {
   return item.easyvista_ticket_id ? String(item.easyvista_ticket_id) : `#${item.id}`;
 }
 
-/** How far along the track this ticket has actually got. -1 for none. */
+// Where each live status sits on the track. This, not the timestamps, decides
+// how far along a ticket is.
+const STATUS_STAGE = { New: 0, Approved: 1, Submitted: 2, Deployed: 3 };
+
+/**
+ * How far along the track this ticket actually is.
+ *
+ * Driven by the CURRENT status, deliberately. Timestamps alone would overstate
+ * it: a redirect resets a ticket to New for the receiving team while the
+ * Approved timestamp from the sending team stays in its history, so a
+ * "furthest timestamp wins" reading showed a freshly handed-over ticket as
+ * already approved — the previous team's progress claimed as the new team's.
+ *
+ * Falls back to the timestamps only for a status that is not on the pipeline at
+ * all, which in practice renders an outcome line instead of a track.
+ */
 function reachedIndex(item) {
-  let reached = 0; // Reported is true by definition — it exists.
+  const byStatus = STATUS_STAGE[item.status];
+  if (byStatus !== undefined) return byStatus;
+
+  let reached = 0; // Reported is true by definition — the ticket exists.
   for (let index = 1; index < TRACK.length; index += 1) {
     if (TRACK[index].at(item)) reached = index;
   }
-  // A ticket sitting in Approved with no timestamp (imported, or approved before
-  // history was kept) still reads as approved from its live status.
-  if (reached === 0 && item.status === 'Approved') reached = 1;
   return reached;
 }
 
@@ -168,7 +183,11 @@ export function PublicItemCard({ item, isMine = false }) {
               >
                 <span className="pb-stop-rail"><span className="pb-stop-dot" /></span>
                 <span className="pb-stop-lbl">{stop.label}</span>
-                <span className="pb-stop-date">{shortDate(stop.at(item)) || '—'}</span>
+                {/* A date only under a stop actually reached. A redirected
+                    ticket still carries the sending team's Approved timestamp,
+                    and printing it under an unreached stop would read as though
+                    the new team had already done the work. */}
+                <span className="pb-stop-date">{(done && shortDate(stop.at(item))) || '—'}</span>
               </li>
             );
           })}
