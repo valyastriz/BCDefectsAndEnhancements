@@ -61,6 +61,7 @@ export function DetailModal({
   setEasyVistaAttachmentIds,
   easyVistaMissingRequirements,
   canSubmitEasyVistaDirectly,
+  markWorkaroundHandled,
   hasPendingChanges,
   visibleAttachments,
   saveDisabledReason,
@@ -227,8 +228,9 @@ export function DetailModal({
               onUnlock={() => setUnlockedFor(openId)}
               detailError={detailError}
               edit={edit}
-              setEdit={setEdit}
               detail={detail}
+              markWorkaroundHandled={markWorkaroundHandled}
+              working={working}
               showEasyVistaRequirements={showEasyVistaRequirements}
               easyVistaMissingRequirements={easyVistaMissingRequirements}
             />}

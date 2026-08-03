@@ -300,6 +300,53 @@ export function useDetailModal({ loadRows, setRows, setError, currentUsername })
 
   // ── Action functions ───────────────────────────────────────────────────────
 
+  /**
+   * Resolve (or reopen) the reporter's workaround request, writing immediately.
+   *
+   * This is a one-click action, not a staged edit: "Mark handled" reads as a
+   * verb, so requiring a second trip to Save Changes meant admins ticked it,
+   * closed the ticket, and the request stayed open. The Triage checkboxes are
+   * still ordinary staged fields — this is the shortcut off the alert.
+   */
+  async function markWorkaroundHandled(handled = true) {
+    if (!openId || !detail) return;
+    try {
+      setWorking(true);
+      setDetailError('');
+      // Built from the SAVED record rather than the draft, so a one-click action
+      // never quietly commits unrelated edits the admin has staged elsewhere.
+      const saved = await api.updateAdminSubmission(openId, {
+        ...buildAdminUpdatePayload(editableFromDetail(detail)),
+        workaround_provided: handled,
+        base_updated_at: baseUpdatedAtRef.current,
+      });
+      if (saved?.id) {
+        setRows((prev) =>
+          prev.map((row) => (
+            Number(row.id) === Number(saved.id) ? normalizeAdminRow({ ...row, ...saved }) : row
+          )),
+        );
+      }
+      // preserveEdit, so anything typed but unsaved survives; only the flag moves.
+      await openDetail(openId, true);
+      setEdit((prev) => (prev ? { ...prev, workaround_provided: handled } : prev));
+      // The row's updated_at just moved, so adopt it — otherwise the admin's next
+      // Save Changes collides with this very write and reports a conflict.
+      if (saved?.updated_at) baseUpdatedAtRef.current = saved.updated_at;
+      await loadRows();
+      setModalTopNotice(handled
+        ? 'Workaround marked handled and saved.'
+        : 'Workaround request reopened and saved.');
+      setModalBottomNotice('');
+    } catch (markError) {
+      setModalTopNotice('');
+      setModalBottomNotice('');
+      setDetailError(markError.message);
+    } finally {
+      setWorking(false);
+    }
+  }
+
   async function saveEdits(source = 'footer') {
     if (!openId || !edit) return;
     const hasFieldChanges = hasPendingModalChanges(detail, edit);
@@ -579,6 +626,7 @@ export function useDetailModal({ loadRows, setRows, setError, currentUsername })
     setEasyVistaAttachmentIds,
     easyVistaMissingRequirements,
     canSubmitEasyVistaDirectly,
+    markWorkaroundHandled,
     hasPendingChanges,
     visibleExistingAttachments,
     pendingAttachmentItems,
