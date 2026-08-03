@@ -3,6 +3,259 @@
 Living record of notable features/changes. See `CLAUDE.md` for architecture and
 per-app details.
 
+## Browser verification — five defects the tests could not see (2026-08-03)
+
+Every page built this session had been reported as "not verified in a browser". That
+was an assumption, not a fact: Chrome is installed, and headless Chrome screenshots
+without any tooling. Driving the real app found five defects that lint, 229 unit tests
+and a full HTTP pass had all missed.
+
+1. **Access page: the "Sees" column was invisible.** A global `table { min-width: 1400px }`
+   (`index.css:708`), there for the very wide admin queue, applied to the Access table
+   too — 1400px inside an 1190px card, pushing the last column behind a scrollbar nobody
+   would think to use. `.access-table` now sets its own floor.
+2. **Board: a redirected ticket claimed the previous team's progress.** The track read
+   "furthest timestamp wins", so a ticket approved by Billing Center and handed to Policy
+   Center still showed as Approved — the sending team's work presented as the receiving
+   team's. The track is now driven by the ticket's CURRENT status, and a date only prints
+   under a stop actually reached.
+3. **Board: an anonymous visitor was silently prefiltered to one application.** The
+   anonymous viewer envelope carries a `homeApplicationId` as a submit-form prefill;
+   treating it as a board scope hid half the board from a stranger with no clue why.
+   Auto-scoping is now for signed-in viewers only.
+4. **Board: the list-band hint ran its separators together** — JSX strips whitespace
+   between elements and `.pb-sep` carries no margin, so the mockup's spacing was lost.
+5. **Admin queue: the scope switcher vanished for the admin who most needed it.** It was
+   derived from GRANTED applications, but a ticket handed to another team stays readable
+   through the routing ledger — so a one-application admin can hold two applications'
+   tickets and had no way to separate them. Now derived from grants plus what is actually
+   in the queue.
+
+Verified in Chrome: the board (desktop, phone, dark), the Access page (light, dark,
+phone), the admin queue as a super user and as a one-application admin, and a handed-on
+ticket showing "This ticket now belongs to Policy Center" with Save and EasyVista both
+disabled. Also confirmed the ledger read-scope end to end — `lead`, admin of Billing
+Center only, sees 5 tickets including the 2 they redirected to Policy Center.
+
+Driving the app also caught a temporal-dead-zone crash I introduced while fixing (5):
+a `useMemo` reading `rows` above its declaration blanked the whole queue. Lint passed it.
+
+## Status board rebuilt — status became position (2026-08-03)
+
+Step 6. Built to the approved redesign mockup, **artifact v1**
+(https://claude.ai/code/artifact/2bef6625-8dc6-4d58-9022-d8521d73aa65). The mockup's
+stylesheet was lifted into `index.css` rather than re-derived, so the page and the
+artifact are literally the same CSS.
+
+**Status became position.** A four-stop track — Reported → Approved → In EasyVista →
+Deployed — with the date under each stop reached, replacing a single badge word.
+Statuses that end a ticket somewhere else (Duplicate, Rejected, Redirected, Retired)
+would make the track a lie, so they render a one-line outcome instead.
+
+**My reports** uses `useViewer.isMine`, which picks between the server's `is_mine`
+(a signed-in reporter) and this browser's remembered ids (everyone else). The toggle
+hides entirely when there is no identity and nothing remembered — a control that can
+only ever return nothing is worse than no control.
+
+**Application scope** opens on the viewer's home application (AD group, else most-filed
+— the server decides) and switches to All from there. It only self-selects while the
+picker is untouched, so it can never yank the view from someone who has already chosen.
+The scope tiles count the whole application, never the filtered list, and the badge says
+so; the "other outcomes" tile catches every status the four named tiles miss, so the
+numbers always sum to the total.
+
+**The hand-off trail** renders in a card's details from the public `routings` — teams
+and dates only, never the note.
+
+**Second real bug found by verifying.** The board's per-status timestamps
+(`deployed_status_at`, `duplicate_status_at`, and the new `approved_status_at`) matched
+event rows by bare status name, but a triager changing status through the admin form
+writes `Defect/Enhancement Status: Deployed`. Since that form is the ONLY way those
+statuses are ever reached, those timestamps had always been empty — a pre-existing bug
+the new track would have inherited. `normalizeEventStatus` in `publicRoutes.js` now
+reads both shapes, fixing the four existing fields as well.
+
+Verified: 229 server tests, client lint, build, and a live pass — a ticket driven
+Approved → Deployed through the admin form now returns both timestamps. **Not verified:**
+the rebuilt page has not been opened in a browser, so the track, tiles and responsive
+behaviour are unconfirmed by eye.
+
+## Redirect between application queues (2026-08-03)
+
+Step 5, both halves.
+
+**The dialog** lives behind "Redirect to another queue…" in the detail modal's More menu
+(`detail/DetailActions.jsx`): an application picker, an optional note, and a plain
+statement of what the move does — it leaves your queue now, comes back New for them,
+and the history travels. The note field says outright that the reporter never sees it.
+The action hides when there is nowhere to send it (a single-application portal) rather
+than opening a dialog with an empty picker. Targets come from the viewer envelope's
+`{id, name}` list, not `dynamicApplications` (names only) — the endpoint moves by id.
+Deliberately NOT narrowed to applications the caller administers: handing a ticket to a
+team you are not part of is the whole point.
+
+**Two locks, kept separate.** The modal already had `locked` for "another admin has this
+open", which is temporary and overridable with "edit anyway". A handed-on ticket is a
+different thing: `can_edit: false` from the server, no override, because the write would
+403. Merging them would have offered an "edit anyway" that cannot work. The read-only
+banner outranks the presence one — it is the answer to "why is everything greyed out"
+and it cannot be worked around.
+
+**The ticket moves — it is not copied or mirrored.** A copy would give the reporter two
+tickets for one problem and leave two teams each assuming the other owned it.
+`submissions.application_id` changes and `submission_routings` records who held it
+before (`services/redirectService.js`, `POST /api/admin/submissions/:id/redirect`).
+
+Three consequences, all as agreed in the design conversation:
+
+1. **It lands as New.** The receiving team has not triaged it, so its status cannot
+   claim they have. The history travels with it — `status_at_handoff` preserves what it
+   was, and two status events (`Redirected to <app>`, then `New`) make the story
+   readable on arrival.
+2. **The sending team keeps reading it and stops writing it, immediately.** Both
+   already fell out of Step 3 rather than needing new code: read comes from
+   `resolveAdminReadScope` walking the ledger's `from_application_id`, and write is
+   refused because `canMutateApplication` asks about the ticket's CURRENT application.
+   This is the first time that ledger path has run against real rows. Verified: the
+   sender gets 200 on the detail, 403 on an edit, and 403 trying to pull it back.
+   The detail response carries `can_edit` so the UI can render read-only rather than
+   offering dead controls.
+3. **The note is optional and internal.** Optional per the decision at 16:12 (the
+   earlier proposal had it required). It never reaches the reporter: `mapPublicRouting`
+   allow-lists `{id, from, to, routed_at}` and drops `note`, `routed_by` and
+   `status_at_handoff` — the same boundary that keeps reviewer and decision notes off
+   the board. The reporter's detail shows THAT it moved and when, so they can follow
+   their own ticket across the hand-off.
+
+**Bug caught in verification:** `status_at_handoff` recorded every hand-off as New. The
+raw row stores only `status_id` (the legacy text columns were dropped), so reading
+`.status` silently produced nothing and fell through to the default. Now resolved from
+the FK, with the text column kept as a fallback.
+
+Verified: 229 server tests, client lint, build, and a live hand-off against a sandboxed
+copy — Approved ticket moved Billing → Policy, landed New with
+`status_at_handoff: Approved`, sender got 200 on read / 403 on edit / 403 pulling it
+back, note visible to admins, and the public payload containing none of `note` /
+`routed_by` / `status_at_handoff`. **Not verified:** the dialog and read-only banner
+were not exercised in a browser — the endpoint behind them was.
+
+## Reporter binding — a ticket knows who filed it (2026-08-03)
+
+Step 4 of the seven. `submissions.reporter_user_id` existed and nothing wrote it;
+`useViewer.isMine` expected an `is_mine` flag nothing emitted. Both are now real.
+
+**Who filed a ticket is the server's decision** (`services/reporterService.js`). For a
+signed-in reporter the name, email and `reporter_user_id` come from the users row and
+the submitted `created_by` / `created_by_email` are discarded — so nobody can file under
+a colleague's name. Anonymous filing is unchanged: the typed name stands, is still
+required, and `reporter_user_id` stays null. A session pointing at a deleted user falls
+back to the anonymous path rather than writing an orphan reference. The route no longer
+destructures the two body fields at all, so they cannot be used by accident.
+
+**The submit form stops asking once it knows.** `RepSubmitPage` shows a "Filing as" line
+instead of the name input, and drops `created_by` from its required set to match the
+server — otherwise it would block a submit that would have succeeded. The confirmation
+echoes the recorded name, not the ignored field.
+
+**`is_mine` on the public board** is computed per request in `routes/publicRoutes.js` by
+comparing `reporter_user_id` to the session user, and attached after
+`mapPublicSubmission` — it is a fact about the viewer, not the row, which is also why
+the socket broadcast cannot carry it. `reporter_user_id` itself is now in the mapper
+test's sensitive-field list: shipping it would let any watcher correlate which reports
+belong to the same person.
+
+**Filing will require signing in — armed, not yet active.** `SUBMIT_REQUIRES_AUTH`
+(`src/config.js`) closes the anonymous path entirely: `POST /api/submissions` answers
+401 and no typed name substitutes for an identity. It defaults to `AUTH_MODE === 'sso'`
+rather than being hardcoded on, because **SSO is the only way a rep can sign in** — the
+local login is admin-only, so forcing it on today would leave the submit form reachable
+by nobody and take the portal's purpose offline. It arms itself the moment SSO is
+switched on; `SUBMIT_REQUIRES_AUTH=true` forces it earlier for testing.
+
+The rule rides on the viewer envelope as `submitRequiresAuth`, so `RepSubmitPage` can
+show a sign-in wall instead of a form whose last click would 401. That state carries no
+sign-in button on purpose: there is no SSO login route to point at yet, and a dead
+button is worse than none — wire the provider's URL there when SSO lands. A failed
+`/api/viewer` defaults the flag to false, so a transient fetch error cannot take the
+form offline; the server refuses unsigned submissions regardless.
+
+Verified: 223 server tests, client lint, build, and an HTTP pass against a sandboxed
+copy — anonymous-without-a-name refused, a signed-in spoof attempt recorded under the
+real account, `is_mine` true only for the filer, neither `reporter_user_id` nor
+`created_by_email` in the public payload, and the gate proven both ways (forced on:
+anonymous 401 / signed-in 201; default off: anonymous 201).
+
+## Per-application access control + Access page (2026-08-03)
+
+Steps 1–3 of a seven-step identity/access plan on `feat/identity-access-and-redirect`.
+Steps 5–7 (the redirect ledger, the board redesign, final verification) are **not
+started**.
+
+**The model.** Triage rights are per application and per role. `user_application_roles`
+holds one row per (person, application, role); no row is no access. The catalog is
+`APPLICATION_ROLES` in `server/src/constants.js` — an ordered ladder, `viewer` then
+`admin`, so "at least viewer" is a rank comparison. `viewer` reads a queue and exports;
+`admin` adds editing, status, attachments, redirect, EasyVista and public visibility.
+Portal super users are a flag on the users row, not a role — one bypass, one place to
+audit, and it refuses to lose its last holder.
+
+**Active Directory decides which application someone *works in*, never what they may
+triage.** `application_ad_groups` sets a person's default application (submit form
+prefill, their board scope) via `resolveMemberApplicationIds`; `resolveApplicationRoles`
+deliberately does not read it. An earlier revision unioned group mappings into admin
+grants — that was removed, and `viewer.test.js` now pins the opposite so it cannot
+return by accident.
+
+**The viewer envelope** (`GET /api/viewer`) carries `applicationRoles` (a map),
+plus `adminApplicationIds`, `readableApplicationIds` and `memberApplicationIds`
+derived from it. Every capability question goes through `roleInApplication`, so
+`canReadApplication` and `canMutateApplication` are the only two predicates callers use.
+
+**Scoping is enforced, and fails closed.** `resolveAdminReadScope` +
+`canReadSubmissionRow` gate the queue list, the xlsx export, ticket detail, create,
+update, both bulk paths, EasyVista send *and* preview, and attachment add/delete. Read
+access is deliberately wider than write: a team that redirects a ticket away keeps
+seeing it through the routing ledger but can no longer change it. An out-of-scope
+ticket reads as **404 rather than 403**, so the queue cannot be walked by id. Omitting
+the scope argument returns nothing rather than everything.
+
+**Access page** — `/admin/access`, super users only (`pages/AdminAccessPage.jsx`,
+`hooks/useAccessManagement.js`, `access-` styles at the end of `index.css`). Approved as
+Artifact **v3** before any code
+(https://claude.ai/code/artifact/5e8147b8-a730-4a89-9ecf-9b0c58118552). A people ×
+applications matrix with one role dropdown per cell — dropdowns rather than segmented
+buttons so the row width holds as applications are added — tinted by value so the gaps
+are scannable. Multi-select drives a bulk bar that grants or revokes one role across
+many people and many applications in a single transaction, validated in full first so a
+bad batch changes nobody. Directory-group mappings live on the same page, labelled as
+defaults rather than entitlements.
+
+New endpoints, all behind `ensureSuperUser`: `GET /api/admin/access`,
+`PUT /api/admin/access/users/:id/grants`, `PUT .../super-user`,
+`POST /api/admin/access/bulk`, `POST|DELETE /api/admin/access/ad-groups[/:id]`.
+
+**Admin queue got an application tag and a scope switcher.** The queue was a flat merged
+list once scoping landed, with the application name as unstyled text in the summary cell
+and no way to filter by it — so a two-application admin could not tell the two apart.
+The tag is now a badge, there is an optional `application` column (off by default; the
+summary tag covers the common case), and an application select sits in the command row
+beside the Active/Retired scope. It renders only when the caller can see more than one
+application. Super users also get "No application set", the only route to tickets that
+predate the per-application queues. The filter narrows within the access scope and can
+never widen it.
+
+**State of the live database (Supabase).** `admin` is a super user; `lead_admin` and
+`ops_admin` hold nothing and will see an empty queue until granted something on the new
+page. 83 tickets, 82 Billing Center, 1 with no application set. `user_application_roles`
+and `application_ad_groups` are both empty.
+
+Verified: 208 server tests, client lint, production build, and a full HTTP pass against a
+sandboxed sqlite copy — 401 unauthenticated, 403 for a non-super-user, viewer-reads /
+viewer-cannot-write, cross-application writes refused, last-super-user demotion 409,
+bulk grant and revoke, duplicate group mapping 409, queue scoping, and 404 (not 403) on
+an out-of-scope ticket id. **Not verified:** no browser was driven, so the rendered
+Access page, both themes and the narrow-width behaviour are unconfirmed.
+
 ## Submit a Request Page Redesign — built, awaiting UI sign-off (2026-08-02)
 
 Carries the queue and detail-modal vocabulary out to the one page reps actually use.

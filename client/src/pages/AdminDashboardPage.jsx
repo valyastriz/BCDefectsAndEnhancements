@@ -25,6 +25,7 @@ import { normalizeAdminRow } from '../utils/mappers';
 import { getActiveFilters } from '../utils/activeFilterUtils';
 
 // ── Custom hooks ────────────────────────────────────────────────────────────
+import { useViewer } from '../hooks/useViewer';
 import { useAdminMeta } from '../hooks/useAdminMeta';
 import { useAdminViewPreferences } from '../hooks/useAdminViewPreferences';
 import { useAdminNotifications } from '../hooks/useAdminNotifications';
@@ -93,6 +94,10 @@ const BULK_ACTIONS = {
 
 export function AdminDashboardPage({ user, onLogout }) {
   const navigate = useNavigate();
+  // Signposting only — every endpoint re-checks rights server-side, so this
+  // decides what to show, never what is allowed.
+  const { viewer } = useViewer();
+
 
   // ── Page-level state (filters, rows, pagination, notices) ─────────────────
   const [filters, setFilters] = useState(defaultFilters);
@@ -102,6 +107,27 @@ export function AdminDashboardPage({ user, onLogout }) {
   // baseline totals fetch use the same status scope as the default/reset view.
   const statusFilterOptionsRef = useRef([]);
   const [rows, setRows] = useState([]);
+
+  // The applications this caller may actually look at.
+  //
+  // Grants are not the whole answer. A ticket handed to another team stays
+  // readable through the routing ledger, so an admin of ONE application can
+  // legitimately have two applications' tickets in front of them — and deriving
+  // this from grants alone hid the switcher exactly when it became useful.
+  // So: what they were granted, plus whatever is actually in the queue.
+  //
+  // Declared here, below `rows`, and not with the other viewer-derived values
+  // at the top of the component — reading `rows` before its declaration is a
+  // temporal dead zone error that takes the whole page down.
+  const scopeApplications = useMemo(() => {
+    if (viewer.isSuperUser) return viewer.applications;
+    const granted = new Set(viewer.readableApplicationIds || []);
+    const present = new Set(rows.map((row) => row.application_name).filter(Boolean));
+    return (viewer.applications || []).filter(
+      (app) => granted.has(app.id) || present.has(app.name),
+    );
+  }, [viewer.applications, viewer.isSuperUser, viewer.readableApplicationIds, rows]);
+
   const [pageSize, setPageSize] = useState(50);
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(false);
@@ -607,6 +633,8 @@ export function AdminDashboardPage({ user, onLogout }) {
         onOpenBackdated={openBackdatedModal}
         onOpenCleanup={openCleanupModal}
         onNavigateMetadata={() => navigate('/admin/metadata')}
+        onNavigateAccess={() => navigate('/admin/access')}
+        canManageAccess={viewer.isSuperUser}
         onLogout={logout}
         onImportFileChange={analyzeImportFile}
       />
@@ -670,6 +698,8 @@ export function AdminDashboardPage({ user, onLogout }) {
         runtimeCreatedViaOptions={runtimeCreatedViaOptions}
         dynamicCleanupStatuses={dynamicCleanupStatuses}
         visibleFilters={viewPrefs.filters}
+        scopeApplications={scopeApplications}
+        canSeeUnassigned={viewer.isSuperUser}
         onOpenCustomize={() => setCustomizeOpen(true)}
         onResetSaved={resetSavedFilters}
         onClearAllFilters={clearAllFilters}
@@ -792,6 +822,7 @@ export function AdminDashboardPage({ user, onLogout }) {
       <DetailModal
         {...detailModal}
         presence={ticketPresence}
+        redirectApplications={viewer.applications}
         dynamicCleanupStatuses={dynamicCleanupStatuses}
         dynamicCleanupTagTypes={dynamicCleanupTagTypes}
         dynamicApplications={dynamicApplications}

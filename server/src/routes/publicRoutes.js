@@ -4,6 +4,7 @@ const { withDb } = require('../helpers/db');
 const { buildAllLookupMaps, hydrateRowFromMaps } = require('../helpers/lookups');
 const { mapPublicSubmission } = require('../helpers/mappers');
 const { getSubmissionByIdWithLookups } = require('../services/submissionService');
+const { listRoutings } = require('../services/redirectService');
 
 const router = express.Router();
 
@@ -11,7 +12,40 @@ router.get('/api/health', (_req, res) => {
   res.json({ ok: true });
 });
 
-router.get('/api/public/submissions', async (_req, res) => {
+// A triager changing the status writes the event as
+// "Defect/Enhancement Status: Deployed", while the create, EasyVista-send and
+// retire paths write the bare name. The board's per-status timestamps matched
+// only the bare form, so a status reached through the admin form — which is how
+// Approved, Deployed and Duplicate are ALWAYS reached — never produced a date.
+// Reading both shapes fixes the four existing timestamps as well as the new one.
+const STATUS_EVENT_PREFIX = 'Defect/Enhancement Status: ';
+
+function normalizeEventStatus(value) {
+  const text = String(value || '').trim();
+  return text.startsWith(STATUS_EVENT_PREFIX) ? text.slice(STATUS_EVENT_PREFIX.length) : text;
+}
+
+/**
+ * Mark the rows this caller filed.
+ *
+ * Compared server-side against `reporter_user_id` and returned as a bare
+ * boolean — the reporter id itself is an internal field and stays out of the
+ * payload (mapPublicSubmission's allow-list is what enforces that). Always false
+ * for an anonymous caller, who has no identity to match against.
+ *
+ * Attached AFTER mapping rather than inside the mapper because it is a fact
+ * about the viewer, not about the row: the socket broadcast reaches every
+ * watcher at once and so cannot carry it.
+ */
+function markOwnership(req) {
+  const viewerUserId = Number(req?.session?.user?.id) || null;
+  return (row) => ({
+    ...mapPublicSubmission(row),
+    is_mine: Boolean(viewerUserId) && Number(row.reporter_user_id) === viewerUserId,
+  });
+}
+
+router.get('/api/public/submissions', async (req, res) => {
   return withDb(async (db) => {
     const dbModels = dbApi.getModels() || {};
     const Submission = dbModels.Submission;
@@ -49,7 +83,7 @@ router.get('/api/public/submissions', async (_req, res) => {
       const sortedEvents = [...submissionEvents].sort((a, b) => new Date(b.changed_at) - new Date(a.changed_at));
       const latest = sortedEvents[0] || null;
       const maxByStatus = (status) => {
-        const matches = sortedEvents.filter((event) => String(event.status || '') === status);
+        const matches = sortedEvents.filter((event) => normalizeEventStatus(event.status) === status);
         return matches.length > 0 ? matches.reduce((max, event) => (
           !max || new Date(event.changed_at) > new Date(max) ? event.changed_at : max
         ), null) : null;
@@ -59,6 +93,9 @@ router.get('/api/public/submissions', async (_req, res) => {
         ...row,
         latest_status_changed_at: latest?.changed_at || null,
         latest_status_value: latest?.status || null,
+        // The board draws a four-stop track — Reported, Approved, In EasyVista,
+        // Deployed — and needs the date under each stop it has reached.
+        approved_status_at: maxByStatus('Approved'),
         submitted_status_at: maxByStatus('Submitted'),
         deployed_status_at: maxByStatus('Deployed'),
         duplicate_status_at: maxByStatus('Duplicate'),
@@ -67,7 +104,7 @@ router.get('/api/public/submissions', async (_req, res) => {
     });
 
     enrichedRows.sort((a, b) => String(b.updated_at || '').localeCompare(String(a.updated_at || '')));
-    return res.json(enrichedRows.map(mapPublicSubmission));
+    return res.json(enrichedRows.map(markOwnership(req)));
   });
 });
 
@@ -90,9 +127,15 @@ router.get('/api/public/submissions/:id', async (req, res) => {
       raw: true,
     });
 
+    // The reporter follows their ticket across a hand-off, so they see THAT it
+    // moved, when, and between which teams. `forPublic` strips the note — it is
+    // triage talk between admins and can name colleagues or judge their work.
+    const routings = await listRoutings(dbModels, Number(req.params.id), { forPublic: true });
+
     return res.json({
-      ...mapPublicSubmission(submission),
+      ...markOwnership(req)(submission),
       attachments,
+      routings,
     });
   });
 });

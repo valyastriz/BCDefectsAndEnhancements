@@ -25,6 +25,13 @@ const SESSION_COOKIE_SAME_SITE = String(
 const SESSION_COOKIE_SECURE = String(process.env.SESSION_COOKIE_SECURE || (IS_PRODUCTION ? 'true' : 'false')).toLowerCase() === 'true';
 const SESSION_COOKIE_DOMAIN = String(process.env.SESSION_COOKIE_DOMAIN || '').trim() || null;
 
+// ── Identity ─────────────────────────────────────────────────────────────────
+// 'local' = the username/password admin login this app ships with.
+// 'sso'   = an external identity provider (Active Directory) asserts who the
+//           caller is. Only the viewer envelope's source changes for consumers;
+//           every page reads GET /api/viewer either way.
+const AUTH_MODE = String(process.env.AUTH_MODE || 'local').trim().toLowerCase();
+
 const SUPABASE_URL = String(process.env.SUPABASE_URL || '').trim();
 const SUPABASE_SERVICE_ROLE_KEY = String(process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
 const SUPABASE_STORAGE_BUCKET = String(process.env.SUPABASE_STORAGE_BUCKET || 'attachments').trim();
@@ -43,6 +50,21 @@ const toPositiveInt = (value, fallback) => {
   const n = Number(value);
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
 };
+
+// ── Who may file a ticket ────────────────────────────────────────────────────
+// The end state is that filing requires a signed-in person: a report is from
+// somebody, and an anonymous POST to /api/submissions is both unattributable and
+// an open door.
+//
+// It follows AUTH_MODE rather than being hardcoded on because SSO is the only
+// way a REP can sign in — the local login is admin-only. Forcing this on while
+// AUTH_MODE=local would leave the submit form reachable by nobody and take the
+// portal's whole purpose offline.
+//
+// So it arms itself the moment SSO is switched on. SUBMIT_REQUIRES_AUTH=true
+// forces it earlier (for testing the locked-out path), and =false would hold it
+// open past the SSO cutover.
+const SUBMIT_REQUIRES_AUTH = toBool(process.env.SUBMIT_REQUIRES_AUTH, AUTH_MODE === 'sso');
 
 // Master switch: 'openai' or 'anthropic'. Flip this per environment (demo vs
 // work). It drives BOTH the summary vendor and the embeddings vendor, so a
@@ -98,6 +120,22 @@ const EMBEDDINGS_MODEL = String(
 const VOYAGE_API_KEY = String(process.env.VOYAGE_API_KEY || '').trim();
 const OPENAI_API_KEY = String(process.env.OPENAI_API_KEY || '').trim();
 
+// ── Dev-only impersonation ───────────────────────────────────────────────────
+// Per-application admin roles and super users cannot be tested before SSO exists
+// without a way to become a different user. This is that way, and it is a
+// password-free login by design — so it is gated on THREE independent conditions
+// and its route is not even registered unless all three hold:
+//
+//   1. AUTH_MODE=local        — under SSO the provider is the only way in
+//   2. NODE_ENV != production — the deployed app can never expose it
+//   3. DEV_IMPERSONATION=true — explicit opt-in, off by default
+//
+// Any one of these being false makes it unreachable, so a single mis-set variable
+// cannot open it.
+const DEV_IMPERSONATION_ENABLED = AUTH_MODE === 'local'
+  && !IS_PRODUCTION
+  && toBool(process.env.DEV_IMPERSONATION, false);
+
 const uploadsRoot = path.join(__dirname, '..', 'uploads');
 const tempUploadDir = path.join(uploadsRoot, 'tmp');
 
@@ -113,6 +151,9 @@ module.exports = {
   SESSION_COOKIE_SAME_SITE,
   SESSION_COOKIE_SECURE,
   SESSION_COOKIE_DOMAIN,
+  AUTH_MODE,
+  SUBMIT_REQUIRES_AUTH,
+  DEV_IMPERSONATION_ENABLED,
   SUPABASE_URL,
   SUPABASE_SERVICE_ROLE_KEY,
   SUPABASE_STORAGE_BUCKET,

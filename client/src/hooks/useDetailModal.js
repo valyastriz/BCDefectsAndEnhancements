@@ -444,6 +444,33 @@ export function useDetailModal({ loadRows, setRows, setError, currentUsername })
     }
   }
 
+  /**
+   * Hand this ticket to another application's queue.
+   *
+   * Reopens the detail afterwards rather than closing it: the admin usually
+   * wants to confirm it actually left, and the reopened view is where they see
+   * the read-only banner that proves it. The queue reloads too — the ticket has
+   * left this scope and would otherwise linger in the table until the next fetch.
+   */
+  async function redirectCurrentItem({ toApplicationId, note }) {
+    if (!openId || !toApplicationId) return;
+    try {
+      setWorking(true);
+      setDetailError('');
+      const moved = await api.redirectAdminSubmission(openId, { toApplicationId, note });
+      await openDetail(openId);
+      loadRows();
+      setModalTopNotice(`Redirected to ${moved.to_application_name}. It is New for them now.`);
+      setModalBottomNotice('');
+    } catch (redirectError) {
+      setModalTopNotice('');
+      setModalBottomNotice('');
+      setDetailError(redirectError.message);
+    } finally {
+      setWorking(false);
+    }
+  }
+
   async function unretireCurrentItem() {
     if (!openId || !edit || !edit.is_retired) return;
     try {
@@ -635,6 +662,7 @@ export function useDetailModal({ loadRows, setRows, setError, currentUsername })
     saveEdits,
     retireCurrentItem,
     unretireCurrentItem,
+    redirectCurrentItem,
     uploadAttachment,
     deleteAttachment,
     submitEasyVista,

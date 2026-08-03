@@ -1,5 +1,5 @@
 // ── Active-filter derivation (admin queue chips + counts) ───────────────────
-import { ADMIN_FILTER_FIELDS } from '../constants/adminConstants';
+import { ADMIN_FILTER_FIELDS, UNASSIGNED_APPLICATION } from '../constants/adminConstants';
 import { buildDefaultFilters } from './filterUtils';
 import { formatCreatedViaLabel } from './formatUtils';
 
@@ -27,6 +27,8 @@ function describe(key, value, statusOptionCount) {
   }
   const text = String(value ?? '').trim();
   if (!text) return '';
+  // The sentinel is a value, not a name — a chip must never show it raw.
+  if (key === 'application' && text === UNASSIGNED_APPLICATION) return 'No application set';
   if (key === 'createdVia') return formatCreatedViaLabel(text);
   if (key === 'cleanupRequired' || key === 'inJira') return YES_NO_LABELS[text] || text;
   if (key === 'workaround') return WORKAROUND_LABELS[text] || text;

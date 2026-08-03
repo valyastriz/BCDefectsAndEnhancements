@@ -1,7 +1,7 @@
 const http = require('http');
 const express = require('express');
 const helmet = require('helmet');
-const { PORT, IS_PRODUCTION, uploadsRoot } = require('./config');
+const { PORT, IS_PRODUCTION, DEV_IMPERSONATION_ENABLED, uploadsRoot } = require('./config');
 const { corsMiddleware } = require('./middleware/cors');
 const { createSessionMiddleware } = require('./middleware/session');
 const { csrfProtection } = require('./middleware/csrf');
@@ -12,11 +12,13 @@ const db = require('../db');
 
 // ── Route modules ────────────────────────────────────────────────────────────
 const authRoutes = require('./routes/authRoutes');
+const viewerRoutes = require('./routes/viewerRoutes');
 const metaRoutes = require('./routes/metaRoutes');
 const submissionRoutes = require('./routes/submissionRoutes');
 const publicRoutes = require('./routes/publicRoutes');
 const adminSubmissionRoutes = require('./routes/adminSubmissionRoutes');
 const adminViewPreferenceRoutes = require('./routes/adminViewPreferenceRoutes');
+const accessRoutes = require('./routes/accessRoutes');
 const attachmentRoutes = require('./routes/attachmentRoutes');
 const importRoutes = require('./routes/importRoutes');
 const easyvistaRoutes = require('./routes/easyvistaRoutes');
@@ -56,15 +58,26 @@ initSocket(server, sessionMiddleware);
 
 // ── Routes ───────────────────────────────────────────────────────────────────
 app.use(authRoutes);
+app.use(viewerRoutes);
 app.use(metaRoutes);
 app.use(submissionRoutes);
 app.use(publicRoutes);
 app.use(adminSubmissionRoutes);
 app.use(adminViewPreferenceRoutes);
+app.use(accessRoutes);
 app.use(attachmentRoutes);
 app.use(importRoutes);
 app.use(easyvistaRoutes);
 app.use(aiSearchRoutes);
+
+// Dev-only identity switching. Registered ONLY when all three gate conditions
+// hold, so in any deployed environment the path does not exist rather than
+// existing and refusing. See routes/devRoutes.js and config.js.
+if (DEV_IMPERSONATION_ENABLED) {
+  // eslint-disable-next-line global-require
+  app.use(require('./routes/devRoutes'));
+  console.log('DEV_IMPERSONATION is ON — /api/dev/impersonate is reachable. Never enable this in a deployed environment.');
+}
 
 // ── Health check (used by external ping services to keep the server alive) ───
 app.get('/health', (_req, res) => res.json({ status: 'ok', ts: new Date().toISOString() }));

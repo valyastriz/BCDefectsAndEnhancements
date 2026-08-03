@@ -1,3 +1,4 @@
+import { UNASSIGNED_APPLICATION } from '../../constants/adminConstants';
 import { buildDefaultFilters } from '../../utils/filterUtils';
 import { ActiveFilterChips } from './ActiveFilterChips';
 
@@ -34,6 +35,10 @@ export function CommandBar({
   runtimeCreatedViaOptions,
   dynamicCleanupStatuses,
   visibleFilters,
+  // The applications this caller may actually see, and whether they can see the
+  // tickets with none set. Both come from the viewer envelope.
+  scopeApplications = [],
+  canSeeUnassigned = false,
   onOpenCustomize,
   onResetSaved,
   onClearAllFilters,
@@ -41,6 +46,10 @@ export function CommandBar({
   const isVisible = (key) => !visibleFilters || visibleFilters.includes(key);
   const activeCount = activeFilters.length;
   const retiredScope = filters.retiredFilter || 'non_retired';
+  // Pointless for someone who administers exactly one application — there is
+  // nothing to switch between, and the summary tag already names it.
+  const showApplicationScope = isVisible('application')
+    && (scopeApplications.length > 1 || canSeeUnassigned);
 
   // Removing one chip resets just that key to its default.
   function removeFilter(key) {
@@ -86,6 +95,23 @@ export function CommandBar({
             ⚙
           </button>
         </span>
+
+        {showApplicationScope && (
+          <select
+            className="bs-inline-select admin-scope-select"
+            value={filters.application || ''}
+            aria-label="Application queue"
+            onChange={(e) => setFilters((prev) => ({ ...prev, application: e.target.value }))}
+          >
+            <option value="">All applications</option>
+            {scopeApplications.map((app) => (
+              <option key={app.id} value={app.name}>{app.name}</option>
+            ))}
+            {canSeeUnassigned && (
+              <option value={UNASSIGNED_APPLICATION}>No application set</option>
+            )}
+          </select>
+        )}
 
         {isVisible('retiredFilter') && (
           <span className="bs-seg" role="group" aria-label="Retired scope">

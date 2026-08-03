@@ -19,6 +19,7 @@ function buildAdminSubmissionsQuery({
   requester = '',
   submittedBy = '',
   createdVia = '',
+  application = '',
   retiredFilter = 'non_retired',
   year = '',
   inJira = '',
@@ -43,6 +44,7 @@ function buildAdminSubmissionsQuery({
   if (requester) params.set('requester', requester);
   if (submittedBy) params.set('submittedBy', submittedBy);
   if (createdVia) params.set('createdVia', createdVia);
+  if (application) params.set('application', application);
   if (retiredFilter) params.set('retiredFilter', retiredFilter);
   if (year) params.set('year', year);
   if (inJira) params.set('inJira', inJira);
@@ -106,6 +108,11 @@ async function request(path, options = {}) {
 }
 
 export const api = {
+  // Who the server thinks the caller is, and what they may see. The single
+  // source for identity on every surface — see hooks/useViewer.js. Always
+  // returns 200: an anonymous caller gets the unauthenticated envelope rather
+  // than an error, because the status board must work without a session.
+  getViewer: () => request('/api/viewer'),
   getMetaOptions: () => request('/api/meta/options'),
   getAdminMetaOptions: () => request('/api/admin/meta/options'),
   createAdminMetaOption: (category, data) =>
@@ -126,6 +133,39 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ orderedIds: Array.isArray(orderedIds) ? orderedIds : [] }),
     }),
+  // ── Access (super users only) ──────────────────────────────────────────────
+  // Every one of these 403s for a non-super-user; the page is only reachable for
+  // someone the viewer envelope already reports as one.
+  getAccess: () => request('/api/admin/access'),
+  // The whole set for one person, replaced. `grants` is [{ applicationId, role }].
+  setUserGrants: (userId, grants) =>
+    request(`/api/admin/access/users/${encodeURIComponent(String(userId))}/grants`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ grants: Array.isArray(grants) ? grants : [] }),
+    }),
+  setUserSuperUser: (userId, isSuperUser) =>
+    request(`/api/admin/access/users/${encodeURIComponent(String(userId))}/super-user`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ isSuperUser: Boolean(isSuperUser) }),
+    }),
+  // One change across many people and many applications. action: 'grant' | 'revoke'.
+  bulkSetAccess: ({ userIds, applicationIds, role, action }) =>
+    request('/api/admin/access/bulk', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userIds, applicationIds, role, action }),
+    }),
+  addAdGroupMapping: ({ applicationId, groupName }) =>
+    request('/api/admin/access/ad-groups', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ applicationId, groupName }),
+    }),
+  removeAdGroupMapping: (id) =>
+    request(`/api/admin/access/ad-groups/${encodeURIComponent(String(id))}`, { method: 'DELETE' }),
+
   getAdminViewPreferences: () => request('/api/admin/view-preferences'),
   saveAdminViewPreferences: ({ columns, filters }) =>
     request('/api/admin/view-preferences', {
@@ -235,6 +275,15 @@ export const api = {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
+    }),
+  // Hand a ticket to another application's queue. The ticket MOVES: it leaves
+  // this queue as New for the receiving team, and the caller keeps read access
+  // but loses write. `note` is optional and never reaches the reporter.
+  redirectAdminSubmission: (id, { toApplicationId, note }) =>
+    request(`/api/admin/submissions/${id}/redirect`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ toApplicationId, note }),
     }),
   // Bulk change of public visibility for many tickets in one request.
   // Returns { ok, is_public, requested, updated, failed } (failed = ids that errored).

@@ -58,6 +58,18 @@ export const COLUMN_DEFS = {
       <td data-label="Status Update" style={{ width: 110, minWidth: 110 }}>{formatDateOnly(row.status_update_at || row.updated_at)}</td>
     ),
   },
+  application: {
+    headerStyle: { width: 132, minWidth: 132 },
+    // A ticket with no application predates the per-application queues and is
+    // visible to super users only, so it says so rather than rendering blank.
+    renderCell: (row) => (
+      <td data-label="Application" style={{ width: 132, minWidth: 132 }}>
+        {row.application_name
+          ? <Badge value={row.application_name} />
+          : <span className="muted">Not set</span>}
+      </td>
+    ),
+  },
   type: {
     headerStyle: { width: 110 },
     renderCell: (row) => (
@@ -95,7 +107,10 @@ export const COLUMN_DEFS = {
           )}
           {row.is_cleanup && row.cleanup_tag_type !== 'cleanup_only' && <Badge value="Clean Up" />}
           {row.is_retired && <Badge value="Retired" />}
-          {row.application_name && <span>{row.application_name}</span>}
+          {/* Which queue this belongs to. A badge rather than loose text because
+              an admin of two applications reads a merged list, and the one thing
+              they need at a glance is whose ticket this is. */}
+          {row.application_name && <Badge value={row.application_name} />}
           {row.has_resubmission && row.latest_resubmission_easyvista_ticket_id && (
             <Badge value={`Resubmitted: ${row.latest_resubmission_easyvista_ticket_id}`} />
           )}

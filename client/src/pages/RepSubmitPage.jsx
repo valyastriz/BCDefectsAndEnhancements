@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../lib/api';
+import { useViewer } from '../hooks/useViewer';
 import { Button, Modal } from '../components/bite-size/BitsizeUI';
 import { DuplicateCheck } from '../components/public/DuplicateCheck';
 import { ScreenshotDropZone } from '../components/public/ScreenshotDropZone';
@@ -80,6 +81,12 @@ function Field({ name, label, required, optional, counter, error, children }) {
 }
 
 export function RepSubmitPage() {
+  // Who the server will record this as. When it already knows, the form stops
+  // asking — the name field would be a box whose value is discarded on arrival
+  // (server/src/services/reporterService.js), which is worse than absent.
+  const { viewer } = useViewer();
+  const knownReporter = viewer.isAuthenticated ? viewer.user : null;
+
   const [form, setForm] = useState(initialForm);
   const [files, setFiles] = useState([]);
   const [fileUrls, setFileUrls] = useState([]);
@@ -103,7 +110,12 @@ export function RepSubmitPage() {
 
   const isDefect = form.type === 'defect';
   const isEnhancement = form.type === 'enhancement';
-  const requiredFields = REQUIRED_FIELDS[form.type];
+  // `created_by` drops out of the required set once the reporter is known,
+  // mirroring the server: it no longer reads a typed name for a signed-in caller,
+  // so demanding one here would block a submit that would have succeeded.
+  const requiredFields = knownReporter
+    ? REQUIRED_FIELDS[form.type].filter((field) => field.key !== 'created_by')
+    : REQUIRED_FIELDS[form.type];
   const missing = requiredFields.filter((field) => !String(form[field.key] ?? '').trim());
 
   function updateField(name, value) {
@@ -167,7 +179,9 @@ export function RepSubmitPage() {
         type: form.type,
         summary: form.summary_of_issue,
         screen: form.screen_title,
-        name: form.created_by,
+        // The confirmation must echo the name the server actually recorded, not
+        // the (ignored) form field, or a signed-in rep sees a blank "filed by".
+        name: knownReporter ? knownReporter.displayName : form.created_by,
         fileCount: files.length,
       });
       setForm(initialForm);
@@ -179,6 +193,32 @@ export function RepSubmitPage() {
     } finally {
       setSaving(false);
     }
+  }
+
+  // Filing needs a signed-in person and there isn't one. Shown instead of the
+  // form rather than around it: a form that cannot be submitted is worse than an
+  // honest wall, and the server refuses the POST either way.
+  if (viewer.submitRequiresAuth && !viewer.isAuthenticated) {
+    return (
+      <div className="rs-page">
+        <section className="rs-locked">
+          <h2>Sign in to report an issue</h2>
+          <p>
+            Reports are filed under your name so the team can come back to you with
+            questions and you can follow your own tickets. Sign in with your work
+            account to continue.
+          </p>
+          {/* No sign-in button on purpose: there is no SSO login route to point
+              at yet, and a dead button is worse than none. Under a real provider
+              the redirect happens before this page ever renders — this state is
+              the fail-safe for when it somehow doesn't. Wire the provider's
+              login URL here when SSO lands. */}
+          <p className="rs-locked-alt">
+            You can still <Link to="/public">read the status board</Link> without signing in.
+          </p>
+        </section>
+      </div>
+    );
   }
 
   if (submitted) {
@@ -291,21 +331,33 @@ export function RepSubmitPage() {
               </div>
             )}
 
-            <Field
-              name="created_by"
-              label="Your name"
-              required
-              error={errorFor('created_by')}
-            >
-              <input
-                id="rs-created_by"
-                type="text"
-                autoComplete="name"
-                placeholder="First and last name"
-                value={form.created_by}
-                onChange={(e) => updateField('created_by', e.target.value)}
-              />
-            </Field>
+            {knownReporter ? (
+              // Stated rather than asked. The rep still sees whose name goes on
+              // the ticket — they just cannot put someone else's there.
+              <div className="rs-field rs-reporter">
+                <span className="rs-reporter-label">Filing as</span>
+                <span className="rs-reporter-name">{knownReporter.displayName}</span>
+                {knownReporter.email && (
+                  <span className="rs-reporter-email">{knownReporter.email}</span>
+                )}
+              </div>
+            ) : (
+              <Field
+                name="created_by"
+                label="Your name"
+                required
+                error={errorFor('created_by')}
+              >
+                <input
+                  id="rs-created_by"
+                  type="text"
+                  autoComplete="name"
+                  placeholder="First and last name"
+                  value={form.created_by}
+                  onChange={(e) => updateField('created_by', e.target.value)}
+                />
+              </Field>
+            )}
 
             <div className="rs-field-lead">
               <Field

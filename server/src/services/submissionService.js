@@ -2,6 +2,7 @@ const dbApi = require('../../db');
 const {
   CLEANUP_TO_SUBMISSION_STATUS,
   SUBMISSION_TO_CLEANUP_STATUS,
+  UNASSIGNED_APPLICATION,
 } = require('../constants');
 const {
   buildAllLookupMaps,
@@ -29,6 +30,7 @@ const {
 const { SUBMISSION_INSERT_COLUMNS, buildInsertPayload } = require('../helpers/submissionInsert');
 const { mapSubmission, mapPublicSubmission } = require('../helpers/mappers');
 const { emitAdminNotification, emitPublicUpdate } = require('../socket');
+const { canReadSubmissionRow, canMutateApplication } = require('./viewerService');
 const { scheduleEmbeddingRefresh } = require('./embeddingIndexService');
 const {
   submitToEasyVista,
@@ -181,7 +183,14 @@ async function getSubmissionByIdWithLookups(db, submissionId, { publicOnly = fal
   return hydrated;
 }
 
-async function listFilteredAdminSubmissions(db, query = {}) {
+/**
+ * The admin queue.
+ *
+ * `scope` comes from resolveAdminReadScope and is REQUIRED: omitting it returns
+ * nothing rather than everything, so a new caller that forgets to resolve one
+ * fails closed instead of leaking another team's queue.
+ */
+async function listFilteredAdminSubmissions(db, query = {}, scope) {
   const {
     status,
     statuses,
@@ -193,6 +202,7 @@ async function listFilteredAdminSubmissions(db, query = {}) {
     requester,
     submittedBy,
     createdVia,
+    application,
     retiredFilter,
     year,
     inJira,
@@ -251,11 +261,30 @@ async function listFilteredAdminSubmissions(db, query = {}) {
 
   const rawRows = await Submission.findAll({ raw: true });
 
+  // Access scoping runs first and unconditionally. Everything below this line is
+  // presentation filtering driven by the query string, and no query parameter
+  // may widen what a caller is allowed to see.
+  const visibleRows = rawRows.filter((row) => canReadSubmissionRow(scope, row));
+
   // Augment each row with text names resolved from _id FK columns
   const maps = { statusIdToName, typeIdToName, cleanupTagTypeIdToName, cleanupStatusIdToName, applicationIdToName, enhancementRequestTypeIdToName, priorityLevelIdToName, createdViaIdToName, occurrenceTimeframeIdToName };
-  const rows = rawRows.map((row) => hydrateRowFromMaps(row, maps));
+  const rows = visibleRows.map((row) => hydrateRowFromMaps(row, maps));
+
+  // Which application's queue to show. Purely a narrowing on top of the access
+  // scope above — it can never widen what this returns, so an admin choosing an
+  // application they do not hold simply gets nothing.
+  const applicationFilter = String(application || '').trim();
 
   const filteredRows = rows.filter((row) => {
+    if (applicationFilter) {
+      const rowApplication = String(row.application_name || '').trim();
+      if (applicationFilter === UNASSIGNED_APPLICATION) {
+        if (rowApplication) return false;
+      } else if (rowApplication !== applicationFilter) {
+        return false;
+      }
+    }
+
     const rowStatus = String(row.status || '').trim();
     const rowIsCleanup = Boolean(row.is_cleanup);
     const rowCleanupTagType = String(row.cleanup_tag_type || '').trim();
@@ -489,7 +518,7 @@ function resolveCreateVisibility({ isCleanup = false, is_public } = {}) {
 // summary_of_issue) stays in the route; everything below was moved verbatim
 // from the POST handler so the order/conditions of every DB write,
 // logStatusChange and emit are preserved exactly.
-async function createAdminSubmission(db, { body, username }) {
+async function createAdminSubmission(db, { body, username, viewer }) {
   const requestedCreatedVia = String(body.created_via || '').trim().toLowerCase();
 
   const dbModels = dbApi.getModels() || {};
@@ -562,6 +591,14 @@ async function createAdminSubmission(db, { body, username }) {
   ]);
   if (missingLookupFields.length > 0) {
     return { error: formatMissingLookupError(missingLookupFields), status: 400 };
+  }
+
+  // Filing is a write, so it obeys the same ownership rule as editing: an admin
+  // may only create a ticket in a queue they administer. Checked against the
+  // resolved id rather than the submitted name, so the name that reaches the
+  // lookup and the id that gets authorised are the same value.
+  if (!canMutateApplication(viewer, lookupIds.application_id)) {
+    return { error: 'You do not administer this application', status: 403 };
   }
 
   const insertColumns = SUBMISSION_INSERT_COLUMNS;
@@ -703,7 +740,7 @@ async function createAdminSubmission(db, { body, username }) {
 // on success. Moved verbatim from the PUT handler; the entire status /
 // retired / cleanup / type reconciliation block and its logStatusChange
 // ordering is preserved exactly.
-async function updateAdminSubmission(db, { id, body, username }) {
+async function updateAdminSubmission(db, { id, body, username, viewer }) {
   const dbModels = dbApi.getModels() || {};
   const Submission = dbModels.Submission;
   const allowedStatuses = await getDefectEnhancementStatuses(db, { includeRetired: false });
@@ -714,6 +751,14 @@ async function updateAdminSubmission(db, { id, body, username }) {
   const rawExisting = await Submission.findByPk(Number(id), { raw: true });
   if (!rawExisting) {
     return { error: 'Submission not found', status: 404 };
+  }
+  // Write access follows CURRENT ownership only. A redirected ticket belongs to
+  // the receiving team the moment it moves, so the team that sent it keeps
+  // reading it (resolveAdminReadScope) but stops being able to change it.
+  // Checked before the conflict check below, so an unauthorised caller learns
+  // nothing about the row's edit history.
+  if (!canMutateApplication(viewer, rawExisting.application_id)) {
+    return { error: 'You do not administer this application', status: 403 };
   }
   // Optimistic concurrency: if the caller sent the version it loaded and the row
   // has changed since, reject so one admin never silently overwrites another's work.
@@ -1205,7 +1250,7 @@ function validateBulkFlagInput(body, flagKey) {
 // the batch. Returns { error, status } on validation failure or
 // { status: 200, body } on success, mirroring updateAdminSubmission's shape.
 // `updateOne` is injectable so the loop can be unit-tested without a DB.
-async function bulkUpdateFlag(db, { body, username, flagKey, updateOne = updateAdminSubmission } = {}) {
+async function bulkUpdateFlag(db, { body, username, viewer, flagKey, updateOne = updateAdminSubmission } = {}) {
   const validation = validateBulkFlagInput(body, flagKey);
   if (validation.error) {
     return { error: validation.error, status: 400 };
@@ -1216,7 +1261,9 @@ async function bulkUpdateFlag(db, { body, username, flagKey, updateOne = updateA
   let updated = 0;
   for (const id of ids) {
     try {
-      const result = await updateOne(db, { id, body: { [flagKey]: value }, username });
+      // The viewer rides along so a batch cannot reach tickets the same admin
+      // would be refused one at a time; an unauthorised id lands in `failed`.
+      const result = await updateOne(db, { id, body: { [flagKey]: value }, username, viewer });
       if (result && result.error) {
         failed.push(id);
       } else {
@@ -1261,7 +1308,7 @@ async function bulkUpdateRetired(db, opts = {}) {
 // on success. Moved verbatim from the easyvista route handler; the order of
 // every Submission.update / Attachment write / logStatusChange and emit, plus
 // the first-time-vs-resubmission branching and response bodies, is preserved.
-async function submitSubmissionToEasyVista(db, { id, body, username, dryRun = false }) {
+async function submitSubmissionToEasyVista(db, { id, body, username, viewer, dryRun = false }) {
   const dbModels = dbApi.getModels() || {};
   const Submission = dbModels.Submission;
   const Attachment = dbModels.Attachment;
@@ -1271,6 +1318,12 @@ async function submitSubmissionToEasyVista(db, { id, body, username, dryRun = fa
   const rawSubmission = await getSubmissionByIdWithLookups(db, Number(id));
   if (!rawSubmission) {
     return { error: 'Submission not found', status: 404 };
+  }
+  // Handing a ticket to EasyVista is the most consequential write there is — it
+  // leaves the portal — so it takes the same ownership check as an edit. The
+  // dry-run preview is gated too: it renders the ticket's real content.
+  if (!canMutateApplication(viewer, rawSubmission.application_id)) {
+    return { error: 'You do not administer this application', status: 403 };
   }
   const submission = mapSubmission(rawSubmission);
 

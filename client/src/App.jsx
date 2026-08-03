@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { AppShell } from './components/bite-size/Layout';
 import { api } from './lib/api';
+import { useViewer } from './hooks/useViewer';
+import { AdminAccessPage } from './pages/AdminAccessPage';
 import { AdminDashboardPage } from './pages/AdminDashboardPage';
 import { AdminLoginPage } from './pages/AdminLoginPage';
 import { AdminMetadataPage } from './pages/AdminMetadataPage';
@@ -12,6 +14,23 @@ function RequireAdmin({ user, children }) {
   if (!user || user.role !== 'admin') {
     return <Navigate to="/admin/login" replace />;
   }
+
+  return children;
+}
+
+/**
+ * Super-user-only routes.
+ *
+ * The server is the authority — every /api/admin/access endpoint is behind
+ * ensureSuperUser and 403s regardless of what the browser believes. This only
+ * stops a non-super-user landing on a page that could show them nothing but
+ * errors, so it waits for the real answer rather than guessing from the session.
+ */
+function RequireSuperUser({ children }) {
+  const { loading, viewer } = useViewer();
+
+  if (loading) return <div className="app-loading">Loading...</div>;
+  if (!viewer.isSuperUser) return <Navigate to="/admin" replace />;
 
   return children;
 }
@@ -68,6 +87,16 @@ function App() {
           element={
             <RequireAdmin user={user}>
               <AdminMetadataPage user={user} />
+            </RequireAdmin>
+          }
+        />
+        <Route
+          path="/admin/access"
+          element={
+            <RequireAdmin user={user}>
+              <RequireSuperUser>
+                <AdminAccessPage user={user} />
+              </RequireSuperUser>
             </RequireAdmin>
           }
         />

@@ -79,6 +79,11 @@ export function AdminHeader({
   onOpenBackdated,
   onOpenCleanup,
   onNavigateMetadata,
+  onNavigateAccess,
+  // Only a portal super user can manage access, so the entry point is hidden
+  // rather than shown-and-refused. The route and every endpoint behind it check
+  // again server-side — this is signposting, not the control.
+  canManageAccess = false,
   onLogout,
   onImportFileChange,
   activeCount = null,
@@ -154,6 +159,9 @@ export function AdminHeader({
           {({ close }) => (
             <>
               <MenuItem onClick={() => { close(); onNavigateMetadata(); }}>Manage metadata</MenuItem>
+              {canManageAccess && (
+                <MenuItem onClick={() => { close(); onNavigateAccess(); }}>Manage access</MenuItem>
+              )}
               <div className="admin-menu-sep" role="separator" />
               <MenuItem onClick={() => { close(); onLogout(); }}>Sign out</MenuItem>
             </>
