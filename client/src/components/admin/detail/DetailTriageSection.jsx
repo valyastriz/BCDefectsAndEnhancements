@@ -148,7 +148,7 @@ export function DetailTriageSection({
             checked={Boolean(edit.needs_workaround)}
             onChange={(e) => setEdit((p) => ({ ...p, needs_workaround: e.target.checked }))}
           />
-          <span>Reporter needs a workaround</span>
+          <span>Reporter needs a workaround for their case</span>
         </label>
         <label className="dm-check">
           <input

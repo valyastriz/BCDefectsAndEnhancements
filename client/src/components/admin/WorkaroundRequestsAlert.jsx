@@ -1,8 +1,8 @@
 /**
- * Red banner counting reps who are blocked and waiting on a workaround.
+ * Red banner counting reps waiting on a workaround.
  *
  * The sibling of NewSubmissionsAlert, and deliberately louder: a new submission
- * is work arriving, this is someone unable to do their job until an admin
+ * is work arriving, this is someone stuck on a real case until an admin
  * answers. Hidden when the count is 0, which is the normal state.
  */
 export function WorkaroundRequestsAlert({ count, onViewWorkaroundRequests }) {
@@ -34,8 +34,8 @@ export function WorkaroundRequestsAlert({ count, onViewWorkaroundRequests }) {
       }}>{count}</span>
       <span style={{ flex: 1 }}>
         {count === 1
-          ? '1 reporter is blocked and waiting on a workaround'
-          : `${count} reporters are blocked and waiting on a workaround`}
+          ? '1 reporter is waiting on a workaround to finish their case'
+          : `${count} reporters are waiting on a workaround to finish their cases`}
       </span>
       <button
         type="button"

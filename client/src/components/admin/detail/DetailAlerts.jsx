@@ -140,12 +140,12 @@ export function DetailAlerts({
           glyph={workaroundStaged ? '✓' : '!'}
           title={workaroundStaged
             ? 'Marked handled — save to record it'
-            : `${detail.created_by || 'The reporter'} is blocked and needs a workaround`}
+            : `${detail.created_by || 'The reporter'} needs a workaround for this case`}
         >
           <p>
             {workaroundStaged
               ? 'Save Changes writes it to the history with your name against it. The badge on the queue goes quiet once saved.'
-              : 'They asked for a way to keep working while this waits on the developer queue. Mark it handled once you have given them one.'}
+              : 'They asked for a way to finish the case they reported, rather than waiting on the developer queue. Mark it handled once you have given them one.'}
           </p>
           {!workaroundStaged && (
             <div className="bs-actions">
