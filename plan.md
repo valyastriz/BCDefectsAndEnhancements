@@ -3,6 +3,127 @@
 Living record of notable features/changes. See `CLAUDE.md` for architecture and
 per-app details.
 
+## OPEN — the EasyVista call is Billing Center's, not the portal's (2026-08-03)
+
+**Not built. This is the blocker standing between "the portal supports many
+applications" and "the portal can actually file their tickets."** Everything else about
+multi-application — per-application access, scoped queues, redirect between queues, the
+board — landed this week. The outbound EasyVista call did not move with it: it is still
+the single Billing Center integration it was written as.
+
+**What is Billing Center-specific today.**
+
+- **The catalog.** `easyVistaConfig()` (`server/src/helpers/easyVistaPayload.js:134`)
+  reads one `EASYVISTA_CATALOG_GUID` / `EASYVISTA_CATALOG_CODE` from the environment,
+  plus one `Origin`, `Severity_ID` and default `Urgency_ID`. There is one catalog and
+  the process has no way to hold a second.
+- **The repurposed field names.** `EASYVISTA_FIELD_MAP`
+  (`easyVistaPayload.js:60`) is a hardcoded array whose EV-side names —
+  `E_KCL_CHECK_VOID_REASON` carrying the summary, `E_KCL_MKT_AUDIENCE` carrying what
+  happened, `E_KCL_CHECK_TYPE`, `E_KCL_CHECK_PAYEE`, `E_KCL_CHECK_REISSUED`,
+  `E_PRB_CENTURYLINK_DCI1`, `E_LEGAL_POLICY_NUMBER`, `E_PRB_LAST_UPDATE_UT` — are fields
+  that exist in **Billing Center's** EV catalog and were repurposed because it had
+  nothing better. Policy Center and Claim Center have their own catalogs, their own
+  fields, and no reason to have repurposed the same ones the same way.
+- **The required-fields gate.** The send is refused unless a fixed list is filled
+  (`server/src/services/submissionService.js:1506-1528`, mirrored client-side by
+  `EASYVISTA_REQUIREMENT_SECTION` / `_FIELD` / `_LABEL` in
+  `client/src/constants/detailModalConstants.js:22-49`). "Summary of Issue, Screen Title,
+  Description" for a defect is a Billing Center rule.
+- **The ticket data itself.** `Policy#/Submission#`, `Account#`, `Transaction#` are
+  Billing Center's vocabulary. Claim Center wants a claim number; the submit form and
+  the description table both assume otherwise.
+- **The mailbox.** `EASYVISTA_ADMIN_MAILS` / `EASYVISTA_FALLBACK_MAIL` are one flat
+  username→mail list with no notion of which team's queue the ticket came from.
+
+**Why adding an application does not currently work.** `applications` is a bare lookup
+table — `id, name, sort_order, is_active` (`server/db/models/index.js:271`). Inserting a
+row through Manage Metadata immediately gives that application a queue, access grants, a
+board lane and a redirect target. It gives it **no EasyVista identity at all**, and
+nothing refuses the send: a Policy Center ticket would be posted, silently, into Billing
+Center's catalog under Billing Center's field codes.
+
+**What has to become per-application.** Catalog GUID + code; `Origin`, `Severity_ID`,
+default `Urgency_ID`; the our-key → EV-field map including which fields are table-only;
+the description table's row order and labels (the order is wire format — see the note at
+the top of `easyVistaPayload.js`); the required-before-send list on both sides; the
+requestor/recipient mailbox. Likely also the request path, if the applications sit behind
+different EV endpoints.
+
+**Two constraints that shape the design.**
+
+1. **A ticket's application can change after it is filed.** Redirect between queues
+   (see below, 2026-08-03) moves `submissions.application_id`. The payload must be built
+   from the ticket's application **at send time**, not at creation.
+2. **Field codes are wire format.** Getting one wrong produces a ticket that EV accepts
+   and a human then cannot read. Whatever holds them wants review and a test, the way
+   `server/test/easyVistaPayload.test.js` pins the current map.
+
+**Proposed shape (not decided).** A per-application EV config record for the catalog and
+the ids — that part is data, an admin can hold it, and it changes without a deploy —
+paired with a code-side field map keyed by application, kept where the current one lives
+and covered by the same tests. Splitting it that way keeps the risky half reviewable.
+
+**Fail closed first, and it is small.** Before any of the above: an application with no
+EasyVista mapping should refuse the send with a plain message ("EasyVista is not
+configured for Policy Center") instead of falling back to Billing Center's catalog. That
+is a guard worth having the moment a second application is real, independent of how the
+per-application config eventually lands.
+
+**Open questions for the EV owners.** One EV instance with several catalogs, or several
+instances? Does every application split the same defect/enhancement way, or do some have
+a third request type the "Send as" control has no room for? Does each team have its own
+requestor mailbox? Is the 4-attachment cap (`server/src/easyvista.js:95`) per catalog?
+
+## OPEN — images never reach EasyVista, and the admin is not told (2026-08-03)
+
+**Not built, and unlike the item above this one blocks Billing Center go-live on its
+own.** Screenshots are the substance of most defect reports here — the submit form is
+image-only for exactly that reason — and right now none of them would arrive.
+
+**Where it stops.** `sendEasyVistaAttachments` (`server/src/easyvista.js:118`) is an
+honest stub: it caps the list, warns to the server console, and returns
+`{ sent: 0, skipped, source: 'not-implemented' }`. Everything *around* it is finished
+and tested — the picker, the 4-file cap, the check that each id belongs to this
+submission (`server/src/services/submissionService.js:1466-1477`), the confirm dialog.
+The upload request itself is the only hole.
+
+**The part that is a defect today, not a missing feature.** The client builds its
+confirmation from `result.source` alone and never reads `result.attachments`
+(`client/src/hooks/useDetailModal.js:586-598`). The moment `EASYVISTA_ENABLED` is turned
+on, an admin selects three screenshots, presses Send, and reads **"Submitted. Ticket:
+EV-12345"** — with the images silently not sent and the only trace in a server log
+nobody is watching. The ticket then reaches a developer who has no screenshots and no
+reason to think any were meant to exist. **Surfacing `attachments.source` in that
+confirmation should land before go-live regardless of when the upload contract arrives**
+— it is small, and it converts a silent data loss into a visible one.
+
+**What we need from the EasyVista owners.**
+
+- Endpoint: part of the same create call, or a follow-up POST against the new ticket id?
+- Transport: `multipart/form-data`, or base64 inside JSON?
+- The field name for the file, and whether several files go per request or one each.
+- Per-file size cap, and which content types are accepted.
+- Can files be added to an **existing** ticket? Re-submission creates a new card against
+  a ticket that already exists, so the answer decides whether a re-send can carry images.
+- Is the 4-file cap real? `EASYVISTA_MAX_ATTACHMENTS` (`server/src/easyvista.js:95`) is
+  currently an assumption the UI enforces on admins.
+
+**What our side already fixes for them.** Uploads are images only —
+`.png .jpg .jpeg .gif .webp .bmp .heic .heif` with a matching `image/*` mime — 10 MB per
+file, 10 files per request (`server/src/middleware/upload.js:6-38`).
+
+**One implementation wrinkle worth knowing before estimating.** `attachments.file_path`
+is dual-mode: a repo-relative path on disk, **or** a Supabase Storage public URL when
+`SUPABASE_STORAGE_ENABLED` (`server/src/helpers/storage.js:116-139`). The uploader cannot
+just `readFileSync` — it has to resolve bytes from either source.
+
+**If EV has no usable attachment API,** the fallback is a link in the Description table.
+`/uploads` is `express.static` with no session check (`server/src/index.js:49`), so a URL
+would in principle resolve for an EV reader — but only if the server is reachable from
+their network, and it means screenshots that can contain policy data sit behind an
+unauthenticated, guessable path. Raise it as a decision, not a default.
+
 ## Browser verification — five defects the tests could not see (2026-08-03)
 
 Every page built this session had been reported as "not verified in a browser". That
