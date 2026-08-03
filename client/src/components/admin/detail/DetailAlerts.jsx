@@ -30,6 +30,11 @@ export function DetailAlerts({
   presence,
   locked,
   onUnlock,
+  // Hard read-only: this ticket lives in an application the caller does not
+  // administer — almost always one their team handed on. Unlike the presence
+  // lock above there is no "edit anyway": the server refuses the write.
+  readOnly,
+  handedOnTo,
   detailError,
   edit,
   detail,
@@ -60,6 +65,7 @@ export function DetailAlerts({
     conflictInfo,
     recoverableDraft,
     isHeldByOther,
+    readOnly,
     detailError,
     showRequirements,
     showWorkaround,
@@ -107,6 +113,24 @@ export function DetailAlerts({
             <Button kind="ghost" type="button" onClick={restoreDraft}>Restore</Button>
             <Button kind="ghost" type="button" onClick={discardDraft}>Discard</Button>
           </div>
+        </Alert>
+      )}
+
+      {/* Ranked above the presence lock: that one is temporary and overridable,
+          this one is the answer to "why is everything greyed out" and cannot be
+          worked around. */}
+      {readOnly && (
+        <Alert
+          tone="neutral"
+          glyph="→"
+          title={handedOnTo
+            ? `This ticket now belongs to ${handedOnTo}`
+            : 'This ticket belongs to another team'}
+        >
+          <p>
+            You can still read it and follow what happens to it. Changing it is up to
+            whoever holds it now — ask them, or ask a portal super user to move it back.
+          </p>
         </Alert>
       )}
 

@@ -3,10 +3,26 @@
 Living record of notable features/changes. See `CLAUDE.md` for architecture and
 per-app details.
 
-## Redirect between application queues — server side (2026-08-03)
+## Redirect between application queues (2026-08-03)
 
-Step 5, backend half. The admin dialog is **not built yet**; the endpoint works and is
-verified.
+Step 5, both halves.
+
+**The dialog** lives behind "Redirect to another queue…" in the detail modal's More menu
+(`detail/DetailActions.jsx`): an application picker, an optional note, and a plain
+statement of what the move does — it leaves your queue now, comes back New for them,
+and the history travels. The note field says outright that the reporter never sees it.
+The action hides when there is nowhere to send it (a single-application portal) rather
+than opening a dialog with an empty picker. Targets come from the viewer envelope's
+`{id, name}` list, not `dynamicApplications` (names only) — the endpoint moves by id.
+Deliberately NOT narrowed to applications the caller administers: handing a ticket to a
+team you are not part of is the whole point.
+
+**Two locks, kept separate.** The modal already had `locked` for "another admin has this
+open", which is temporary and overridable with "edit anyway". A handed-on ticket is a
+different thing: `can_edit: false` from the server, no override, because the write would
+403. Merging them would have offered an "edit anyway" that cannot work. The read-only
+banner outranks the presence one — it is the answer to "why is everything greyed out"
+and it cannot be worked around.
 
 **The ticket moves — it is not copied or mirrored.** A copy would give the reporter two
 tickets for one problem and leave two teams each assuming the other owned it.
@@ -39,10 +55,12 @@ raw row stores only `status_id` (the legacy text columns were dropped), so readi
 `.status` silently produced nothing and fell through to the default. Now resolved from
 the FK, with the text column kept as a fallback.
 
-Verified: 229 server tests, lint, and a live hand-off against a sandboxed copy —
-Approved ticket moved Billing → Policy, landed New with `status_at_handoff: Approved`,
-sender read-only, note visible to admins, and the public payload containing none of
-`note` / `routed_by` / `status_at_handoff`.
+Verified: 229 server tests, client lint, build, and a live hand-off against a sandboxed
+copy — Approved ticket moved Billing → Policy, landed New with
+`status_at_handoff: Approved`, sender got 200 on read / 403 on edit / 403 pulling it
+back, note visible to admins, and the public payload containing none of `note` /
+`routed_by` / `status_at_handoff`. **Not verified:** the dialog and read-only banner
+were not exercised in a browser — the endpoint behind them was.
 
 ## Reporter binding — a ticket knows who filed it (2026-08-03)
 

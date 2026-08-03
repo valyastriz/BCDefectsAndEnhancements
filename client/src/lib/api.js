@@ -276,6 +276,15 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
     }),
+  // Hand a ticket to another application's queue. The ticket MOVES: it leaves
+  // this queue as New for the receiving team, and the caller keeps read access
+  // but loses write. `note` is optional and never reaches the reporter.
+  redirectAdminSubmission: (id, { toApplicationId, note }) =>
+    request(`/api/admin/submissions/${id}/redirect`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ toApplicationId, note }),
+    }),
   // Bulk change of public visibility for many tickets in one request.
   // Returns { ok, is_public, requested, updated, failed } (failed = ids that errored).
   bulkUpdateVisibility: (ids, isPublic) =>

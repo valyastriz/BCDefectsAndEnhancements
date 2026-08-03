@@ -809,6 +809,7 @@ export function AdminDashboardPage({ user, onLogout }) {
       <DetailModal
         {...detailModal}
         presence={ticketPresence}
+        redirectApplications={viewer.applications}
         dynamicCleanupStatuses={dynamicCleanupStatuses}
         dynamicCleanupTagTypes={dynamicCleanupTagTypes}
         dynamicApplications={dynamicApplications}

@@ -68,11 +68,14 @@ export function DetailModal({
   saveEdits,
   retireCurrentItem,
   unretireCurrentItem,
+  redirectCurrentItem,
   uploadAttachment,
   deleteAttachment,
   submitEasyVista,
   clearPendingAttachmentDrafts,
   presence,
+  // Every active application as { id, name } — the redirect picker's source.
+  redirectApplications,
   // Meta options
   dynamicCleanupStatuses,
   dynamicCleanupTagTypes,
@@ -88,7 +91,29 @@ export function DetailModal({
   // "Edit anyway" and the active tab are both keyed to the open ticket, so they
   // auto-reset when a different ticket opens — no reset effect needed.
   const [unlockedFor, setUnlockedFor] = useState(null);
-  const locked = isHeldByOther && unlockedFor !== openId;
+  const heldByOtherAdmin = isHeldByOther && unlockedFor !== openId;
+
+  // Two different locks, deliberately not merged. The presence lock above is
+  // temporary and overridable ("edit anyway"). This one is not: the ticket lives
+  // in an application this caller does not administer — normally one their team
+  // handed on — and the server refuses the write, so offering an override would
+  // only produce a 403.
+  //
+  // `can_edit` is absent on an older cached payload, so only an explicit false
+  // locks the form; undefined leaves today's behaviour untouched.
+  const readOnly = detail?.can_edit === false;
+  const locked = heldByOtherAdmin || readOnly;
+
+  // Where this ticket could go: every active application except the one it is
+  // already in. Deliberately from the viewer envelope ({id, name}) rather than
+  // `dynamicApplications` (names only) — the endpoint moves by id, and a name
+  // would have to be resolved back to one somewhere.
+  //
+  // Not narrowed to what the caller administers: handing a ticket to a team you
+  // are not part of is the entire point of a redirect.
+  const redirectTargets = (redirectApplications || []).filter(
+    (app) => String(app.name) !== String(detail?.application_name),
+  );
 
   // Deliberately NOT keyed to the open ticket: an admin who wants the compact
   // header wants it on every ticket, not to re-collapse it each time.
@@ -181,6 +206,9 @@ export function DetailModal({
           saveEdits={saveEdits}
           retireCurrentItem={retireCurrentItem}
           unretireCurrentItem={unretireCurrentItem}
+          redirectCurrentItem={redirectCurrentItem}
+          redirectTargets={redirectTargets}
+          readOnly={readOnly}
           modalBottomNotice={modalBottomNotice}
           easyVistaConfirmation={easyVistaConfirmation}
           locked={locked}
@@ -225,6 +253,10 @@ export function DetailModal({
               discardDraft={discardDraft}
               presence={presence}
               locked={locked}
+              readOnly={readOnly}
+              handedOnTo={readOnly ? detail?.application_name : null}
+              // Only the presence lock is overridable; a ticket that belongs to
+              // another team has no "edit anyway" to offer.
               onUnlock={() => setUnlockedFor(openId)}
               detailError={detailError}
               edit={edit}
