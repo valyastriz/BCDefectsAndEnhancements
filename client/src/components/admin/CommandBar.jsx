@@ -1,4 +1,4 @@
-import { UNASSIGNED_APPLICATION } from '../../constants/adminConstants';
+import { UNASSIGNED_APPLICATION, ALL_APPLICATIONS_SCOPE } from '../../constants/adminConstants';
 import { buildDefaultFilters } from '../../utils/filterUtils';
 import { ActiveFilterChips } from './ActiveFilterChips';
 
@@ -39,6 +39,9 @@ export function CommandBar({
   // tickets with none set. Both come from the viewer envelope.
   scopeApplications = [],
   canSeeUnassigned = false,
+  // The queue this admin has pinned as their default, and how to change it.
+  pinnedApplication = null,
+  onPinApplication,
   onOpenCustomize,
   onResetSaved,
   onClearAllFilters,
@@ -50,6 +53,10 @@ export function CommandBar({
   // nothing to switch between, and the summary tag already names it.
   const showApplicationScope = isVisible('application')
     && (scopeApplications.length > 1 || canSeeUnassigned);
+
+  // The pin stores '__all__' for "every application"; the live filter uses ''.
+  const currentScope = filters.application || ALL_APPLICATIONS_SCOPE;
+  const isPinnedHere = pinnedApplication === currentScope;
 
   // Removing one chip resets just that key to its default.
   function removeFilter(key) {
@@ -97,20 +104,42 @@ export function CommandBar({
         </span>
 
         {showApplicationScope && (
-          <select
-            className="bs-inline-select admin-scope-select"
-            value={filters.application || ''}
-            aria-label="Application queue"
-            onChange={(e) => setFilters((prev) => ({ ...prev, application: e.target.value }))}
-          >
-            <option value="">All applications</option>
-            {scopeApplications.map((app) => (
-              <option key={app.id} value={app.name}>{app.name}</option>
-            ))}
-            {canSeeUnassigned && (
-              <option value={UNASSIGNED_APPLICATION}>No application set</option>
+          <span className="admin-scope">
+            <select
+              className="bs-inline-select admin-scope-select"
+              value={filters.application || ''}
+              aria-label="Application queue"
+              onChange={(e) => setFilters((prev) => ({ ...prev, application: e.target.value }))}
+            >
+              <option value="">All applications</option>
+              {scopeApplications.map((app) => (
+                <option key={app.id} value={app.name}>{app.name}</option>
+              ))}
+              {canSeeUnassigned && (
+                <option value={UNASSIGNED_APPLICATION}>No application set</option>
+              )}
+            </select>
+            {/* Switching scope is a look; pinning is a decision. Only pinning
+                changes where this admin lands tomorrow, which is why it is a
+                separate deliberate click rather than a side effect of the
+                select above. */}
+            {onPinApplication && (
+              <button
+                type="button"
+                className={`admin-scope-pin${isPinnedHere ? ' is-pinned' : ''}`}
+                aria-pressed={isPinnedHere}
+                title={isPinnedHere
+                  ? 'This is your default queue — click to stop defaulting to it'
+                  : 'Make this your default queue'}
+                onClick={() => onPinApplication(isPinnedHere ? null : currentScope)}
+              >
+                <span aria-hidden="true">{isPinnedHere ? '★' : '☆'}</span>
+                <span className="admin-scope-pin-text">
+                  {isPinnedHere ? 'Default' : 'Make default'}
+                </span>
+              </button>
             )}
-          </select>
+          </span>
         )}
 
         {isVisible('retiredFilter') && (

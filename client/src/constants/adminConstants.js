@@ -133,6 +133,12 @@ export const COMMAND_ROW_FILTER_KEYS = ['search', 'retiredFilter', 'application'
 // UNASSIGNED_APPLICATION in server/src/constants.js.
 export const UNASSIGNED_APPLICATION = '__unassigned__';
 
+// What a PINNED scope of "every application" is stored as. The live filter uses
+// '' for all applications, but a stored '' is indistinguishable from no pin at
+// all — and those mean different things: one is a decision to see everything,
+// the other is a blank slate that falls back to the home application.
+export const ALL_APPLICATIONS_SCOPE = '__all__';
+
 export const SORT_COLS = {
   id:               { asc: 'id_asc',                      desc: 'id_desc' },
   reportedDate:     { asc: 'created_asc',                 desc: 'created_desc' },

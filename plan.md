@@ -3,6 +3,40 @@
 Living record of notable features/changes. See `CLAUDE.md` for architecture and
 per-app details.
 
+## Pinned queue scope — and the scope filter that never filtered (2026-08-03)
+
+A super user who owns one product had no way to make that their default queue: the
+switcher opened on All applications every session, so they re-picked their own product
+every time. `admin_view_preferences` stored which columns and filters were VISIBLE, not
+what they were set to, and the queue's filter values were never persisted at all.
+
+**A pin, not a memory of the last selection.** `admin_view_preferences.pinned_application`
+holds the application this admin lands on. Switching scope to glance at another team's
+queue is a look; only the explicit "Make default" star changes where you land tomorrow.
+Resolution order on load: pinned → home application (AD group, else most-filed) → all.
+A pin on an application since renamed or retired falls through to the home application
+rather than to an empty queue, and `'__all__'` is stored as a real pin because "pinned to
+everything" and "never chose" are different states.
+
+**Degrades if the column is not there yet.** `src/index.js` starts the server even when
+the boot-time schema sync fails, so the read uses `SELECT *` and the write retries
+without the pin column. Losing an admin's whole saved view over a missing pin would be a
+far worse failure than having no pin.
+
+**Fixes a bug in the release shipped an hour earlier.** `api.listAdminSubmissions`
+destructures an explicit field list and rebuilds the query object, and `application` was
+never added to it — so it was dropped before `buildAdminSubmissionsQuery` ever saw it.
+The switcher rendered, the chip rendered, the band read "Application: Policy Center", and
+the table returned everything. Visible only by looking: the row count did not change.
+**Not a data leak** — server-side scoping still bounded what each admin could see; the
+filter was simply inert. The export path spreads the whole filters object and was
+unaffected.
+
+Verified in Chrome, from a cleared preference state: first load lands on the home
+application (3 rows, not 6), switching is a look, the star pins, a reload honours the
+pin, looking elsewhere does not move it, and the pin is confirmed in the database. 235
+tests, lint and build green.
+
 ## OPEN — the EasyVista call is Billing Center's, not the portal's (2026-08-03)
 
 **Not built. This is the blocker standing between "the portal supports many

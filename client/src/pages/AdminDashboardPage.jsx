@@ -13,6 +13,7 @@ import {
   ADMIN_FILTERS_STORAGE_KEY,
   ADMIN_RETIRED_FILTER_STORAGE_KEY,
   DEFAULT_VISIBLE_FILTER_KEYS,
+  ALL_APPLICATIONS_SCOPE,
 } from '../constants/adminConstants';
 import { toNumeric } from '../utils/formatUtils';
 import {
@@ -96,7 +97,7 @@ export function AdminDashboardPage({ user, onLogout }) {
   const navigate = useNavigate();
   // Signposting only — every endpoint re-checks rights server-side, so this
   // decides what to show, never what is allowed.
-  const { viewer } = useViewer();
+  const { viewer, loading: viewerLoading } = useViewer();
 
 
   // ── Page-level state (filters, rows, pagination, notices) ─────────────────
@@ -127,6 +128,7 @@ export function AdminDashboardPage({ user, onLogout }) {
       (app) => granted.has(app.id) || present.has(app.name),
     );
   }, [viewer.applications, viewer.isSuperUser, viewer.readableApplicationIds, rows]);
+
 
   const [pageSize, setPageSize] = useState(50);
   const [page, setPage] = useState(1);
@@ -251,6 +253,54 @@ export function AdminDashboardPage({ user, onLogout }) {
   // ── Per-admin view preferences (visible columns/filters + column order) ────
   const viewPrefs = useAdminViewPreferences();
   const [customizeOpen, setCustomizeOpen] = useState(false);
+
+  // Which queue this admin lands on, resolved once per session in priority order:
+  //
+  //   1. the application they PINNED — an explicit decision, so it always wins
+  //   2. their home application — AD group, else most-filed (the server decides)
+  //   3. every application
+  //
+  // Runs only while the picker is still untouched, so switching scope to glance
+  // at another team's queue is a look, not a new default. Waits for the saved
+  // preferences to load, or a pinned admin would watch All applications flash
+  // past on every load.
+  //
+  // Declared after `viewPrefs`, not with the other viewer-derived values above:
+  // reading it earlier is a temporal dead zone error that blanks the page.
+  const [scopeSeeded, setScopeSeeded] = useState(false);
+  useEffect(() => {
+    // Both answers are needed before deciding, and seeding is one-shot. Waiting
+    // only on the preferences ran this while the viewer envelope was still the
+    // anonymous placeholder — no applications, so no home application found, and
+    // the one chance to seed was spent landing on All.
+    if (scopeSeeded || !viewPrefs.loaded || viewerLoading) return;
+
+    const pinned = viewPrefs.pinnedApplication;
+    // A pin on an application since renamed or retired resolves to nothing, so
+    // it falls through to the home application rather than to an empty queue.
+    const pinResolves = pinned === ALL_APPLICATIONS_SCOPE
+      || (pinned && (viewer.applications || []).some((app) => app.name === pinned));
+
+    if (pinResolves) {
+      setFilters((prev) => ({
+        ...prev,
+        application: pinned === ALL_APPLICATIONS_SCOPE ? '' : pinned,
+      }));
+      setScopeSeeded(true);
+      return;
+    }
+
+    const home = (viewer.applications || []).find((app) => app.id === viewer.homeApplicationId);
+    if (home) setFilters((prev) => ({ ...prev, application: home.name }));
+    setScopeSeeded(true);
+  }, [
+    scopeSeeded,
+    viewPrefs.loaded,
+    viewPrefs.pinnedApplication,
+    viewerLoading,
+    viewer.applications,
+    viewer.homeApplicationId,
+  ]);
 
   const handleViewSave = useCallback((next) => {
     viewPrefs.saveView(next);
@@ -700,6 +750,8 @@ export function AdminDashboardPage({ user, onLogout }) {
         visibleFilters={viewPrefs.filters}
         scopeApplications={scopeApplications}
         canSeeUnassigned={viewer.isSuperUser}
+        pinnedApplication={viewPrefs.pinnedApplication}
+        onPinApplication={viewPrefs.savePinnedApplication}
         onOpenCustomize={() => setCustomizeOpen(true)}
         onResetSaved={resetSavedFilters}
         onClearAllFilters={clearAllFilters}

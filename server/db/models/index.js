@@ -68,6 +68,15 @@ function defineModels(sequelize) {
     user_id: { type: DataTypes.INTEGER, allowNull: false, unique: true },
     columns_json: { type: DataTypes.TEXT }, // JSON: ordered array of visible column keys
     filters_json: { type: DataTypes.TEXT }, // JSON: array of visible filter keys
+    // The application queue this admin PINNED as their default, by name — or the
+    // "all applications" sentinel. Distinct from the two above, which record
+    // which controls are visible rather than what they are set to.
+    //
+    // A pin, deliberately, not a memory of the last selection: switching scope to
+    // glance at another team's queue should not silently rewrite where you land
+    // tomorrow. Empty/absent means "no pin", and the client falls back to the
+    // home application.
+    pinned_application: { type: DataTypes.TEXT },
     updated_at: { type: DataTypes.TEXT },
   }, { tableName: 'admin_view_preferences', timestamps: false });
 

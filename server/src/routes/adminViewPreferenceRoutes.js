@@ -25,6 +25,8 @@ router.put('/api/admin/view-preferences', ensureAdmin, async (req, res) => {
     const saved = await saveViewPreference(db, req.session.user.id, {
       columns: body.columns,
       filters: body.filters,
+      // The queue scope this admin pinned as their default. Sent as null to unpin.
+      pinnedApplication: body.pinnedApplication,
     });
     return res.json(saved);
   });

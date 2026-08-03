@@ -3748,6 +3748,26 @@ select.dm-prow-input { cursor: pointer; }
 .pb-tl-txt { min-width: 0; }
 .pb-tl-txt b { font-size: 13px; font-weight: 650; display: block; }
 .pb-tl-txt > span { font-size: 12px; color: var(--color-muted); font-variant-numeric: tabular-nums; }
+/* Application scope + its pin, in the admin command row. */
+.admin-scope { display: inline-flex; align-items: center; gap: 6px; }
+.admin-scope-pin {
+  display: inline-flex; align-items: center; gap: 5px;
+  font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer;
+  padding: 6px 10px; border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border); background: var(--color-surface);
+  color: var(--color-muted); white-space: nowrap;
+  transition: color .12s ease, border-color .12s ease, background .12s ease;
+}
+.admin-scope-pin:hover { color: var(--color-text); border-color: var(--color-muted); }
+.admin-scope-pin:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 1px; }
+.admin-scope-pin.is-pinned {
+  color: var(--status-cleanup-only-fg); background: var(--status-cleanup-only-bg);
+  border-color: transparent;
+}
+/* The label is a nicety; the star carries the state. Drops out first when the
+   command row runs short of space. */
+@media (max-width: 900px) { .admin-scope-pin-text { display: none; } }
+
 /* Skeleton bar. Placeholders shaped like the real rows rather than a spinner,
    so nothing jumps when the data lands. */
 .sk-bar { display: block; height: 11px; border-radius: 4px; background: var(--color-border); position: relative; overflow: hidden; }

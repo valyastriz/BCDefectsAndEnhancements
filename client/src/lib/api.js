@@ -167,11 +167,14 @@ export const api = {
     request(`/api/admin/access/ad-groups/${encodeURIComponent(String(id))}`, { method: 'DELETE' }),
 
   getAdminViewPreferences: () => request('/api/admin/view-preferences'),
-  saveAdminViewPreferences: ({ columns, filters }) =>
+  // `pinnedApplication` is the queue scope this admin lands on: an application
+  // name, the '__all__' sentinel, or null to unpin. The endpoint replaces the
+  // whole row, so every caller sends all three fields.
+  saveAdminViewPreferences: ({ columns, filters, pinnedApplication = null }) =>
     request('/api/admin/view-preferences', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ columns, filters }),
+      body: JSON.stringify({ columns, filters, pinnedApplication }),
     }),
   resetAdminViewPreferences: () =>
     request('/api/admin/view-preferences', { method: 'DELETE' }),
@@ -203,6 +206,11 @@ export const api = {
     requester = '',
     submittedBy = '',
     createdVia = '',
+    // Which application's queue. Easy to miss when adding a filter: this
+    // function destructures an explicit list and rebuilds the query object, so a
+    // key absent HERE is dropped before buildAdminSubmissionsQuery ever sees it
+    // — which is exactly how the scope switcher shipped filtering nothing.
+    application = '',
     retiredFilter = 'non_retired',
     year = '',
     inJira = '',
@@ -223,6 +231,7 @@ export const api = {
       requester,
       submittedBy,
       createdVia,
+      application,
       retiredFilter,
       year,
       inJira,
