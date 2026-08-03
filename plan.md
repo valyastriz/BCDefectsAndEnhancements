@@ -3,6 +3,47 @@
 Living record of notable features/changes. See `CLAUDE.md` for architecture and
 per-app details.
 
+## Redirect between application queues — server side (2026-08-03)
+
+Step 5, backend half. The admin dialog is **not built yet**; the endpoint works and is
+verified.
+
+**The ticket moves — it is not copied or mirrored.** A copy would give the reporter two
+tickets for one problem and leave two teams each assuming the other owned it.
+`submissions.application_id` changes and `submission_routings` records who held it
+before (`services/redirectService.js`, `POST /api/admin/submissions/:id/redirect`).
+
+Three consequences, all as agreed in the design conversation:
+
+1. **It lands as New.** The receiving team has not triaged it, so its status cannot
+   claim they have. The history travels with it — `status_at_handoff` preserves what it
+   was, and two status events (`Redirected to <app>`, then `New`) make the story
+   readable on arrival.
+2. **The sending team keeps reading it and stops writing it, immediately.** Both
+   already fell out of Step 3 rather than needing new code: read comes from
+   `resolveAdminReadScope` walking the ledger's `from_application_id`, and write is
+   refused because `canMutateApplication` asks about the ticket's CURRENT application.
+   This is the first time that ledger path has run against real rows. Verified: the
+   sender gets 200 on the detail, 403 on an edit, and 403 trying to pull it back.
+   The detail response carries `can_edit` so the UI can render read-only rather than
+   offering dead controls.
+3. **The note is optional and internal.** Optional per the decision at 16:12 (the
+   earlier proposal had it required). It never reaches the reporter: `mapPublicRouting`
+   allow-lists `{id, from, to, routed_at}` and drops `note`, `routed_by` and
+   `status_at_handoff` — the same boundary that keeps reviewer and decision notes off
+   the board. The reporter's detail shows THAT it moved and when, so they can follow
+   their own ticket across the hand-off.
+
+**Bug caught in verification:** `status_at_handoff` recorded every hand-off as New. The
+raw row stores only `status_id` (the legacy text columns were dropped), so reading
+`.status` silently produced nothing and fell through to the default. Now resolved from
+the FK, with the text column kept as a fallback.
+
+Verified: 229 server tests, lint, and a live hand-off against a sandboxed copy —
+Approved ticket moved Billing → Policy, landed New with `status_at_handoff: Approved`,
+sender read-only, note visible to admins, and the public payload containing none of
+`note` / `routed_by` / `status_at_handoff`.
+
 ## Reporter binding — a ticket knows who filed it (2026-08-03)
 
 Step 4 of the seven. `submissions.reporter_user_id` existed and nothing wrote it;

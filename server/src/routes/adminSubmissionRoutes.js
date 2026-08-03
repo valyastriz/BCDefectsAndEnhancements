@@ -2,10 +2,17 @@ const express = require('express');
 const XLSX = require('xlsx');
 const dbApi = require('../../db');
 const { ensureAdmin, attachViewer } = require('../auth');
-const { resolveAdminReadScope, canReadSubmissionRow } = require('../services/viewerService');
+const {
+  resolveAdminReadScope,
+  canReadSubmissionRow,
+  canMutateApplication,
+} = require('../services/viewerService');
+const { redirectSubmission, listRoutings } = require('../services/redirectService');
 const { withDb } = require('../helpers/db');
 const { isBlank } = require('../helpers/utils');
-const { mapSubmission, toExportCellValue } = require('../helpers/mappers');
+const { mapSubmission, mapPublicSubmission, toExportCellValue } = require('../helpers/mappers');
+const { emitAdminNotification, emitPublicUpdate } = require('../socket');
+const { scheduleEmbeddingRefresh } = require('../services/embeddingIndexService');
 const { ADMIN_EXPORT_FIELDS, ADMIN_EXPORT_FIELDS_BY_KEY } = require('../helpers/export');
 const { buildStatusTimeline } = require('../helpers/timeline');
 const {
@@ -103,11 +110,18 @@ router.get('/api/admin/submissions/:id', ensureAdmin, attachViewer, async (req, 
     });
 
     const timeline = buildStatusTimeline(submission, status_events);
+    // The custody chain, notes included — this side of the boundary is admins
+    // only. The public detail route gets the stripped version.
+    const routings = await listRoutings(dbModels, submissionId);
 
     return res.json({
       ...mapSubmission(submission),
       attachments,
       status_events: timeline,
+      routings,
+      // Whether THIS caller may still change it. A ticket they handed on stays
+      // readable and must render read-only rather than offering dead controls.
+      can_edit: canMutateApplication(req.viewer, submission.application_id),
     });
   });
 });
@@ -169,6 +183,40 @@ router.post('/api/admin/submissions/bulk-retire', ensureAdmin, attachViewer, asy
     if (result.error) {
       return res.status(result.status).json({ error: result.error });
     }
+    return res.status(result.status).json(result.body);
+  });
+});
+
+// Hand a ticket to another application's queue. The ticket moves, lands as New,
+// and the sending team keeps reading it while losing the ability to change it —
+// see services/redirectService.js for why each of those is the case.
+router.post('/api/admin/submissions/:id/redirect', ensureAdmin, attachViewer, async (req, res) => {
+  return withDb(async (db) => {
+    const dbModels = dbApi.getModels() || {};
+    const result = await redirectSubmission(db, {
+      id: req.params.id,
+      toApplicationId: req.body?.toApplicationId,
+      note: req.body?.note,
+      viewer: req.viewer,
+      username: req.session?.user?.username,
+      models: dbModels,
+      sequelize: dbModels.Submission?.sequelize,
+    });
+    if (result.error) {
+      return res.status(result.status).json({ error: result.error });
+    }
+
+    // Both queues need to see it move: it leaves one board and appears on the
+    // other, and neither admin should have to refresh to find out.
+    const moved = await getSubmissionByIdWithLookups(db, Number(req.params.id));
+    emitAdminNotification('submission:redirected', mapSubmission(moved));
+    if (moved?.is_public) {
+      // The reporter follows their own ticket across the hand-off. The note is
+      // not part of this payload and must never become part of it.
+      emitPublicUpdate(mapPublicSubmission(moved));
+    }
+    scheduleEmbeddingRefresh(Number(req.params.id));
+
     return res.status(result.status).json(result.body);
   });
 });

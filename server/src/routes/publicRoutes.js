@@ -4,6 +4,7 @@ const { withDb } = require('../helpers/db');
 const { buildAllLookupMaps, hydrateRowFromMaps } = require('../helpers/lookups');
 const { mapPublicSubmission } = require('../helpers/mappers');
 const { getSubmissionByIdWithLookups } = require('../services/submissionService');
+const { listRoutings } = require('../services/redirectService');
 
 const router = express.Router();
 
@@ -110,9 +111,15 @@ router.get('/api/public/submissions/:id', async (req, res) => {
       raw: true,
     });
 
+    // The reporter follows their ticket across a hand-off, so they see THAT it
+    // moved, when, and between which teams. `forPublic` strips the note — it is
+    // triage talk between admins and can name colleagues or judge their work.
+    const routings = await listRoutings(dbModels, Number(req.params.id), { forPublic: true });
+
     return res.json({
       ...markOwnership(req)(submission),
       attachments,
+      routings,
     });
   });
 });
