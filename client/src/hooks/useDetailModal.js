@@ -3,6 +3,32 @@ import { api } from '../lib/api';
 import { editableFromDetail, normalizeAdminRow, buildAdminUpdatePayload, hasPendingModalChanges } from '../utils/mappers';
 
 /**
+ * What to append to a send confirmation about the FILES.
+ *
+ * Empty when everything the admin picked went — the common case, and a
+ * confirmation should not narrate a non-event. Otherwise it says plainly what
+ * did not arrive, because the alternative is an admin believing a screenshot
+ * reached EasyVista when it did not.
+ *
+ * `not-implemented` is the live-but-unwired case: the ticket is real, the files
+ * are not on it. `skipped` alone is the per-send file cap.
+ */
+function describeAttachmentOutcome(attachments) {
+  if (!attachments) return '';
+  const attempted = Number(attachments.attempted || 0);
+  const skipped = Number(attachments.skipped || 0);
+
+  if (attachments.source === 'not-implemented' && attempted > 0) {
+    return ` — but ${attempted} file${attempted === 1 ? '' : 's'} could not be attached:`
+      + ' EasyVista\'s upload API is not wired up yet. Send them another way.';
+  }
+  if (skipped > 0) {
+    return ` — ${skipped} file${skipped === 1 ? '' : 's'} over the per-ticket limit were not attached.`;
+  }
+  return '';
+}
+
+/**
  * Custom hook for the admin submission detail/edit modal.
  *
  * @param {Object} deps
@@ -587,13 +613,19 @@ export function useDetailModal({ loadRows, setRows, setError, currentUsername })
       const suffix = simulated
         ? ' (placeholder — EasyVista is not connected yet, nothing was transmitted)'
         : '';
+
+      // What happened to the FILES — a separate outcome from what happened to
+      // the ticket. The server always reported it and nothing read it, so a real
+      // send that uploaded nothing still confirmed as a clean success and the
+      // admin had no way to know the evidence never left.
+      const attachmentWarning = describeAttachmentOutcome(result?.attachments);
       if (result?.resubmission) {
         setEasyVistaConfirmation(
-          `Re-submitted. New card #${result?.submission?.id || ''}, Ticket: ${result?.ticketId || 'created'}${suffix}`,
+          `Re-submitted. New card #${result?.submission?.id || ''}, Ticket: ${result?.ticketId || 'created'}${suffix}${attachmentWarning}`,
         );
       } else {
         setEasyVistaConfirmation(
-          `Submitted. Ticket: ${result?.ticketId || 'created'}${suffix}`,
+          `Submitted. Ticket: ${result?.ticketId || 'created'}${suffix}${attachmentWarning}`,
         );
       }
     } catch (submitError) {

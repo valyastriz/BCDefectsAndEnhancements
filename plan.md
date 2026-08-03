@@ -42,10 +42,40 @@ Verified: 243 server tests, client lint, build, and in Chrome — both applicati
 unconfigured, configuring Policy Center persists and re-reads, and **a demo send from an
 application with no catalog still returns `EV-17674 / source: demo`**.
 
-**Still open:** the second gap. `sendEasyVistaAttachments` is a stub returning `sent: 0`
-when live, and the confirmation reads only the submission's `source`, never the
-attachment result — so an admin would be told the ticket went with screenshots that
-never left. Harmless while `EASYVISTA_ENABLED` is off; must be fixed before it is on.
+## EasyVista attachments: loud instead of silent (2026-08-03)
+
+The second gap. Split deliberately, because its two halves are not the same kind of
+problem.
+
+**The upload is genuinely blocked** on EasyVista's contract — endpoint, multipart vs
+base64, the file field name, whether several go per request, the per-file cap. Nobody
+can write that without the spec, so it stays a documented stub. `sendEasyVistaAttachments`
+still never throws: the ticket exists by the time it runs, and turning a created ticket
+into an error response would be a worse lie than the one being fixed.
+
+**The silence was ours, and is fixed.** The server always returned the attachment
+outcome (`attachments: attachmentResult`), and nothing read it — the client checked
+`result.source`, which describes the TICKET, not the files. So a live send created a real
+ticket, uploaded nothing, logged a warning into a server log nobody reads, and confirmed
+"Submitted. Ticket: I240412" with no caveat. On a defect where the screenshot IS the
+evidence.
+
+Now:
+
+- `easyVistaAttachmentsSupported()` is the single source of truth, so the warning shown
+  before Send and what actually happens afterwards cannot drift. Whoever writes the
+  upload flips one constant and both follow.
+- The result carries `attempted`, so the message can say "3 files could not be attached"
+  instead of inferring a count it was never given.
+- The **preview warns before the send** — going ahead without the files becomes a choice
+  rather than a discovery. By the time the confirmation speaks, the ticket exists.
+- The **confirmation reports the real outcome**, including files dropped by the
+  per-ticket cap, which was equally unread.
+
+None of this changes the demonstration: with EasyVista off nothing is transmitted,
+`sent` equals what was picked, and the confirmation stays clean.
+
+Verified: 249 server tests, client lint, build.
 
 ## Pinned queue scope — and the scope filter that never filtered (2026-08-03)
 

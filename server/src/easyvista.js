@@ -116,30 +116,60 @@ const EASYVISTA_MAX_ATTACHMENTS = 4;
  * @param {Array<{id:number, filename:string, mime_type:string, file_path:string}>} attachments
  * @returns {Promise<{sent:number, skipped:number, source:string}>}
  */
+/**
+ * Whether a REAL send can carry files yet.
+ *
+ * The single source of truth for the unimplemented half below, so the warning
+ * an admin sees before pressing Send and what actually happens afterwards
+ * cannot drift apart. Flip this in the same change that fills in the request.
+ */
+const EASYVISTA_ATTACHMENT_UPLOAD_IMPLEMENTED = false;
+
+function easyVistaAttachmentsSupported() {
+  return EASYVISTA_ATTACHMENT_UPLOAD_IMPLEMENTED;
+}
+
 async function sendEasyVistaAttachments(ticketId, attachments = [], { submitter = null } = {}) {
   const files = attachments.slice(0, EASYVISTA_MAX_ATTACHMENTS);
   const skipped = Math.max(0, attachments.length - files.length);
 
+  // `attempted` is what the admin picked (after the cap). Reported alongside
+  // `sent` so the caller can say "3 files could not be attached" rather than
+  // having to infer a count it was never given.
   if (files.length === 0) {
-    return { sent: 0, skipped, source: 'none' };
+    return { attempted: 0, sent: 0, skipped, source: 'none' };
   }
 
   if (!easyVistaIsLive()) {
-    return { sent: files.length, skipped, source: easyVistaDemoMode() ? 'demo' : 'stub' };
+    return {
+      attempted: files.length,
+      sent: files.length,
+      skipped,
+      source: easyVistaDemoMode() ? 'demo' : 'stub',
+    };
   }
 
-  // eslint-disable-next-line no-unused-vars
-  const _pendingContract = { ticketId, files, submitter };
-  console.warn(
-    `[easyvista] ${files.length} file(s) selected for ${ticketId} were not uploaded:`
-    + ' the attachment API contract is not implemented yet (see sendEasyVistaAttachments).',
+  if (!easyVistaAttachmentsSupported()) {
+    // eslint-disable-next-line no-unused-vars
+    const _pendingContract = { ticketId, files, submitter };
+    console.warn(
+      `[easyvista] ${files.length} file(s) selected for ${ticketId} were not uploaded:`
+      + ' the attachment API contract is not implemented yet (see sendEasyVistaAttachments).',
+    );
+    // The caller reports this to the admin — a server log is not a warning
+    // anyone pressing Send will ever read.
+    return { attempted: files.length, sent: 0, skipped, source: 'not-implemented' };
+  }
+
+  throw new Error(
+    'sendEasyVistaAttachments: upload marked implemented but the request is not written.',
   );
-  return { sent: 0, skipped, source: 'not-implemented' };
 }
 
 module.exports = {
   submitToEasyVista,
   sendEasyVistaAttachments,
+  easyVistaAttachmentsSupported,
   easyVistaIsLive,
   easyVistaDemoMode,
   EASYVISTA_MAX_ATTACHMENTS,

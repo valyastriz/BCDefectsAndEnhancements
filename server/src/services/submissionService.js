@@ -35,6 +35,7 @@ const { scheduleEmbeddingRefresh } = require('./embeddingIndexService');
 const {
   submitToEasyVista,
   sendEasyVistaAttachments,
+  easyVistaAttachmentsSupported,
   easyVistaIsLive,
   easyVistaDemoMode,
   EASYVISTA_MAX_ATTACHMENTS,
@@ -1579,6 +1580,12 @@ async function submitSubmissionToEasyVista(db, { id, body, username, viewer, dry
         // as if it were real, which is how the pre-go-live walkthrough works.
         demo: easyVistaDemoMode(),
         maxAttachments: EASYVISTA_MAX_ATTACHMENTS,
+        // Whether the files picked below would actually reach EasyVista on a
+        // real send. False only when the integration is live and the upload
+        // contract is still unwritten — the one case where a ticket is created
+        // for real and its evidence is not. Said BEFORE the send, so the choice
+        // to go ahead without the files is a decision rather than a surprise.
+        attachmentsDeliverable: !easyVistaIsLive() || easyVistaAttachmentsSupported(),
         attachments: submissionAttachments.map((att) => ({
           id: att.id,
           filename: att.filename,
