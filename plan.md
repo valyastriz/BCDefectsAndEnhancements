@@ -22,18 +22,33 @@ conflict and closes both of the EasyVista gaps this file used to record as OPEN
 clean, 274 server tests, 119 browser checks across three committed scripts in
 `client/scripts/` (§0.3).
 
+**Nothing is blocking. Phase 1 is ready to build.** Both questions that held it up
+are answered (§4, "Open questions", items 1 and 4): the report-request field split
+is confirmed, and analysts are admins with a type-scoped grant.
+
 **Do these next, in this order:**
-1. **Confirm the report-request field list** (§4, "Open questions", item 1) — the
-   ONE thing still blocking Phase 1. Everything else is answered. What is needed is
-   not the whole 67-field map: only which fields a *report/dashboard* request asks
-   for, who fills each, and whether the two conditional rules are right. The
-   inferred list is in §4 under "The field split falls out…" — correcting that table
-   is the whole task, and the source spreadsheet (or one real example) settles it in
-   minutes.
-2. Then §5 step 5 (build Phase 1, mockups first) and step 6 (screenshots + docs).
-3. Optional housekeeping: set a catalog for Billing Center on the Access page (the
-   card works now), and decide what happens to `feat/admin-detail-modal-redesign`
-   (see the branch note below).
+1. **Mockups first**, per `.claude/skills/artifact-mockup-first` — three of them,
+   each approved before any product code: the submit-form report-request branch,
+   the detail-modal analyst fields, and the throughput page. The throughput page is
+   chart-shaped: load the `dataviz` skill before drawing, and follow the existing
+   `access-tile` / `md-tile` idiom for its summary numbers.
+2. **Then the schema**, all additive and all nullable: `assigned_to` (a user id,
+   never a name), `completed_at` (with the Complete/Completed booleans DERIVED, not
+   stored), `level_of_effort_id` as a new lookup — which is a 10th Metadata panel,
+   now a one-line addition — plus `request_time_entries` and `request_assignments`.
+   Both child tables have to arrive WITH the feature: neither can be reconstructed
+   afterwards.
+3. **Then the authorisation sweep** the analyst decision implies — the expensive
+   half. See §4 open question 4.
+4. **Then admin add/import/export parity** — a fourth type in the Add-a-ticket
+   dialog's segmented control, new `IMPORT_COLUMN_TARGETS` and new
+   `ADMIN_EXPORT_FIELDS` entries (the export field needs a `group`, or
+   `test/exportFields.test.js` fails — which is the point).
+5. Then §5 step 6 (screenshots + docs).
+
+Optional housekeeping: set a catalog for Billing Center on the Access page (the card
+works now), and decide what happens to `feat/admin-detail-modal-redesign` (see the
+branch note below).
 
 **Data housekeeping, all done 2026-08-05:** the status-history backfill applied (7
 rows, idempotent, re-run reports 0); the verification's test ticket #84 deleted with
@@ -627,15 +642,33 @@ be built with a fourth type in mind so this is an extension, not a rewrite.
 branch, the detail-modal fields and the throughput page each need an approved
 Artifact before product code.
 
-### Open questions for the owner — these block §4 entirely
+### Open questions for the owner
 
-1. **The authoritative per-type field map.** The table above is inferred. The
-   fastest way to settle it is the source spreadsheet itself, or one example
-   request per type. Guessing which of 67 fields a business-card order needs will
-   produce forms that ask the wrong questions.
+**Phase 1 is unblocked.** Questions 1 and 4 are answered; 2, 3 and 5 belong to
+types 3–9 and do not block the report-request build.
+
+1. ~~The authoritative per-type field map.~~ **ANSWERED for report requests
+   (owner, 2026-08-05).** The inferred split above — 13 requester fields, 8 analyst
+   fields, and both conditional rules — was confirmed on all three counts: right
+   set, right requester/analyst split, right conditions.
+
+   **Confirmed "for now", and that qualifier is load-bearing.** It means this is a
+   working spec, not a settled one, so the build should assume the field list will
+   move. Two consequences, both of which the plan already leans toward and should
+   now stick to:
+   - **Plain nullable columns, no JSON blob and no EAV table.** Adding a field must
+     stay a one-line migration plus a form control. An EAV design buys flexibility
+     nobody has asked for and makes every read worse.
+   - **Do not generalise into the §4 request-type registry yet.** One new type does
+     not justify it. When types 3–9 actually arrive, that is the moment — and the
+     registry note in §4 is the plan for it.
+
+   Still worth getting eventually: the source spreadsheet, to confirm nothing was
+   dropped. Not a blocker.
 2. **The full list of request types.** Nine were inferred from the field names;
    the owner named claims cards, hotel reimbursement and business cards
-   explicitly. There are likely types whose fields did not make the list.
+   explicitly. There are likely types whose fields did not make the list. Blocks
+   types 3–9, not Phase 1.
 3. **What are `Claims or CCC?`, and what is `Send to Trevor`?** The latter is a
    person's name doing a workflow's job and must become a role or a queue.
 4. ~~Are analysts a new role?~~ **ANSWERED (owner, 2026-08-05): no.** "Analysts are
@@ -696,12 +729,11 @@ future scope, not current work.
    EasyVista→Service Desk string pass touched the detail modal's labels, so those
    are worth a look.
 
-4. **Next: the one held decision, then Phase 1.**
-   a. Say the word on the status-history backfill (§3b) and it applies.
-   b. **Settle the remaining Phase 1 questions.** `Duration` and reassignment are
-      answered (see Phase 1). Still open: the authoritative per-type field map for
-      report requests, and whether analysts are a new role or admins with a
-      per-type grant.
+~~4. Settle the remaining Phase 1 questions.~~ **All answered 2026-08-05.**
+   `Duration` (analyst hours, a child table) and reassignment (its own history
+   table) were already settled; the report-request field split and the analyst role
+   were answered by the owner. The backfill and the schema change are applied. See
+   the top of this handoff for the ordered build list.
 5. **Build Phase 1** — mockups first (submit-form branch, detail-modal fields,
    throughput page), then the additive schema, then admin add/import/export
    parity.
