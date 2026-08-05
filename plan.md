@@ -23,28 +23,43 @@ clean, 274 server tests, 119 browser checks across three committed scripts in
 `client/scripts/` (§0.3).
 
 **Do these next, in this order:**
-1. **Delete submission #84** — a retired test ticket the screenshot verification had
-   to create. There is no submission DELETE endpoint, so it needs a hand.
-2. **Say yes or no to the status-history backfill** (§3b). Dry run is done and
-   printed; `npm run backfill:tracker-history -- --apply` writes the 7 rows.
-3. **Answer the two Phase 1 questions** (§5 step 4b): the authoritative per-type
+1. **Answer the two Phase 1 questions** (§5 step 4b): the authoritative per-type
    field map for report requests, and whether analysts are a new role or admins
-   with a per-type grant. Both block §4 Phase 1.
-4. Then §5 step 5 (build Phase 1, mockups first) and step 6 (screenshots + docs).
+   with a per-type grant. Both block §4 Phase 1. **This is the only thing blocking
+   work.**
+2. Then §5 step 5 (build Phase 1, mockups first) and step 6 (screenshots + docs).
+3. Optional housekeeping: set a catalog for Billing Center on the Access page (the
+   card works now), and decide what happens to `dev` and
+   `feat/admin-detail-modal-redesign` (see the branch note below).
 
-**One schema change is staged but not applied.** The hosted database has no
-`applications.easyvista_catalog_guid` / `_code` columns. Everything works without
-them — the merge made sure of that, the hard way (see §"EasyVista catalog is per
-application", defect 0) — but the Access page's catalog card reads every application
-as unconfigured until they exist. `cd server && npm run migrate:easyvista-catalog-columns`
-prints the two `ALTER`s and writes nothing; `-- --apply` adds them in one
-transaction. Two nullable columns, nothing back-filled, safe to re-run.
+**Data housekeeping, all done 2026-08-05:** the status-history backfill applied (7
+rows, idempotent, re-run reports 0); the verification's test ticket #84 deleted with
+its 3 status events; submission #64 — which displayed as Billing Center but carried
+no `application_id`, a historical gap, not an ongoing one — assigned properly, so
+`unassignedTicketCount` is 0 and all 83 submissions are Billing Center.
 
-**Branch note:** `origin/dev` is **19 commits behind `origin/main`** as of this
-commit — check with `git rev-list --left-right --count origin/main...origin/dev`.
-The claim further down that they "currently track together" is out of date; `main`
-is where the work has been landing. Decide whether `dev` gets fast-forwarded or
-retired.
+**The catalog columns are in place.** `applications.easyvista_catalog_guid` /
+`_code` exist on the hosted database — added by the production deploy's boot sync
+minutes after the push, not by the migration script (see §3b). Verified afterwards:
+only those two nullable columns were added, and nothing else moved. The Access
+page's catalog card is live and a super user can set a catalog; both applications
+read "not configured" today, which is correct — no `EASYVISTA_*` variables are set
+at all, so there is no environment catalog for anything to inherit.
+`npm run migrate:easyvista-catalog-columns` stays for any environment that has not
+had the columns applied.
+
+**Branch note.** Cleaned up 2026-08-05: 13 fully-merged branches deleted locally,
+and GitHub had already removed their remotes (the repo auto-deletes a merged head
+branch). Two remain, both needing a decision:
+
+- **`dev`** is far behind `origin/main` — check with
+  `git rev-list --left-right --count origin/main...origin/dev`. The claim further
+  down that they "currently track together" is out of date; `main` is where the
+  work lands. Fast-forward it or retire it.
+- **`feat/admin-detail-modal-redesign`** is kept ON PURPOSE. Its *content* is on
+  `main` (it merged as PR #3, which rewrote the SHAs), but the two commits
+  themselves are not reachable from `main`, so deleting it needs `git branch -D`
+  and would drop the only copy of them. Not worth doing without a reason.
 
 ## 0. Read this first
 
@@ -382,19 +397,24 @@ row is a manual job.
 
 ## 3b. Still open
 
-- **Status-history backfill — dry-run done, apply NOT run.** Needs one word from
-  the owner. `cd server && npm run backfill:tracker-history` prints every row it
-  would change and writes nothing; `-- --apply` performs the 7 UPDATEs in one
-  transaction. The dry run confirms exactly the 7 rows this file predicted (events
-  206, 207, 220, 221, 257, 258, 260), all `Resubmission: From (EasyVista EV-#####)
-  to (EasyVista EV-#####)…`. It rewrites the vendor NAME only — never the EV-#####
-  numbers, which are what the Service Desk issued, and never a column named for the
-  vendor. Every reader parses these by prefix (`utils/formatUtils.js`,
-  `helpers/timeline.js`, `routes/publicRoutes.js`), so nothing breaks either way.
-  Safe to re-run. Held because it rewrites historical audit rows in the hosted
-  database, and "approved in principle" is not sign-off on a specific diff.
+- ~~Status-history backfill~~ **APPLIED 2026-08-05.** Exactly the 7 rows this file
+  predicted (events 206, 207, 220, 221, 257, 258, 260), in one transaction. The
+  re-run reports `0 carry the vendor name`, so it is idempotent, and the timeline
+  still renders — every reader parses these by prefix (`utils/formatUtils.js`,
+  `helpers/timeline.js`, `routes/publicRoutes.js`), never by the vendor name.
+  `npm run backfill:tracker-history` stays for any environment that has not had it.
 - **Five `401 Unauthorized` fetches** on the public routes when not signed in.
   Pre-existing, looks like the anonymous viewer probe, not traced.
+- **Pushing to `main` auto-migrates the shared database.** Worth knowing before the
+  next schema change: the deploy boots with `IS_PRODUCTION` true and runs
+  `db.migrate()` → `sync({ alter: true })` against the same hosted Supabase the
+  local `npm run dev` uses (`src/index.js:93`). The catalog columns from PR #10 were
+  added that way, silently, minutes after the push — before anyone ran the explicit
+  migration script. Local runs are safe: the sync is guarded to production and
+  `NODE_ENV` is unset locally. The schema was checked afterwards and the broad alter
+  changed nothing else — money columns are still `NUMERIC`, `updated_at` still
+  `TEXT`. But a riskier column change would land the same way, which is exactly what
+  the money-columns note warns about.
 - **The screenshot harness still does not exist.** `client/scripts/` holds the
   three *verification* scripts (which can write PNGs with `--shots`) but not the
   manifest-driven capture the docs need — see §5 step 4.
