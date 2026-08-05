@@ -1,1380 +1,1196 @@
 # BC Defects & Enhancements Portal
 
-A full-stack internal operations tool for the **Product Owners team** to track, triage, and manage insurance billing system defects and enhancement requests in one centralized location. The Product Owners team sits between field representatives (who report issues) and Tier 2 GTS support (who work tickets in EasyVista). This application gives Product Owners the structured workflow they previously lacked — connecting intake from reps, through triage and prioritization, to escalation via EasyVista.
+A submission and triage portal for Billing Center defects and enhancement
+requests. Field representatives file reports; Product Owners triage them; approved
+items are escalated to Tier 2 GTS in EasyVista. Everything is visible to the
+person who reported it on a live public status board.
 
-> **Live Site:** https://bc-defects-and-enhancements.vercel.app/
-
----
-
-## Table of Contents
-
-- [Problem Statement](#problem-statement)
-- [What This Application Does](#what-this-application-does)
-- [Architecture Overview](#architecture-overview)
-- [Tech Stack](#tech-stack)
-- [Project Structure](#project-structure)
-- [Getting Started](#getting-started)
-  - [Prerequisites](#prerequisites)
-  - [Installation](#installation)
-  - [Environment Variables](#environment-variables)
-  - [Database Setup & Seeding](#database-setup--seeding)
-  - [Running Locally](#running-locally)
-- [User Roles & Access](#user-roles--access)
-- [Application Pages](#application-pages)
-  - [Submit A Request](#1-submit-a-request-)
-  - [Status Board](#2-status-board-public)
-  - [Admin Login](#3-admin-login-adminlogin)
-  - [Admin Dashboard](#4-admin-dashboard-admin)
-  - [Admin Metadata Manager](#5-admin-metadata-manager-adminmetadata)
-- [Core Features](#core-features)
-  - [Submission Lifecycle](#submission-lifecycle)
-  - [Cleanup Task Workflow](#cleanup-task-workflow)
-  - [EasyVista Integration](#easyvista-integration)
-  - [Excel Import](#excel-import)
-  - [Excel Export](#excel-export)
-  - [Real-Time Updates](#real-time-updates-socketio)
-  - [Collaborative Editing & Conflict Safety](#collaborative-editing--conflict-safety)
-  - [File Attachments](#file-attachments)
-  - [Data Provenance & Auditing](#data-provenance--auditing)
-  - [AI Semantic Search](#ai-semantic-search)
-- [Admin Dashboard Deep Dive](#admin-dashboard-deep-dive)
-  - [New Submissions Alert](#new-submissions-alert)
-  - [Customize View](#customize-view-per-admin-columns--filters)
-  - [Filtering](#filtering-16-controls)
-  - [Sorting](#sorting)
-  - [Inline Table Editing](#inline-table-editing)
-  - [Bulk Actions (Multi-Select)](#bulk-actions-multi-select)
-  - [Detail Modal](#detail-modal)
-  - [Stat Tiles](#stat-tiles)
-  - [Toast Notifications](#toast-notifications)
-  - [Dark Mode](#dark-mode)
-- [API Reference](#api-reference)
-- [Database Schema](#database-schema)
-- [UI Component Library (BitsizeUI)](#ui-component-library-bitsizeui)
-- [Styling & Theming](#styling--theming)
-- [Deployment](#deployment)
-- [Configuration Reference](#configuration-reference)
+**Status: working prototype.** It runs, it holds real data, and it is the
+reference for a rebuild on the organisation's own stack — not the thing that
+ships long-term.
 
 ---
 
-## Problem Statement
+## Two documents, two jobs
 
-The **Product Owners team** manages a constant stream of billing system defects and enhancement requests from field representatives. They are responsible for triaging, prioritizing, and deciding which issues get escalated to **Tier 2 GTS** (who work the actual tickets in EasyVista). Before this application, the Product Owners team had no centralized system:
-
-- **Defect reports got lost** in email threads, chat messages and spreadsheets with no audit trail and duplicates were difficult to track
-- **Enhancement requests had no structured intake** — details were incomplete, duplicates proliferated and there was no easy way or user friendly way to keep track of them
-- **Product Owners had no unified queue** to triage, prioritize, and track status across requests
-- **Historical data locked in Excel files** could not be searched, filtered, or tracked
-- **Escalating to EasyVista** required manual copy-paste of details for Tier 2 GTS
-- **Field reps had no visibility** into the status of their submitted requests or any way to see what was previously submitted and the status of any already triaged or worked items, resulting in duplicat submissions work
-- **No real-time awareness** when new submissions arrived or existing ones changed
-
-This application solves all of these problems with a purpose-built workflow that connects intake from reps, through Product Owner triage and decision-making, to escalation via EasyVista — end-to-end.
-
----
-
-## What This Application Does
-
-### For Field Representatives
-- Submit defect reports with structured fields (affected policy, account, screen title, steps to reproduce, screenshots)
-- Submit enhancement requests with impact details and justification
-- View a live public status board showing which requests have been acknowledged and their current status
-- **Check if an issue was already reported** before submitting — an AI-powered "has this been reported before?" search over public tickets
-
-### For Product Owners (Admins)
-- Review incoming submissions from a filterable, sortable queue
-- **AI semantic search** — describe an issue in plain language to see if it's been reported before and what happened to it (an AI summary on top, the matching real tickets below)
-- Triage requests: assign status, mark type, flag duplicates, add decision notes
-- Track cleanup tasks alongside defects and enhancements
-- Escalate to Tier 2 GTS by submitting tickets to EasyVista directly from the app
-- Re-submit updated tickets when requirements change, maintaining a linkage chain
-- Import historical records from Excel spreadsheets with intelligent column mapping
-- Export filtered data to Excel for reporting and audits
-- Manage all dropdown options (statuses, types, priority levels, etc.) from a metadata page
-- Personalize the queue — choose which table columns and filters appear (and reorder columns), saved per-admin so it follows you across devices
-- Receive real-time browser notifications when new submissions arrive
-- Control public visibility — tickets are public by default; switch individual items to private as needed (per-row or in bulk)
-- Track financial impact (policy premium, direct dollar, policies affected)
-- Retire old submissions without deleting them
-
----
-
-## Architecture Overview
-
-```
-┌─────────────────────┐        ┌──────────────────────┐
-│   React SPA Client  │◄──────►│  Express API Server   │
-│   (Vite + React 19) │  REST  │  (Node.js + Express 5)│
-│                     │  +     │                       │
-│   Vercel (prod)     │ WS     │   Render (prod)       │
-└─────────────────────┘        └───────────┬───────────┘
-                                           │
-                     ┌─────────────────────┬┴──────────────────┐
-                     │                     │                   │
-              ┌──────▼──────┐    ┌────────▼────────┐  ┌──────▼──────┐
-              │  SQLite/    │    │  File Storage   │  │  EasyVista  │
-              │  PostgreSQL │    │  (Local/Supabase)│  │  REST API   │
-              │  (Sequelize)│    │                 │  │  (External) │
-              └─────────────┘    └─────────────────┘  └─────────────┘
-```
-
-- **Client ↔ Server**: RESTful JSON API + Socket.IO WebSocket for real-time events
-- **Database**: Dual-provider — SQLite for local development, PostgreSQL for production
-- **File Storage**: Local filesystem (dev) or Supabase Cloud Storage (prod)
-- **External**: EasyVista ticket submission API (optional — stubs in dev mode)
-
----
-
-## Tech Stack
-
-| Layer | Technology | Version |
-|-------|-----------|---------|
-| **Frontend** | React | 19.2.0 |
-| **Routing** | React Router | 7.13.1 |
-| **Build Tool** | Vite | 5.4.11 |
-| **Backend** | Express | 5.2.1 |
-| **ORM** | Sequelize | 6.37.7 |
-| **Database** | PostgreSQL / SQLite (sql.js) | pg 8.16.3 / sql.js 1.13.0 |
-| **Real-Time** | Socket.IO | 4.8.1 (server) / 4.8.3 (client) |
-| **Auth** | express-session + bcrypt | 1.19.0 / 6.0.0 |
-| **File Upload** | multer | 2.0.2 |
-| **Excel I/O** | xlsx (SheetJS) | 0.18.5 |
-| **AI Summary** | Anthropic Claude **or** OpenAI (switchable) | @anthropic-ai/sdk 0.112 |
-| **AI Embeddings** | Self-hosted (transformers.js) / OpenAI / Voyage | @huggingface/transformers 4.2 |
-| **UI Components** | BitsizeUI (custom) | — |
-| **Styling** | Vanilla CSS design system | — |
-| **Client Hosting** | Vercel | — |
-| **Server Hosting** | Render | — |
-
-No third-party UI frameworks (no Material UI, no Tailwind, no Bootstrap). The entire UI is a custom-built design system.
-
----
-
-## Project Structure
-
-```
-BCDefectsAndEnhancements/
-├── client/                          # React SPA
-│   ├── public/                      # Static assets
-│   ├── src/
-│   │   ├── components/
-│   │   │   ├── admin/               # 12 admin sub-components + barrel index
-│   │   │   │   ├── AdminHeader.jsx
-│   │   │   │   ├── BackdatedTicketModal.jsx
-│   │   │   │   ├── CleanupTaskModal.jsx
-│   │   │   │   ├── DetailModal.jsx
-│   │   │   │   ├── ExportModal.jsx
-│   │   │   │   ├── FiltersBar.jsx
-│   │   │   │   ├── ImportModal.jsx
-│   │   │   │   ├── NewSubmissionsAlert.jsx
-│   │   │   │   ├── PreviewModals.jsx
-│   │   │   │   ├── StatTiles.jsx
-│   │   │   │   ├── SubmissionsTable.jsx
-│   │   │   │   ├── ToastOverlay.jsx
-│   │   │   │   └── index.js
-│   │   │   ├── public/              # Public page components
-│   │   │   │   ├── PublicFiltersBar.jsx
-│   │   │   │   └── PublicItemCard.jsx
-│   │   │   ├── common/              # Shared components
-│   │   │   │   ├── AiSearchPanel.jsx   # AI search box + summary + results
-│   │   │   │   └── PaginationControls.jsx
-│   │   │   └── bite-size/           # BitsizeUI component library
-│   │   │       ├── BitsizeUI.jsx
-│   │   │       └── Layout.jsx
-│   │   ├── constants/               # Shared constants
-│   │   │   ├── adminConstants.js
-│   │   │   └── publicConstants.js
-│   │   ├── hooks/                   # Custom React hooks
-│   │   │   ├── useAdminMeta.js
-│   │   │   ├── useAdminNotifications.js
-│   │   │   ├── useBackdatedModal.js
-│   │   │   ├── useCleanupModal.js
-│   │   │   ├── useDetailModal.js
-│   │   │   ├── useExportModal.js
-│   │   │   └── useImportModal.js
-│   │   ├── lib/                     # API client & socket singleton
-│   │   │   ├── api.js
-│   │   │   └── socket.js
-│   │   ├── pages/                   # Route-level page components
-│   │   │   ├── AdminDashboardPage.jsx
-│   │   │   ├── AdminLoginPage.jsx
-│   │   │   ├── AdminMetadataPage.jsx
-│   │   │   ├── PublicUpdatesPage.jsx
-│   │   │   └── RepSubmitPage.jsx
-│   │   ├── utils/                   # Utility modules
-│   │   │   ├── filterUtils.js
-│   │   │   ├── formDefaults.js
-│   │   │   ├── formatUtils.js
-│   │   │   ├── mappers.js
-│   │   │   ├── metaUtils.js
-│   │   │   └── publicFilterUtils.js
-│   │   ├── App.jsx                  # Router setup
-│   │   ├── App.css
-│   │   ├── index.css                # Full CSS design system (~1,400 lines)
-│   │   └── main.jsx                 # Entry point
-│   ├── index.html
-│   ├── package.json
-│   ├── vite.config.js
-│   └── vercel.json                  # Vercel proxy + SPA config
-│
-├── server/                          # Express API
-│   ├── db/
-│   │   ├── index.js                 # DB abstraction layer
-│   │   ├── schema.js                # (Legacy) raw SQL schema
-│   │   ├── sequelize.js             # Sequelize provider factory
-│   │   ├── postgres.js              # Raw pg.Pool adapter
-│   │   ├── sqljs.js                 # Raw sql.js adapter
-│   │   └── models/
-│   │       └── index.js             # 15 Sequelize models + lookup seeding
-│   ├── scripts/
-│   │   ├── migrate.js               # DB sync + seed script
-│   │   └── backfillEmbeddings.js    # One-time AI-search embedding backfill
-│   ├── docs/
-│   │   └── ai-search.md             # AI search setup, providers, cost, tuning
-│   ├── src/
-│   │   ├── index.js                 # Server entry point
-│   │   ├── auth.js                  # Session auth middleware
-│   │   ├── config.js                # Environment config loader
-│   │   ├── constants.js             # Server-side constants
-│   │   ├── easyvista.js             # EasyVista API client
-│   │   ├── embeddings.js            # Embeddings provider (local / OpenAI / Voyage)
-│   │   ├── aiSummary.js             # AI summary (Claude or OpenAI, switchable)
-│   │   ├── seedAdmin.js             # Admin user seeder
-│   │   ├── seedSampleData.js        # Sample data seeder
-│   │   ├── socket.js                # Socket.IO setup & event emitters
-│   │   ├── helpers/
-│   │   │   ├── db.js                # DB query helpers
-│   │   │   ├── export.js            # XLSX export field definitions (48 columns)
-│   │   │   ├── importUtils.js       # Excel column mapping & parsing
-│   │   │   ├── lookups.js           # FK resolution & hydration
-│   │   │   ├── mappers.js           # DB row → API response mappers
-│   │   │   ├── storage.js           # File storage (local + Supabase)
-│   │   │   ├── timeline.js          # Status event timeline builder
-│   │   │   └── utils.js             # General utilities
-│   │   ├── middleware/
-│   │   │   ├── cors.js              # Dynamic CORS origin validation
-│   │   │   ├── errorHandler.js      # Global error handler
-│   │   │   ├── session.js           # express-session config
-│   │   │   └── upload.js            # Multer file upload config
-│   │   ├── routes/
-│   │   │   ├── adminSubmissionRoutes.js
-│   │   │   ├── attachmentRoutes.js
-│   │   │   ├── authRoutes.js
-│   │   │   ├── aiSearchRoutes.js    # AI semantic search (admin + public)
-│   │   │   ├── easyvistaRoutes.js
-│   │   │   ├── importRoutes.js
-│   │   │   ├── metaRoutes.js
-│   │   │   ├── publicRoutes.js
-│   │   │   └── submissionRoutes.js
-│   │   └── services/
-│   │       ├── submissionService.js       # Query builder + business logic
-│   │       ├── aiSearchService.js          # AI search: retrieve → rank → summarize
-│   │       └── embeddingIndexService.js    # Embedding index + cosine/recency ranking
-│   ├── uploads/                      # Local file storage root
-│   ├── data/                         # SQLite database files
-│   └── package.json
-│
-└── README.md
-```
-
-**Codebase size:** ~81 source files, ~13,000 lines of JavaScript/JSX.
-
----
-
-## Getting Started
-
-### Prerequisites
-
-- **Node.js** 18+ (LTS recommended)
-- **npm** 9+
-- **PostgreSQL** 14+ (production only — SQLite is used for local development with zero setup)
-
-### Installation
-
-```bash
-# Clone the repository
-git clone https://github.com/valyastriz/BCDefectsAndEnhancements.git
-cd BCDefectsAndEnhancements
-
-# Install server dependencies
-cd server && npm install
-
-# Install client dependencies
-cd ../client && npm install
-```
-
-### Environment Variables
-
-Create a `.env` file in `server/`:
-
-```bash
-cd server
-cp env .env    # Copy the template
-```
-
-**Minimal local config** (works out of the box with SQLite):
-
-```env
-PORT=4000
-SESSION_SECRET=change-me-to-something-random
-DB_MODE=local
-```
-
-See [Configuration Reference](#configuration-reference) for the full list of variables.
-
-### Database Setup & Seeding
-
-```bash
-cd server
-
-# Run migrations (creates all tables + seeds lookup data)
-npm run migrate
-
-# Create admin user(s)
-npm run seed:admin
-
-# (Optional) Insert sample submissions for testing
-npm run seed:sample
-
-# (Optional) If AI search is configured, index existing tickets once
-npm run backfill:embeddings
-
-# (One-time migration, existing installs only) Make existing private,
-# non-cleanup tickets public to match the "public by default" rule.
-# Dry-run by default; append `-- --apply` to actually write the change.
-npm run backfill:public-visibility           # preview counts
-npm run backfill:public-visibility -- --apply # perform the update
-```
-
-> **Production note:** when `NODE_ENV=production`, the server also runs this
-> schema sync automatically on boot (so Render deploys that add tables/columns
-> don't need a manual `npm run migrate`). It's idempotent and non-fatal — the
-> server still starts if the sync fails, logging the error to the deploy logs.
-
-**Default admin credentials:**
-| Username | Password |
-|----------|----------|
-| `admin` | `admin123` |
-
-Override with `ADMIN_LOGINS` (comma-separated usernames) and `SEED_ADMIN_PASSWORD` in `.env`.
-
-### Running Locally
-
-**Terminal 1 — Server:**
-```bash
-cd server
-npm run dev        # Uses nodemon for auto-reload
-```
-
-**Terminal 2 — Client:**
-```bash
-cd client
-npm run dev        # Vite dev server with HMR
-```
-
-Open **http://localhost:5173** in your browser.
-
-| Service | Port | URL |
-|---------|------|-----|
-| Client (Vite dev server) | 5173 | http://localhost:5173 |
-| Server (Express + Socket.IO) | 4000 | http://localhost:4000 |
-
-The Vite dev server automatically proxies `/api`, `/uploads`, and `/socket.io` requests to the backend.
-
----
-
-## User Roles & Access
-
-| Role | Login Required | Who | Capabilities |
-|------|---------------|-----|-------------|
-| **Representative** | No | Field reps who encounter issues | Submit defects/enhancements (`/`), view public status board (`/public`) |
-| **Product Owner (Admin)** | Yes | Product Owners team members | Full dashboard (`/admin`), metadata management (`/admin/metadata`), all CRUD operations, EasyVista escalation to Tier 2 GTS, import/export |
-
-- Representatives never need an account — the submission form and status board are fully public
-- Product Owner routes are protected by a `RequireAdmin` guard that checks session authentication via `api.me()`
-- Authentication uses session-based cookies (`bc_sid`, HTTP-only, 8-hour TTL)
-
----
-
-## Application Pages
-
-The application is built around **three main pages** plus supporting admin pages:
-
-1. **Submit A Request** (`/`) — Rep-facing submission form
-2. **Status Board** (`/public`) — Public transparency view
-3. **Admin** (`/admin`) — Product Owners queue and management dashboard
-
----
-
-### 1. Submit A Request (`/`)
-
-This page is visible to **all users** — no login required. It is the entry point for field representatives to report defects or suggest enhancements.
-
-A **type toggle** at the top switches between two form layouts: **Defect** and **Enhancement**. The fields available on each form are designed to **match the fields on the EasyVista portal identically** — the same field names, the same structure — so that when a Product Owner later submits the request to EasyVista, the data maps cleanly.
-
-#### Defect Form
-
-| Field | Required in This App | Required in EasyVista | Notes |
-|-------|---------------------|----------------------|-------|
-| Requester Name | ★ Yes | Yes | |
-| Policy Number | No | No | |
-| Account Number | No | No | |
-| Transaction Number | No | No | |
-| Application | Auto-set | Yes | Pre-set to "Billing Center" |
-| Screen Title | ★ Yes | Yes | |
-| Date of Error | ★ Yes | Yes | |
-| Time of Error | No | Yes (in EV) | **If left blank, auto-fills with midnight (00:00)** on the selected date |
-| Summary of Issue | ★ Yes | Yes | |
-| Steps to Reproduce | No | Yes (in EV) | **If left blank, auto-fills with `"-"`** so the field is never empty when sent to EasyVista |
-| What Happened (Exact Details) | ★ Yes | Yes | |
-| Screenshots (1–3 images) | ★ At least 1 | No | Required here because in most cases, GTS needs to review screenshots at the time of error. EasyVista does not require screenshots, but this app does for defects. Max 3 files. |
-
-**Key differences from EasyVista:**
-- **Screenshots are required here but not in EasyVista** — enforced because GTS typically needs them during investigation
-- **Time of Error and Steps to Reproduce are required in EasyVista but not here** — if the rep doesn't fill them in, the system fills them automatically (midnight for time, `"-"` for steps) so the EasyVista submission is never incomplete
-
-#### Enhancement Form
-
-| Field | Required in This App | Required in EasyVista | Notes |
-|-------|---------------------|----------------------|-------|
-| Requester Name | ★ Yes | Yes | |
-| Application | Auto-set | Yes | Pre-set to "Billing Center" |
-| Summary of Request | ★ Yes | Yes | |
-| Request Details | ★ Yes | Yes | |
-| Attachments (up to 3 images) | No | No | Optional for enhancements |
-
-**Key difference from EasyVista:** EasyVista requires additional fields for enhancements (**Impact Details** and **Enhancement Request Type**), but reps don't need to provide these. Product Owners fill in those additional fields on the admin side before submitting to EasyVista.
-
-#### After Submission
-
-When the user has filled in all required fields and clicks **"Submit Request"**:
-1. A confirmation card appears with a ✓ checkmark, the heading **"Request Submitted"**, and the text: *"Your request has been logged. Reference ID: #XX"*
-2. A **"Submit Another Request"** button allows the rep to return to a blank form and submit again
-
-Submitted requests are **public by default** — they appear on the [Status Board](#2-status-board-public) right away so reps can see what has been reported. A Product Owner can later switch an individual item to private.
-
-> **Important:** Submitting a request does **NOT** automatically submit it to EasyVista. The request appears in the Admin Queue as a new item awaiting review. Only after a Product Owner reviews the submission and clicks "Submit to EasyVista" will it actually be sent to EasyVista via the API.
-
----
-
-### 2. Status Board (`/public`)
-
-This page provides **transparency and visibility** to the reps on the items that have been submitted. All users can see this page — no login required.
-
-**What appears on this page:** Defect and enhancement tickets are **public by default**, so submitted items appear here automatically. A Product Owner can hide an individual item by switching it to **private** from the admin dashboard (per-row toggle or the Make Private bulk action). Internal **cleanup-only** tasks are private by default and appear only if an admin makes them public.
-
-**Default view:** The page defaults to showing **non-retired items only**. However, the user can change the filter to view Retired Only, Non-Retired Only, or All items.
-
-**Card layout:** The page displays a list of **collapsed item cards**. Each collapsed card shows:
-- Summary of the issue
-- Incident number — the EasyVista ticket ID, or the internal `#ID` reference when none exists yet (matches the reference the AI search cites, so reps can identify a result without expanding it)
-- Type badge (`defect` or `enhancement`)
-- Status badge (e.g., New, Approved, Submitted, Deployed)
-- Retired badge (if applicable)
-- Reported date
-- Most recent status update date
-
-**Expanding a card** reveals additional details:
-- Full description (prefixed with the requester's name: *"{Name} submitted the following: ..."*)
-- Policy number and account number
-- Requester name
-- Application
-- EasyVista ticket number
-- JIRA card number
-- Tags applied to the item (cleanup, defect, and/or enhancement)
-
-**Filters and controls:**
-- **Keyword search** — search across item text
-- **Type filter** — Defect / Enhancement
-- **Status filter** — Multi-select dropdown
-- **Retired filter** — Non-Retired Only (default) / Retired Only / Show All
-- **Sort order** — Configurable
-- **Pagination** — 50 / 75 / 100 / All per page
-
-**Real-time updates:** The page automatically refreshes when Product Owners update public submissions. A **"● Live update received"** indicator appears when new data arrives via WebSocket.
-
-**Filter persistence:** All filter selections are saved to `localStorage` and restored when the user returns.
-
----
-
-### 3. Admin Login (`/admin/login`)
-
-Username + password form. On success, redirects to the admin dashboard. Already-authenticated Product Owners are auto-redirected past the login page.
-
----
-
-### 4. Admin Dashboard (`/admin`)
-
-This page **requires admin login** to view. This is the primary workspace for the Product Owners team — see [Admin Dashboard Deep Dive](#admin-dashboard-deep-dive) for the full breakdown.
-
-When a Product Owner signs in, they see the **Admin Queue** — a list of all cards: Defects, Enhancements, and Cleanups.
-
-**Default view:** The queue defaults to showing **Non-Retired items only**. The user can change this to view Retired Only, Non-Retired Only, or All items.
-
-**Why retire?** The retired status exists so Product Owners can **hide items from view** once they no longer need to see them — for example, older cards that are already deployed, no longer under consideration, or otherwise resolved. This prevents a cluttered queue and keeps the focus on active items. Retired items are never deleted — they can always be unretired and brought back into view.
-
-**At a glance, the admin dashboard provides:**
-- Submissions table with 16+ filter controls and 12 sortable columns
-- Inline editing of status, cleanup status, public visibility, and JIRA card number directly in the table
-- Multi-select checkboxes with bulk actions: Make Public, Make Private, Retire, Unretire
-- Full detail modal with every submission field, status timeline, impact analysis, frequency tracking, and attachment management
-- "As Submitted to EasyVista" preview showing the exact payload sent to EasyVista
-- Clickable stat tiles showing non-retired status totals and filtered financial impact totals
-- New submission alert banner with count and browser notifications
-- Import from Excel, export to Excel
-- Create backdated tickets and cleanup tasks
-- Submit/resubmit to EasyVista
-- Retire/unretire items
-- Dark mode toggle
-
----
-
-### 5. Admin Metadata Manager (`/admin/metadata`)
-
-Manage all configurable dropdown options used throughout the application:
-
-| Category | Examples | Notes |
-|----------|---------|-------|
-| Defect/Enhancement Statuses | New, Approved, Submitted, Deployed, Retired… | Supports "retired" flag; disabled statuses stay in filters for historical lookups |
-| Submission Types | defect, enhancement | |
-| Cleanup Statuses | Not Started, In Progress, Completed | |
-| Cleanup Tag Types | defect, enhancement, cleanup_only | |
-| Applications | Billing Center, Policy Center | |
-| Enhancement Request Types | Build-PPM Funded Project, Run-Compliance/Regulatory… | |
-| Priority Levels | 1 - Urgent through 4 - Low | |
-| Submission Sources | rep_form, admin_manual, admin_excel_import… | **Read-only** (system-managed) |
-
-Each category supports: **add** new values, **rename** (inline edit), **enable/disable**, **reorder** (up/down arrows), and **save**.
-
----
-
-## Core Features
-
-### Submission Lifecycle
-
-```
-Rep submits form  ──►  Status: "New"
-                            │
-                  Admin reviews in queue
-                            │
-              ┌─────────────┼─────────────────┐
-              ▼             ▼                  ▼
-          Approved      Rejected          Redirected
-              │          Duplicate         Future Consideration
-              │          Deferred          Backlog - Monitoring
-              │
-         Submit to EasyVista ──► Status: "Submitted"
-              │
-         Work completed ──► Status: "Deployed"
-              │
-         (Optional) ──► Status: "Retired"
-```
-
-Every status change is logged to a **status timeline** with who changed it and when. The full timeline is visible in the admin detail modal and summarized on the public status board.
-
-### Cleanup Task Workflow
-
-Submissions can be flagged as cleanup tasks — work items that may not originate from rep reports but need tracking:
-
-| Tag Type | Description |
-|----------|-------------|
-| `cleanup_only` | Standalone cleanup work (no defect/enhancement linkage) |
-| `defect` + cleanup | A defect that also requires cleanup |
-| `enhancement` + cleanup | An enhancement that also requires cleanup |
-
-Cleanup tasks have their own independent status track (**Not Started → In Progress → Completed**) that operates alongside the defect/enhancement status.
-
-**Visibility:** cleanup-**only** tasks are **private by default** — they do not appear on the public Status Board unless a Product Owner marks them public. A defect or enhancement that also carries a cleanup tag follows the normal ticket default and is public.
-
-### EasyVista Integration
-
-Product Owners escalate issues to **Tier 2 GTS** by submitting tickets to the EasyVista external ticketing system directly from the dashboard.
-
-> **Key context:** When a request is submitted to EasyVista, the "requester" that EasyVista receives is the name of the **Product Owner (admin) who clicked "Submit to EasyVista"** — not the original field rep. To preserve who actually reported the issue, the description sent to EasyVista is **prefixed with the requester's name**: *"{Requester Name} submitted the following:"* followed by the details. This ensures the original reporter's identity is always visible in the EasyVista ticket.
-
-| Flow | Behavior |
-|------|----------|
-| **First-time submit** | Constructs a detailed payload from submission fields, prefixes the description with the original requester's name, POSTs to EasyVista API, stores the returned ticket ID, updates status to "Submitted" |
-| **Resubmission** | Creates a new linked submission in **Submitted** status (maintaining the chain), copies attachments, preserves the original↔resubmit relationship with IDs |
-| **Demo mode** (default) | Until `EASYVISTA_ENABLED` is turned on, a send fabricates an `EV-XXXXX` ticket ID and otherwise behaves exactly like the real thing — status moves to Submitted, the ID is stored — so the flow can be walked through with stakeholders before go-live |
-| **Stub mode** | `EASYVISTA_DEMO_MODE=false` keeps the same fake IDs but labels them: the EasyVista tab, the confirm dialog and the result message all state that nothing was transmitted |
-
-**Type-specific validation before submit:**
-- **Defects** require: Summary, Screen Title, Description (What Happened)
-- **Enhancements** require: Impact Details, Enhancement Request Type (these are the additional fields that reps don't fill in — Product Owners must add them before submitting)
-- **Cleanup-only** items must be re-tagged as defect or enhancement before EasyVista submission
-
-### Excel Import
-
-Bulk-import historical records from `.xlsx` / `.xls` files:
-
-1. **Upload & Analyze** — Server reads headers, auto-suggests column mappings using alias matching against 30+ target fields
-2. **Column Mapping UI** — Admin reviews/adjusts which spreadsheet columns map to which database fields
-3. **Status Value Mapping** — Unknown status values are flagged and must be mapped to valid statuses before import
-4. **Application Fallback** — If no application column exists, admin selects a default
-5. **Import Modes** — `defect`, `enhancement`, or `cleanup` (determines type tag)
-6. **Dry-Run** — Preview what would be imported without committing
-7. **Commit** — Import with per-row fault tolerance (bad rows skipped, valid rows proceed)
-8. **Import History** — Every run recorded in `excel_import_runs` with stats and viewable in the modal
-
-**Smart parsing features:**
-- Combined policy/account columns auto-split (7-digit → policy, 10-digit → account)
-- Date fields parsed flexibly across formats
-- Blank statuses default to "New"
-- Text fields auto-filled with `-` where required but absent
-- Public visibility follows the app default: an explicitly mapped `is_public`/`public` column is honored, but when it is unmapped or blank the row imports as **public** — unless it is a cleanup task, which stays private
-
-### Excel Export
-
-Export filtered submissions as `.xlsx`:
-
-- Respects the current admin filter selections
-- **48 available export columns** organized by category
-- Field picker UI with search, select all/clear, category grouping
-- Downloads directly to browser as a file
-
-### Real-Time Updates (Socket.IO)
-
-| Event | Audience | Trigger |
-|-------|----------|---------|
-| `submission:new` | Admins | New rep form submission |
-| `submission:updated` | Admins | Any submission field change (payload includes `updatedBy`) |
-| `ticket:presence` | Admins | A ticket was opened/closed/edited (presence soft-lock; see below) |
-| `submission:submitted-easyvista` | Admins | EasyVista ticket created |
-| `submission:resubmitted-easyvista` | Admins | EasyVista ticket resubmitted |
-| `submissions:bulk-imported` | Admins | Excel import completed |
-| `attachment:added` | Admins | File attached to submission |
-| `attachment:removed` | Admins | Attachment deleted |
-| `public:update` | All users | Public-visible submission changed |
-
-**Admin notification behavior:**
-| Scenario | Action |
-|----------|--------|
-| Tab visible | In-app toast notification (auto-dismiss 8s) |
-| Tab hidden | Unread count in tab title `(3) Admin Queue…` + OS desktop notification |
-| Always | Requests browser notification permission on first admin page load |
-
-### Collaborative Editing & Conflict Safety
-
-Multiple Product Owners can work the queue at the same time, so the detail modal guards against two people overwriting each other. Everything here is **advisory** — viewing is never blocked, and any warning can be overridden on purpose.
-
-**Presence soft-lock.** Opening a ticket's detail modal claims it (broadcast over Socket.IO via `ticket:enter` / `ticket:activity` / `ticket:leave`). If another admin opens a ticket someone already has open, their modal shows a banner — *"{name} is working on this item · opened 2 min ago · last active just now"* — and the form is **read-only** until they click **Edit anyway**. Presence is in-memory and **auto-releases** when the holder closes the modal or their connection drops (covers "forgot to close the tab"). After **30 minutes** with no activity the banner adds *"· may have stepped away"* and turns amber.
-
-**Optimistic concurrency.** The modal remembers the version (`updated_at`) it loaded and sends it on save. If the record changed in the meantime, the server returns **409 Conflict** instead of overwriting — a hard backstop so nothing is silently clobbered even if a real-time event was missed. The `submission:updated` event also carries `updatedBy`, so an admin with the ticket open is warned the moment someone else saves it. (Inline table quick-edits don't send a base version, so they're unaffected.)
-
-**Conflict review (3-way merge).** When a conflict is detected, a review panel lists **only the fields that overlap**, comparing three versions — the one you opened, your draft, and the now-current saved version. Each field is tagged **Your change / Their change / Both changed**, with **Use current** / **Keep mine** per field. Fields nobody touched don't appear, and pure viewers with no unsaved edits are not interrupted.
-
-**Local draft recovery.** In-progress edits autosave to `localStorage` (per admin + ticket, debounced). If the page reloads, crashes, or is accidentally closed, reopening the ticket offers **Restore** / **Discard** of the recovered draft. Drafts clear automatically on a successful save.
-
-### File Attachments
-
-- **Rep form**: Up to **3** image files per submission. Required for defects (at least 1), optional for enhancements.
-- **Admin detail modal**: Up to **10** files per submission, 10 MB per file
-- **Storage backends** (auto-detected):
-  - **Local filesystem** (default): `server/uploads/<submissionId>/`
-  - **Supabase Cloud Storage**: When `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` are configured
-- **UI features**: Image thumbnail previews, modal enlarge, pending upload/delete indicators with discard/undo
-
-### Data Provenance & Auditing
-
-Every submission is tagged with `created_via` to identify its origin:
-
-| Source Tag | Meaning |
-|-----------|---------|
-| `rep_form` | Submitted by a field representative through the public form |
-| `admin_backdated` | Created by an admin as a historical/backdated entry |
-| `admin_cleanup` | Created as a cleanup task |
-| `admin_excel_import` | Imported from an Excel spreadsheet |
-| `admin_manual` | Manually created by an admin |
-| `admin_easyvista_resubmission` | Created as a linked resubmission of an existing ticket |
-
-Admins can filter the queue by `Created Via` to audit import batches, distinguish rep-submitted items from backfilled records, and trace resubmission chains.
-
-### AI Semantic Search
-
-Ask *"has this issue been reported before, and what happened to it?"* in plain
-language. An **AI summary** appears on top (e.g. *"Reported twice in the last 90
-days; the most recent, EV‑1234, was **Deployed**"*), with the **matching real
-tickets** listed below it. Available on three surfaces:
-
-- **Admin dashboard** — searches all tickets, including internal notes (best for triage & dedup)
-- **Rep submission form** — a "check if this was already reported" helper (public tickets only)
-- **Public status board** — semantic search over public tickets
-
-**How it works (retrieve → rank → summarize):** every ticket is turned into an
-embedding vector once (cached, re-embedded only when its text changes). A search
-embeds just the query, filters candidates (application, time window, `is_public`),
-and shortlists the **most semantically similar tickets by meaning first —
-regardless of age** (after a minimum relevance bar), sending that shortlist to
-the chat model to write the grounded summary. Recency only breaks ties in how
-results are *ordered*; it never bumps a strong older match off the shortlist.
-Per-search AI cost is flat regardless of how many tickets exist, and the results
-shown are always the real DB rows — the model never invents a ticket, status, or
-date.
-
-**Honest answers, not filler:** tickets that barely resemble your query are
-dropped rather than padding the list (the relevance bar is tunable via
-`AI_SEARCH_MIN_SIMILARITY` — see [Configuration Reference](#configuration-reference)).
-The summary tells you what the most relevant ticket is actually *about* (one
-sentence drawn from its content, not just its status), and when nothing on file
-matches your topic it says so plainly instead of dressing up weak matches — and
-if it says nothing relevant exists, any tickets it listed anyway are discarded,
-so the answer and the result list can never contradict each other.
-
-**Literal keyword matches are always shown:** tickets whose text literally
-contains your search words ("invoices" also matches "invoice") are guaranteed a
-spot in the results even when the AI doesn't consider them relevant — they
-appear after the AI-endorsed matches, so an exact-wording match can never
-silently disappear.
-
-**Provider master switch (`AI_PROVIDER`)** — one line per environment, never a mix:
-
-| `AI_PROVIDER` | Summary | Embeddings | Keys |
-|---|---|---|---|
-| `openai` | OpenAI (`gpt-4o-mini`) | OpenAI | `OPENAI_API_KEY` |
-| `anthropic` | Claude (`claude-haiku-4-5`) | **Self-hosted, in-app** (no vendor) | `ANTHROPIC_API_KEY` |
-
-Claude has no embeddings API, so the all-Claude setup pairs Claude with a small
-**self-hosted** embedding model (`@huggingface/transformers`) that runs inside the
-app — no third-party vendor, no key, no per-call cost, and ticket text never
-leaves the server. (OpenAI or Voyage embeddings are also selectable.)
-
-**Filters:** scope by application ("All systems" or one), and a time window —
-"Reported" or "Resolved/closed" in the last 30 days, 90 days, 12 months, or
-24 months, plus "Any time". The default on all three surfaces is **"Reported:
-last 24 months"**. The window is never a silent trap: when older tickets matched
-your search but fell outside the chosen time frame, the panel tells you. With
-zero results you get an info notice (*"No strong matches in the selected time
-frame — N older ticket(s) were outside it"*) plus a one-click **"Search all
-time"** button; with results you get a small footnote noting the excluded older
-tickets, with the same one-click way to widen the search.
-
-**Safety & cost:** the feature is **fully optional** — with no key set the panel
-is hidden everywhere and the app is unchanged. Public search is locked to public
-tickets + the `mapPublicSubmission` allow-list (no internal-field leakage) and is
-per-IP rate-limited. Full setup, tuning, and the pgvector scale path:
-[`server/docs/ai-search.md`](server/docs/ai-search.md).
-
-**Troubleshooting:**
-
-- **Every search fails with an error toast** — the most common cause is a
-  provider key that is out of quota or credits (e.g. OpenAI returns
-  `429 insufficient_quota`, which surfaces as a failed search). Fund or rotate
-  the key in `server/.env`; no code change is needed. A failed search shows only
-  the error — it never also shows the "hasn't been reported yet" message, so an
-  error is never mistaken for a genuine no-match result.
-- **Searches are slow or miss existing tickets** — make sure
-  `npm run backfill:embeddings` was run once after enabling the feature (see
-  [Database Setup & Seeding](#database-setup--seeding)). Without stored vectors,
-  each search falls back to slower inline embedding of a few tickets at a time.
-
----
-
-## Admin Dashboard Deep Dive
-
-### New Submissions Alert
-
-At the top of the admin dashboard, a **blue alert banner** appears when there are new, unreviewed rep submissions:
-- Displays a count badge: *"X new form submissions are awaiting review"* (or singular for 1)
-- A **"View New Submissions"** button applies filters to show only `Status: New`, `Created Via: rep_form`, `Non-Retired` items
-- The banner is hidden when there are no new submissions
-- Count updates in real-time via Socket.IO
-
-### Customize View (Per-Admin Columns & Filters)
-
-Each admin can tailor the queue to their own workflow. The **"Customize View"** button in the filters bar opens an editor with two sections:
-
-- **Columns** — check which of the table columns appear, and use the **↑ / ↓** arrows to reorder them. At least one column must stay visible.
-- **Filters** — check which of the filter controls appear in the filters bar. Hiding a filter **clears its current value** so it can't silently constrain the table.
-
-A **"Reset to Default"** button restores the original column set/order and shows every filter.
-
-**Persistence:** preferences are saved **per admin on the server** (keyed to the user account), so a customized view follows the admin across browsers and **survives clearing `localStorage`**. A local copy is also cached for instant first paint, but the server is the source of truth — on load, the saved view is fetched and applied. (This is separate from **filter *values***, which are still cached in `localStorage` per the [Filtering](#filtering-16-controls) section.)
-
-> New columns or filters added in a future release default to **hidden** for admins who already have a saved view — open *Customize View* (or *Reset to Default*) to surface them.
-
-### Filtering (16+ Controls)
-
-| Filter | Type | Description |
-|--------|------|-------------|
-| Defect/Enhancement Status | Multi-select dropdown | Filter by one or more statuses |
-| Retired | Select | **Non-Retired Only** (default) / Retired Only / Show All |
-| Type | Multi-select | Defect / Enhancement / Cleanup Only |
-| Cleanup Required | Select | Yes / No / All |
-| Cleanup Status | Multi-select dropdown | Not Started / In Progress / Completed |
-| Search | Text | By ID, policy #, account #, or keyword |
-| Requester | Text | Filter by requester name |
-| Submitted by (EV) | Text | Filter by which Product Owner submitted to EasyVista |
-| Created Via | Select | rep_form, admin_backdated, admin_cleanup, etc. |
-| Year | Text | Filter by submission year (YYYY) |
-| In JIRA | Select | Yes / No / All |
-| EasyVista # | Text | Search by EasyVista ticket number |
-| JIRA # | Text | Search by JIRA card number |
-| Release # | Text | Search by release version |
-| New Submissions Mode | Toggle | View only unreviewed rep_form submissions |
-| Customize View | Button | Open the per-admin view editor — choose/reorder columns and choose which filters appear (see [Customize View](#customize-view-per-admin-columns--filters)) |
-| Reset Saved Filters | Button | Restore all filter **values** to defaults |
-
-All filter selections persist in `localStorage` and restore on page reload. *Which* filters are shown is a separate, server-saved per-admin setting (see [Customize View](#customize-view-per-admin-columns--filters)); a filter that is hidden has its value cleared so it never silently constrains results.
-
-**How status matching works:** The status filter selects rows by the status they are *displayed* as — an item with no status shows under "New", and cleanup-only items appear under the **Cleanup Only** option rather than their underlying status. Selecting every status (the default/reset state) applies no status whitelist, so a non-retired item is never hidden just because its status was later retired.
-
-### Sorting
-
-12 sortable columns — click any column header to sort. The default sort is **Status Update (most recent first)**.
-
-| Column | Sort Keys | First Click Direction |
-|--------|-----------|----------------------|
-| Reported Date | `created_asc` / `created_desc` | Ascending |
-| Status Update | `updated_asc` / `updated_desc` | Ascending |
-| Type | `type_asc` / `type_desc` | Ascending |
-| Summary | `summary_asc` / `summary_desc` | Ascending |
-| D/E Status | `status_asc` / `status_desc` | Ascending |
-| Public | `public_asc` / `public_desc` | Ascending |
-| EasyVista | `easyvista_asc` / `easyvista_desc` | Ascending |
-| JIRA Card # | `jira_number_asc` / `jira_number_desc` | Ascending |
-| Policy Premium ($) | `policy_premium_impact_asc` / `_desc` | **Descending** |
-| Direct Impact ($) | `direct_dollar_impact_asc` / `_desc` | **Descending** |
-| Policies Impacted | `policies_affected_count_asc` / `_desc` | **Descending** |
-| Frequency | `frequency_asc` / `frequency_desc` | Ascending |
-
-**Note:** Numeric/financial columns (Policy Premium, Direct Impact, Policies Impacted) default to **descending** on first click (highest values first), while all other columns default to ascending. Clicking the same column header again toggles the direction. Sorting is performed server-side on the full dataset. Column visibility and order are controlled per-admin via [Customize View](#customize-view-per-admin-columns--filters); a sortable column that is currently hidden simply isn't shown.
-
-### Inline Table Editing
-
-Four fields are editable directly in the table row without opening the detail modal:
-
-| Field | Control | Behavior |
-|-------|---------|----------|
-| D/E Status | Dropdown | Changes status immediately, logs the change to the status timeline |
-| Cleanup Status | Dropdown | Updates cleanup status |
-| Public | Dropdown (Yes/No) | Toggles public visibility, triggers a real-time refresh on the Status Board |
-| JIRA Card # | Text input | Saves on Enter or blur |
-
-### Bulk Actions (Multi-Select)
-
-Every table row has a leading checkbox, and the header has a master checkbox that selects the **entire filtered set across all pages** — not just the visible page. The intended flow is: filter the table down to the tickets you care about, select all, apply one action.
-
-As soon as at least one ticket is selected, a **bulk action bar** appears above the table showing the selection count and four actions:
-
-| Action | Effect on every selected ticket |
-|--------|--------------------------------|
-| **Make Public** | Sets public visibility on — the tickets appear on the public Status Board |
-| **Make Private** | Sets public visibility off — the tickets are hidden from the public Status Board |
-| **Retire** | Soft-archives the tickets — hides them from the default (non-retired) views; a "Retired" event is logged to each ticket's status timeline |
-| **Unretire** | Brings the tickets back into the active queue; an "Unretired" event is logged to each timeline |
-
-Each action opens a **confirmation modal** stating exactly how many tickets will change and what will happen, before anything is applied.
-
-**Safety behavior:**
-
-- The selection is snapshotted when the confirmation opens and re-checked against the current filtered view at apply time — a bulk action can never touch a ticket that has dropped out of the current filter (e.g. via a live refresh). Skipped tickets are reported in the result notice.
-- Changing filters or the search clears the selection, so a selection never straddles two different filtered sets.
-- While a bulk request is in flight, the buttons are disabled (no double-submits).
-- If some tickets fail to update, the rest still go through and the notice reports how many succeeded and how many failed.
-- Requests are capped at 1,000 tickets per action.
-- Each ticket goes through the same per-row update path as a single-ticket edit, so status-timeline logging, real-time socket refreshes, and AI-search re-indexing behave exactly as if you had edited each ticket by hand.
-
-Retiring a ticket that is already retired (or unretiring an active one) is a quiet no-op — no duplicate timeline entries are created.
-
-### Detail Modal
-
-The full submission editor — opens when clicking a table row. It is built around the
-one job an admin does here: **triage a single ticket**, and shows one pane at a time.
-
-The layout has four parts: an **identity band**, an **alerts region**, a **tab strip**,
-and an **action footer** pinned as the modal's own bottom row. Identity, alerts and the
-footer sit *outside* the tab strip, so nothing that needs attention can hide behind an
-inactive tab — and a tab that is holding a required-but-empty field says so on its label.
-
-Tabs: **Triage** (where you land) · **Impact** · **Report** · **Files** · **History &
-reference** · **EasyVista**, the last set apart at the right end because it is an
-outbound action rather than more ticket content. Below roughly 480px of modal width the
-strip becomes a labelled dropdown carrying the same badges as text.
-
-Keyboard: the strip is one tab stop; arrow keys move between tabs and Home/End jump to
-the ends.
-
-#### Identity band
-Always visible at the top, carrying the queue row's identity into the modal so the
-transition reads as a zoom-in:
-- Badges for type, status, and — when they apply — Clean Up, Retired, Public,
-  Resubmitted, Resubmit of. These track the dropdowns live as you edit.
-- The summary, as the largest text in the body.
-- A meta line: application · reported date and requester · EasyVista ticket · JIRA
-  number · last updated. This is the single place the EasyVista ID appears.
-
-#### Alerts region
-Every warning the modal can raise, in one region ordered by severity: an edit conflict
-(with the field-by-field resolver), a recovered unsaved draft, a presence hold from
-another admin, load or save errors, blocked EasyVista requirements, resubmission links,
-and the retired notice. Past two alerts the region caps and scrolls, so warnings can
-never push the first section below the fold.
-
-#### Tab 1 — Triage
-The decisions made on nearly every ticket, in three groups:
-- **Classification** — Clean Up Task toggle, Type (Defect / Enhancement), D/E Status,
-  and Cleanup Status. The status dropdown is disabled while the item is retired.
-  Cleanup Status renders only for cleanup tickets rather than sitting permanently
-  disabled.
-- **Ownership & tracking** — Reviewer, JIRA Number, In JIRA.
-- **Decision** — Decision Notes, and the **Visible on Public Status Board** toggle. New
-  tickets are public by default — switch this off to make an item private
-  (cleanup-only tasks default to private).
-
-#### Tab 2 — Impact
-One judgement in one pane:
-- **Dollar impact** — Policy Premium Impact, Direct Dollar Impact, Policies Affected.
-  Dollar inputs show the formatted currency underneath.
-- **Frequency** — # of Occurrences, Per How Many, Time Frame, plus a derived read-only
-  line showing how it reads (`12 per Week`).
-- **Priority** *(enhancements only)* — Request Type, Priority Level, Desired Completion
-  Date.
-- **Impact Details** *(enhancements only)* and **Impact Notes**, full width.
-
-#### Tab 3 — Report
-What the requester wrote. Summary, Date/Time of Error, Exact Details, Request Details,
-Steps to Reproduce, Application, Screen Title, and the Policy / Account / Transaction
-reference numbers. Defect-only and enhancement-only fields appear per type.
-
-#### Tab 4 — Files
-- Upload new files (up to 10 per submission, 10 MB each)
-- Image thumbnails, click to enlarge in a preview modal
-- Remove with undo — uploads and removals stage until you save
-- The grid caps its height and scrolls, so a file-heavy ticket cannot stretch the body
-
-#### Tab 5 — History & reference
-The full chronological status trail, newest first, with its own scroll boundary. Each
-entry shows the status value, who changed it, and when.
-
-Below it, provenance, external identifiers and release metadata — consulted
-occasionally, edited almost never:
-- **Provenance** — Created Via, Submitted to EV By, Requester, Fingerprint (all
-  read-only; Fingerprint is a system dedup hash, not an editable field)
-- **External IDs** — EasyVista Ticket (read-only), Duplicate Reference
-- **Release** — Release #, Release Notes
-
-Read-only values render as text under a rule rather than in an input box, so they can
-never be mistaken for something typeable.
-
-#### Tab 6 — EasyVista
-
-The outbound hand-off, and the answer to "what am I actually about to send?"
-
-**Send as — Defect or Enhancement**
-
-EasyVista accepts those two and nothing else, so the outgoing type is a choice rather
-than something the app infers:
-
-- It is pre-filled with the ticket's own type, and applies to first-time sends and
-  re-submits alike.
-- A **Cleanup Only** task has no valid default and must be chosen. That is how a cleanup
-  task reaches EasyVista — you no longer have to re-tag the ticket in Triage just to send
-  it.
-- **The choice decides which fields block the send.** Enhancement needs Impact Details
-  and Request Type; Defect needs Screen Title and Description.
-- **A ticket that already has a valid type is never reclassified by sending it.** What
-  happens to the record depends on whether an EasyVista ticket already exists:
-
-| | First send (no ticket yet) | Re-submit (ticket exists) |
+| Document | For | Contains |
 |---|---|---|
-| New submission created? | **No** — updated in place | **Yes** — forks |
-| New EasyVista ticket? | Yes, the first one | Yes, a second one |
-| Defect / Enhancement ticket | Keeps its type | Keeps its type; the **new** submission gets the chosen type |
-| **Cleanup Only** task | **Retagged** to Cleanup + the chosen type | Stays Cleanup Only; the **new** submission is Cleanup + the chosen type |
-| Original's history | `Tagged as Enhancement on first EasyVista submission (EV-…)` | `…as Submission #1503, sent as Enhancement` |
+| **This README** | Anyone opening the repo | What it does, all functionality, architecture, how to run it, **how it is deployed**, API, data model, config |
+| **[Developer Rebuild Handoff](docs/handoff/README.md)** | The team recreating the app | The *reasoning* behind every decision, 41 annotated screenshots, known traps, and a rebuild acceptance checklist |
 
-A Cleanup Only task is retagged on its first send because the choice is resolving an
-incomplete classification, not overriding a good one — EasyVista has no "Cleanup Only".
-
-Worked example: reported as a defect → EasyVista defect ticket raised → turns out to be
-working as designed → marked Cleanup Only → later needs to go out as an enhancement.
-Because a ticket already exists, that send **forks**: a new submission and a new
-EasyVista ticket as an Enhancement, with the original defect ticket left intact.
-
-**What it shows**
-
-- **The consequences, stated up front.** A re-submit does not update the existing
-  ticket — it **forks the record**: a new submission with a new EasyVista id, every
-  attachment copied across, the original left untouched but linked, and three timeline
-  entries written. A first-time send instead stores the new id and sets the status to
-  Submitted.
-- **The exact outgoing payload**, field by field, with anything your unsaved edits
-  changed marked and showing its previous value.
-- **The 18 fields that never leave this app** — Reviewer, Decision Notes, the impact
-  dollars, frequency, release info, public visibility and the rest. Editing them has no
-  effect on the EasyVista ticket. (`status` and `fingerprint` do go out, in the payload's
-  `metadata` rather than the description.)
-- **The raw description string**, exactly as the API receives it.
-
-**Where it comes from.** `POST /api/admin/submissions/:id/easyvista-preview` runs the
-real submit path in dry-run mode and returns immediately before the outbound call, so
-the preview cannot disagree with the request. It carries the unsaved draft, so it
-reflects what you are looking at, and it writes nothing. The format itself has one
-definition, `server/src/helpers/easyVistaPayload.js`, shared by the preview and the send.
-
-**Sending.** Both the EasyVista tab and the footer button open a confirm dialog first:
-consequences, then only what changed, with the full text behind a disclosure. Nothing
-outbound happens until you confirm.
-
-#### The description EasyVista receives
-
-This section appears when the submission has already been submitted to EasyVista. It shows a **formatted, read-only preview** of the exact payload that was sent to EasyVista — the same structured text that lives in the EasyVista ticket. This includes:
-
-```
-Type: defect
-Application: Billing Center
-Created By: John Smith (jsmith@company.com)
-Policy #: 1234567
-Account #: 1234567890
-Transaction #: N/A
-Screen Title: Payment Summary
-Date/Time of Error: 2026-03-15T00:00:00.000Z
-Desired Completion Date: N/A
-Enhancement Request Type: N/A
-Priority Level: N/A
-JIRA Number: N/A
-
-Summary:
-Payment not applying correctly to policy
-
-Steps to Reproduce:
-1. Navigate to Payment Summary...
-
-What Happened (Exact Details):
-John Smith submitted the following:
-The payment of $500 was applied to the wrong...
-
-Request:
-...
-
-Impact Details:
-N/A
-```
-
-This is useful for Product Owners to verify exactly what EasyVista/GTS sees, and to confirm the requester name prefix is present in the details.
-
-#### How frequency is calculated
-
-Tracks how often the issue occurs. Three input fields work together:
-- **# of Occurrences** — How many times the issue happens (e.g., `10`)
-- **Per How Many** — The count of time periods (e.g., `1`, `3`)
-- **Time Frame** — The unit of time: Day, Week, Month, Quarter, or Year
-
-**Example:** "10 occurrences per 1 week" or "25 occurrences per 3 months"
-
-**How frequency is calculated for sorting:** The system normalizes all frequency inputs to a **rate per month** for consistent comparison. The formula is:
-
-$$\text{Rate per month} = \frac{\text{occurrences}}{\text{timeframe count} \times \text{days per unit}} \times 30.44$$
-
-Where days per unit: Day = 1, Week = 7, Month = 30.44, Quarter = 91.31, Year = 365.25.
-
-This normalized rate is stored as `occurrence_rate` and used for sorting the Frequency column, so items occurring "10 per week" correctly sort higher than "5 per month."
-
-**Table display:** The frequency column shows a human-readable format: `"10 per week"`, `"25 per 3 months"`, etc. The modal shows the same phrasing as a derived, read-only line beneath the three inputs.
-
-#### Modal Footer Actions
-
-The footer is pinned as the modal's bottom row, so the actions stay reachable no matter
-how many sections are expanded. The left side reports save state (`No unsaved changes.`
-/ `Unsaved changes` / `Saving…`) and is also where a save or EasyVista result lands.
-
-| Button | Behavior |
-|--------|----------|
-| **Save Changes** | Primary action. Only enabled when fields have been modified (change detection compares current state to loaded state). Hovering while disabled explains why. |
-| **Submit / Re-submit to EasyVista…** | Opens the **EasyVista tab** rather than sending. Nothing outbound happens until you have seen the payload and confirmed. |
-| **⋯ More → Respond to User** | Opens a prefilled email to the requester |
-| **⋯ More → Retire Item…** | Soft-archives the submission — hides it from the default queue view. The item is NOT deleted. **Asks for confirmation first.** A "Retired" status event is logged to the timeline. When retired, the D/E Status dropdown becomes disabled. Also available for many tickets at once — see [Bulk Actions (Multi-Select)](#bulk-actions-multi-select). |
-| **⋯ More → Unretire Item** | Reverses a retire — brings the item back into the active queue. An "Unretired" status event is logged to the timeline. Also available in bulk. |
-
-#### Blocked EasyVista submissions
-
-A tab must never hide the field that is blocking a send. When requirements are missing:
-
-- the tab that owns each field carries a **warning marker**,
-- the modal switches to the **EasyVista tab**, where every blocked field is **editable
-  inline** — those inputs write to the same state as the ones in Triage and Report, so
-  there is one value underneath and it saves with everything else,
-- **Send stays disabled** until they are filled.
-
-Required fields are type-specific: an enhancement needs Impact Details, Request Type and
-Desired Completion Date; a defect needs Summary of Issue, Screen Title and Description.
-
-#### When another admin has the ticket open
-
-Presence is live. If someone else is editing, an alert says so and the form controls go
-`inert` — but the section bodies stay fully readable and scrollable, and attachments
-stay openable. **Edit anyway** releases the hold on your side; if the other admin saves
-first you get the conflict resolver.
-
-### Stat Tiles
-
-Two rows of metric tiles displayed above the submissions table:
-
-**Row 1 — status totals (clickable).** Shows a **Total** count plus a per-status breakdown (New, Approved, Submitted, Deployed) across **all non-retired items, independent of the active filters**. Each tile is a quick filter: clicking **Total** shows every non-retired item, and clicking a status tile filters the table to that status — so the table matches the number on the tile. Counts are keyed off each item's **displayed** status (an item with no status shows as "New", and cleanup-only items are counted under "Cleanup Only", not their underlying status). When the Retired filter includes retired items, a small *"Active totals — excludes retired items"* caption clarifies that Row 1 is always non-retired.
-
-**Row 2 — filtered totals.** Reflects the **current filtered result set**:
-- **Filtered Items** — Count of rows matching the active filters
-- **Policy Premium Impact ($)** — Sum of policy premium impact across filtered rows
-- **Direct Dollar Impact ($)** — Sum of direct dollar impact across filtered rows
-- **Policies Impacted** — Sum of policies affected across filtered rows
-
-### Toast Notifications
-
-Real-time in-app toasts appear in the bottom-right corner when:
-- A new submission arrives from the rep form
-- Submissions are updated by other Product Owners
-- Attachments are added or removed
-- EasyVista tickets are submitted
-- Bulk imports complete
-
-Each toast auto-dismisses after 8 seconds. When the browser tab is backgrounded:
-- An **unread count** appears in the tab title: `(3) Admin Queue | ...`
-- An **OS desktop notification** is triggered (if the user has granted browser notification permission)
-
-### Dark Mode
-
-A **theme toggle button** is located in the application header bar (next to the navigation links):
-- Click **🌙 Dark** to switch to dark mode
-- Click **☀️ Light** to switch back to light mode
-- The preference is **persisted to `localStorage`** (key: `bc-theme`) and restored on return visits
-- If no preference has been saved, the app respects the **OS-level preference** (`prefers-color-scheme: dark` media query)
-- Dark mode applies a full dark theme via the `[data-theme='dark']` CSS scope across the entire application
+If you are rebuilding this, read both — this one for *what and how*, the handoff
+for *why*. The handoff document also carries the screenshots of every screen and
+state.
 
 ---
 
-## API Reference
+## Contents
 
-### Authentication
+- [Quick start](#quick-start)
+- [The problem](#the-problem)
+- [What it does](#what-it-does)
+- [Application pages](#application-pages)
+- [Core functionality](#core-functionality)
+- [Architecture](#architecture)
+- [Tech stack](#tech-stack)
+- [Project structure](#project-structure)
+- [Data model](#data-model)
+- [API reference](#api-reference)
+- [Security model](#security-model)
+- [Real-time updates](#real-time-updates)
+- [AI semantic search](#ai-semantic-search)
+- [EasyVista integration](#easyvista-integration)
+- [**Deployment**](#deployment)
+- [Configuration reference](#configuration-reference)
+- [Local development](#local-development)
+- [Known gaps](#known-gaps)
 
-| Method | Endpoint | Auth | Description |
-|--------|----------|------|-------------|
-| `POST` | `/api/auth/login` | Public | Admin login (bcrypt password verify) |
-| `POST` | `/api/auth/logout` | Public | Destroy session, clear cookie |
-| `GET` | `/api/auth/me` | Public | Return current session user or 401 |
+---
 
-### Metadata
+## Quick start
 
-| Method | Endpoint | Auth | Description |
-|--------|----------|------|-------------|
-| `GET` | `/api/meta/options` | Public | Active lookup values for form dropdowns |
-| `GET` | `/api/admin/meta/options` | Admin | Full metadata with IDs, sort order, active/retired flags |
-| `POST` | `/api/admin/meta/:category` | Admin | Add new lookup value |
-| `PUT` | `/api/admin/meta/:category/:id` | Admin | Update lookup value |
-| `POST` | `/api/admin/meta/:category/reorder` | Admin | Reorder lookup values |
+```bash
+# Server
+cd server
+npm install
+cp .env.example .env          # edit it — see Configuration reference
+npm run migrate               # create tables + seed lookup data
+npm run seed:admin            # create the admin account(s)
+npm run seed:sample           # optional sample submissions
+npm run dev                   # http://localhost:4000
 
-### Submissions — Public / Rep
+# Client (separate terminal)
+cd client
+npm install
+npm run dev                   # http://localhost:5173
+```
 
-| Method | Endpoint | Auth | Description |
-|--------|----------|------|-------------|
-| `POST` | `/api/submissions` | Public | Submit from rep form (multipart with attachments) |
-| `GET` | `/api/public/submissions` | Public | List public-visible submissions |
-| `GET` | `/api/public/submissions/:id` | Public | Single public submission detail |
+> ### ⚠️ Check `server/.env` before you run anything
+>
+> The database is selected by `DB_PROVIDER` / `DB_MODE`. With
+> `DB_PROVIDER=postgres` you are connected to the **live Supabase production
+> database**, and several maintenance scripts write to whatever the environment
+> points at.
+>
+> To force a sandboxed local run without editing the file — `dotenv` does not
+> override real environment variables, so these win:
+>
+> ```bash
+> DB_MODE=local DB_PROVIDER=sqljs DATABASE_URL= npm run dev
+> ```
+>
+> `[keepAlive] Supabase heartbeat OK` in the log does **not** mean you are on
+> Supabase data. That ping runs regardless of provider.
 
-### Submissions — Admin
+---
 
-| Method | Endpoint | Auth | Description |
-|--------|----------|------|-------------|
-| `GET` | `/api/admin/submissions` | Admin | List all with filtering + sorting (16+ query params) |
-| `GET` | `/api/admin/submissions/:id` | Admin | Full detail with timeline + attachments |
-| `POST` | `/api/admin/submissions` | Admin | Create (backdated, manual, cleanup) |
-| `PUT` | `/api/admin/submissions/:id` | Admin | Update fields, log status changes |
-| `POST` | `/api/admin/submissions/bulk-visibility` | Admin | Bulk set `is_public` — body `{ ids (≤1000), is_public }`; returns `{ ok, is_public, requested, updated, failed }` |
-| `POST` | `/api/admin/submissions/bulk-retire` | Admin | Bulk set `is_retired` — body `{ ids (≤1000), is_retired }`; returns `{ ok, is_retired, requested, updated, failed }` |
+## The problem
 
-### View Preferences
+The Product Owners team fields a constant stream of Billing Center defect reports
+and enhancement requests from field reps. They triage, prioritise, and decide
+what gets escalated to Tier 2 GTS, who work the tickets in EasyVista.
 
-| Method | Endpoint | Auth | Description |
-|--------|----------|------|-------------|
-| `GET` | `/api/admin/view-preferences` | Admin | Current admin's saved view (`{ columns, filters }`; `null` arrays = use defaults) |
-| `PUT` | `/api/admin/view-preferences` | Admin | Save visible/ordered column keys + visible filter keys (validated against an allow-list) |
-| `DELETE` | `/api/admin/view-preferences` | Admin | Reset to default (removes the saved row) |
+Before this portal there was no system of record:
 
-Identity comes from the session (`req.session.user.id`), never the request body.
+- Defect reports lived in email threads, chat and spreadsheets — no audit trail,
+  and duplicates were near-impossible to spot.
+- Enhancement requests had no structured intake, so details arrived incomplete.
+- Product Owners had no single queue to triage from.
+- Historical records sat in Excel files that could not be searched.
+- Escalating to EasyVista meant manual copy-paste.
+- **Reps had no visibility.** They could not see whether an issue was already
+  known, or what happened to something they filed — so they filed it again.
+  Duplicate intake was the largest single source of wasted triage effort.
+- Nobody knew when new work arrived without checking.
+
+**Most non-obvious decisions in this codebase trace back to two goals: reduce
+duplicate intake, and make ticket state legible to the person who reported it.**
+When a design choice looks fussy, that is usually why.
+
+---
+
+## What it does
+
+### For field representatives
+
+- File a defect or enhancement through a guided form with a live readiness
+  checklist.
+- **Check whether the issue was already reported before filing** — an AI search
+  over public tickets, run against the one-line summary they just typed.
+- Paste a screenshot straight from the clipboard.
+- Flag that they are blocked and need a workaround for a live case.
+- Follow every reported issue on a public status board that updates live, and
+  filter it down to their own reports.
+
+### For Product Owners (admins)
+
+- Work a filterable, sortable queue scoped to the applications they administer.
+- Triage in a six-tab detail modal: status, priority, duplicates, decision notes,
+  impact figures, attachments, full history.
+- **AI semantic search** over the queue — describe an issue in plain language and
+  see whether it has been reported and what happened to it.
+- Hand a ticket to another application's queue, with an internal note and a
+  custody ledger.
+- Escalate to EasyVista, with a preview of exactly what will be transmitted.
+- Re-submit a changed ticket, keeping a linkage chain to the original.
+- Import historical records from Excel with column mapping and a dry run; export
+  the current filtered view.
+- Manage every dropdown in the app from a metadata page.
+- Personalise the queue — which columns and filters appear, column order, and a
+  pinned default queue — saved per admin, server-side.
+- Bulk-change public visibility or retire across a whole filtered set.
+- Control public visibility per ticket.
+- See live notifications when new submissions arrive, and who else has a ticket
+  open.
+
+### For super users
+
+- Grant and revoke per-application triage rights for everyone, individually or
+  in bulk, from an Access page.
+
+---
+
+## Application pages
+
+Six routes. Client-side gates are signposting only — every endpoint re-checks
+server-side.
+
+| Route | Page | Access |
+|---|---|---|
+| `/` | Submit a Request | Public |
+| `/public` | Status Board | Public |
+| `/admin/login` | Admin Sign In | Public |
+| `/admin` | Admin Queue | Admin session |
+| `/admin/metadata` | Metadata Manager | Admin session |
+| `/admin/access` | Access Management | Admin session **+ super user** |
+
+### `/` — Submit a Request
+
+![Submit form](docs/handoff/screenshots/01-submit-page-empty.png)
+
+Guided form with a "Before you submit" rail that ticks requirements off as the
+rep types and owns the primary action. Required fields differ by type — a defect
+needs screen title, date and what happened; an enhancement needs its request and
+a desired completion date.
+
+Validation appears only **after** a submit attempt, and focus moves to the first
+field that needs attention.
+
+The pre-submit duplicate check is the highest-value feature on the page:
+
+![Duplicate check](docs/handoff/screenshots/03b-submit-duplicate-check.png)
+
+### `/public` — Status Board
+
+![Status board](docs/handoff/screenshots/05-status-board.png)
+
+Every issue the team has been told about, and where each one stands. Status is
+rendered as **position on a four-stop track** — Reported → Approved → In
+EasyVista → Deployed — because a reporter reads "where is this" off a track more
+easily than by decoding a badge.
+
+Two count scopes are kept deliberately distinct: the tiles describe the **whole
+board** and say so in words; the band above the list describes **the rows below**
+and carries its own denominator.
+
+### `/admin` — Admin Queue
+
+![Admin queue](docs/handoff/screenshots/11-admin-queue.png)
+
+The main working surface: whole-queue scope strip, command bar, filter chips,
+filtered-view band with impact totals, and an inline-editable, multi-select table.
+
+### The detail modal
+
+![Detail modal](docs/handoff/screenshots/14-admin-detail-modal.png)
+
+Six tabs — Report, Files, History, Triage, Impact, EasyVista Submission. Identity,
+alerts and the action bar sit **outside** the tab strip, so nothing needing
+attention can hide behind an inactive tab.
+
+### `/admin/metadata` and `/admin/access`
+
+| Metadata Manager | Access Management |
+|---|---|
+| ![Metadata](docs/handoff/screenshots/23-admin-metadata.png) | ![Access](docs/handoff/screenshots/24-admin-access.png) |
+
+**All 41 screenshots**, including every modal, both themes and 390px, are in
+[`docs/handoff/screenshots/`](docs/handoff/screenshots/) and annotated in the
+[handoff document](docs/handoff/README.md#6-screen-by-screen).
+
+---
+
+## Core functionality
+
+### Vocabulary
+
+These words are not interchangeable. Getting them wrong produces a subtly wrong
+system.
+
+| Term | Means |
+|---|---|
+| **Submission** | One report. A row in `submissions`. Also "ticket". |
+| **Type** | `defect` or `enhancement`. Drives required fields and the EasyVista payload. |
+| **Application** | A product queue — `Billing Center`, `Policy Center`. Owns triage rights. |
+| **Cleanup task** | Internal work item (`is_cleanup`). Tagged `defect`, `enhancement`, or `cleanup_only`. A `cleanup_only` task has **no** defect/enhancement type yet. |
+| **Retire** | Soft archive. **Nothing in this app hard-deletes a submission.** |
+| **Public** | Appears on the status board and in public AI search. |
+| **Workaround request** | A rep is blocked on a live case now. Two columns: `needs_workaround` (the ask), `workaround_provided` (the team closing it). |
+| **Redirect** | Hand a ticket to another application's queue. The ticket **moves**. |
+| **Resubmission** | Re-send to EasyVista after changes. Creates a **new** submission and a **new** EasyVista ticket; the original is untouched. |
+
+**Redirect moves, resubmission forks.** A redirect changes `application_id` on the
+existing row and writes a ledger entry. A resubmission inserts a new row.
+Conflating them yields either two tickets for one problem, or one ticket two
+teams each think the other owns.
+
+### Statuses
+
+Eleven, seeded but **editable at runtime** — so nothing may hardcode the full
+list:
+
+`New` · `Approved` · `Redirected` · `Backlog - Monitoring Impact` ·
+`Future Consideration` · `Deferred – Not in Current Scope` · `Rejected` ·
+`Duplicate` · `Submitted` · `Deployed` · `Retired`
+
+The public board's four-stop position is driven by the **current status, never the
+furthest timestamp**. A redirect resets a ticket to `New` for the receiving team
+while the sending team's `Approved` timestamp stays in history — a
+"furthest-timestamp-wins" reading credited the previous team's progress to the
+new team.
+
+A **retired status must not hide a live ticket**: when every selectable status is
+chosen (the default and reset state), the status whitelist is dropped entirely
+rather than applied.
+
+### Creation paths
+
+| Source | Who | Public by default? |
+|---|---|---|
+| `rep_form` | Rep, via `/` | Yes |
+| `admin_manual` | Admin, in-queue create | Yes |
+| `admin_backdated` | Admin, for pre-portal reports | Yes |
+| `admin_cleanup` | Admin, internal cleanup task | No, if `cleanup_only` |
+| `admin_excel_import` | Bulk historical load | Yes, unless cleanup-only |
+| `admin_easyvista_resubmission` | The fork of a resubmit | Inherits |
+
+**Public by default** is the rule; internal cleanup-only tasks stay private. An
+explicit choice from the caller always wins.
+
+### Per-admin view preferences
+
+Each admin chooses which table columns show, in what order, which filters show,
+and which application queue they land on. Saved **server-side** (`columns_json`,
+`filters_json`, `pinned_application`) so it follows them across devices;
+localStorage is only a cache to avoid a flash before the server answers.
+
+The server allow-lists column and filter keys and **drops unknown ones**, so
+client/server drift fails safe.
+
+A **pin is a decision, not a memory of the last selection** — switching scope to
+glance at another team's queue must not silently rewrite where you land tomorrow.
+
+Hidden filters have their **values reset**, so a filter you cannot see can never
+silently constrain the table.
+
+### Bulk actions
+
+Selecting rows raises a bar pinned to the viewport bottom. The scope is stated in
+words because it is the dangerous part: the master checkbox acts on the **entire
+filtered set across every page**.
+
+Three guards: changing filters clears the selection; the confirmed id set is
+snapshotted at click time; and at apply time it is re-intersected with the
+current rows. Server-side, the bulk loop reuses the per-row update path so
+history logging, socket emits and embedding refresh match single-ticket edits
+exactly.
+
+### Excel import and export
+
+**Import** is two-phase — `analyze` parses the workbook, proposes column mappings
+and reports valid/invalid counts **without writing anything**; the admin confirms,
+then the insert runs. Every run is recorded in `excel_import_runs` with row
+counts and errors.
+
+**Export** reads through the **same access scope as the queue**, so what an admin
+can download is exactly what they can see on screen.
 
 ### Attachments
 
-| Method | Endpoint | Auth | Description |
-|--------|----------|------|-------------|
-| `POST` | `/api/admin/submissions/:id/attachments` | Admin | Upload up to 10 files |
-| `DELETE` | `/api/admin/attachments/:id` | Admin | Delete an attachment |
+Images only — PNG, JPG, GIF, WEBP, BMP, HEIC, 10 MB each, 3 per submission from
+the rep form. Extension **and** MIME type are both checked, deliberately: it
+stops arbitrary HTML/SVG being stored and later served same-origin from
+`/uploads`.
 
-### Import / Export
+Storage has two modes (`server/src/helpers/storage.js`):
 
-| Method | Endpoint | Auth | Description |
-|--------|----------|------|-------------|
-| `POST` | `/api/admin/submissions/import-xlsx/analyze` | Admin | Analyze uploaded Excel file |
-| `POST` | `/api/admin/submissions/import-xlsx` | Admin | Import rows (supports dry-run) |
-| `GET` | `/api/admin/submissions/import-xlsx/history` | Admin | Recent import runs |
-| `GET` | `/api/admin/submissions/export-xlsx` | Admin | Download filtered .xlsx |
-| `GET` | `/api/admin/submissions/export-fields` | Admin | Available export columns |
+- **Supabase Storage** when `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` +
+  bucket are all set. Files are uploaded to a **public** bucket and the row stores
+  the public URL.
+- **Local filesystem** (`server/uploads/<submissionId>/`) otherwise.
 
-### EasyVista
-
-| Method | Endpoint | Auth | Description |
-|--------|----------|------|-------------|
-| `POST` | `/api/admin/submissions/:id/submit-easyvista` | Admin | Submit or resubmit to EasyVista |
-
-### AI Search
-
-| Method | Endpoint | Auth | Description |
-|--------|----------|------|-------------|
-| `POST` | `/api/admin/submissions/ai-search` | Admin | Semantic search over all tickets (full data) |
-| `GET` | `/api/admin/ai-search/status` | Admin | Whether AI search is configured (`{ enabled, summaryEnabled }`) |
-| `POST` | `/api/ai-search` | Public | Semantic search over public tickets (rate-limited) |
-| `GET` | `/api/ai-search/status` | Public | Whether public AI search is configured |
-
-Body: `{ query, applicationName?, reportedWithinDays?, resolvedWithinDays? }`. Both search endpoints return `{ enabled, summary, matches, window, meta }`. When AI isn't configured they return `503` with `{ enabled: false }` so the UI hides the panel.
-
-### Health
-
-| Method | Endpoint | Auth | Description |
-|--------|----------|------|-------------|
-| `GET` | `/api/health` | Public | Returns `{ ok: true }` |
+See [Deployment](#deployment) — this choice has real consequences on Render.
 
 ---
 
-## Database Schema
+## Architecture
 
-### Core Tables
+```
+┌──────────────────────┐   REST via Vercel   ┌────────────────────────┐
+│   React SPA          │────── rewrite ─────►│   Express API          │
+│   Vite + React 19    │                     │   Node + Express 5     │
+│   Vercel             │◄─ WebSocket ────────►│   Render               │
+└──────────────────────┘  (DIRECT, bypasses  └───────────┬────────────┘
+                           the Vercel proxy)             │
+                  ┌──────────────────┬───────────────────┴────────┐
+          ┌───────▼────────┐ ┌───────▼─────────┐ ┌───────────────▼──────┐
+          │ Supabase       │ │ Supabase        │ │  EasyVista REST      │
+          │ PostgreSQL     │ │ Storage         │ │  (external, gated)   │
+          │ (or SQLite     │ │ (or local disk) │ └──────────────────────┘
+          │  locally)      │ └─────────────────┘
+          └────────────────┘        ┌──────────────────────────────┐
+                                    │ AI: Claude / OpenAI summary  │
+                                    │ + embeddings (local/OpenAI)  │
+                                    └──────────────────────────────┘
+```
 
-| Table | Purpose | Key Fields |
-|-------|---------|------------|
-| `users` | Admin accounts | `id`, `username`, `password_hash`, `role` |
-| `admin_view_preferences` | Per-admin dashboard view (visible/ordered columns + visible filters) | `id`, `user_id` (unique), `columns_json`, `filters_json`, `updated_at` |
-| `submissions` | Central entity (~40 columns) | `id`, `summary_of_issue`, `status_id`, `type_id`, `application_id`, `is_cleanup`, `is_public`, `is_retired`, `created_by`, `created_via`, `easyvista_ticket_id`, financial impact fields, occurrence tracking, resubmission chain fields |
-| `attachments` | File references | `id`, `submission_id`, `filename`, `mime_type`, `file_path`, `uploaded_by_role` |
-| `submission_status_events` | Status audit trail | `id`, `submission_id`, `status`, `changed_at`, `changed_by` |
-| `excel_import_runs` | Import history log | `id`, `file_name`, `import_mode`, `total_rows`, `inserted_rows`, `status`, `errors_json` |
-| `submission_embeddings` | AI-search vectors (one per ticket per scope; JSON-in-TEXT, portable, no pgvector) | `id`, `submission_id`, `scope` (admin/public), `model`, `content_hash`, `vector`, `updated_at` |
+> The host names in this diagram are the **prototype's** hosting. The internal
+> deployment will be on company servers and a company database — see
+> [Deployment](#deployment). The application structure above does not change.
 
-### Lookup Tables
+**Why the WebSocket bypasses the Vercel proxy.** Vercel rewrites cannot carry
+WebSocket upgrades, so a same-origin socket degrades to perpetual HTTP
+long-polling — billing a flood of Vercel requests. Connecting directly to Render
+gives a real WebSocket: one persistent connection, ~zero ongoing requests.
 
-All share the structure: `id`, `name`, `sort_order`, `is_active`
-
-| Table | Default Values |
-|-------|---------------|
-| `defect_enhancement_statuses` | New, Approved, Redirected, Backlog - Monitoring Impact, Future Consideration, Deferred – Not in Current Scope, Rejected, Duplicate, Submitted, Deployed, Retired |
-| `submission_types` | defect, enhancement |
-| `cleanup_statuses` | Not Started, In Progress, Completed |
-| `cleanup_tag_types` | defect, enhancement, cleanup_only |
-| `applications` | Billing Center, Policy Center |
-| `enhancement_request_types` | Build-PPM Funded Project, Build-Small Enhancement, Build-Small Project (Not PPM Funded), Run-Compliance/Regulatory/Rate Revision, Run-Other Operational Work |
-| `priority_levels` | 1 - Urgent, 2 - High, 3 - Medium, 4 - Low |
-| `submission_sources` | rep_form, admin_backdated, admin_cleanup, admin_excel_import, admin_manual, admin_easyvista_resubmission |
-| `occurrence_timeframes` | Day (1), Week (7), Month (30.44), Quarter (91.31), Year (365.25) |
-
----
-
-## UI Component Library (BitsizeUI)
-
-The application uses a hand-built component library — no external UI dependencies:
-
-| Component | Description |
-|-----------|-------------|
-| `Card` | Section container with optional title, subtitle, and header action slot |
-| `Input` | Labeled text input with optional required indicator |
-| `Select` | Labeled dropdown with custom caret styling |
-| `MultiSelectDropdown` | Custom multi-select with checkbox list, Select All / Clear All controls |
-| `Textarea` | Labeled textarea with optional required indicator |
-| `Button` | Styled button — variants: `primary`, `secondary`, `ghost`, `danger` |
-| `Badge` | Color-coded status/type pill (auto-colors by value name) |
-| `Modal` | Overlay dialog with Escape-to-close, scrollable body, title bar, and an optional pinned footer row (`footer` prop) |
-| `Notice` | Alert banner — variants: `error`, `success`, `info` |
-| `AppShell` | Top-level layout with responsive nav, hamburger menu, dark/light theme toggle |
+That creates an auth problem, because the session cookie is not sent
+cross-origin. The client therefore fetches a **short-lived HMAC-signed token**
+from a same-origin, session-authenticated endpoint and passes it in the socket
+handshake. This whole mechanism exists for one hosting constraint — if your
+platform carries WebSocket upgrades end to end, delete it and use the session.
 
 ---
 
-## Styling & Theming
+## Tech stack
 
-- **Design system**: ~1,400 lines of vanilla CSS with CSS custom properties (design tokens)
-- **Color palette**: Slate gray (50–900) + Blue brand (50–900) scales
-- **Status colors**: Each status has dedicated foreground/background tokens
-  - New = blue, Approved = green, Rejected = red, Duplicate = orange, Submitted = purple, Deployed = teal
-- **Dark mode**: Full dark theme via `[data-theme='dark']` CSS scope, toggled via the header button, persisted to `localStorage`, with OS preference detection as fallback (see [Dark Mode](#dark-mode) for details)
-- **Responsive**: Mobile hamburger menu, horizontal-scroll tables, stacked filter controls on small screens
-- **No preprocessors**: Pure CSS with BEM-inspired naming (`bs-` prefix for BitsizeUI components)
+| Layer | Technology | Version |
+|---|---|---|
+| Frontend | React | 19.2 |
+| Routing | React Router | 7.13 |
+| Build | Vite | 5.4 |
+| UI | **BitsizeUI (custom)** + vanilla CSS | — |
+| Backend | Express | 5.2 |
+| ORM | Sequelize | 6.37 |
+| Database | PostgreSQL (`pg` 8.16) / SQLite (`sql.js` 1.13) | — |
+| Real-time | Socket.IO | 4.8 |
+| Auth | `express-session` + `bcrypt` | 1.19 / 6.0 |
+| Uploads | `multer` | 2.0 |
+| Excel | `xlsx` (SheetJS) | 0.18 |
+| AI summary | `@anthropic-ai/sdk` **or** OpenAI via `fetch` | 0.112 |
+| AI embeddings | `@huggingface/transformers` (in-process) / OpenAI / Voyage | 4.2 |
+| Client host | Vercel | — |
+| Server host | Render | — |
+
+**No third-party UI framework.** No Material UI, no Tailwind, no Bootstrap. The
+entire UI is a custom design system in
+`client/src/components/bite-size/BitsizeUI.jsx` (243 lines) plus vanilla CSS with
+a `bs-` prefix. Custom dialogs and notices throughout — no native `alert()` or
+`confirm()`.
+
+---
+
+## Project structure
+
+```
+client/src/
+  pages/            6 route components
+  components/
+    admin/          queue, command bar, modals, detail/ (13 sub-components)
+    public/         status board, submit form pieces
+    bite-size/      BitsizeUI design system + AppShell
+    common/         AiSearchPanel, PaginationControls
+  hooks/            13 hooks, one per feature area
+  lib/              api.js (shared request helper), socket.js
+  utils/            filter/sort/format helpers shared admin↔public
+  constants/        column, filter and sort registries
+
+server/src/
+  routes/           13 thin route modules; validation at the boundary
+  services/         8 services; all business logic
+  helpers/          mappers (public allow-list), easyVistaPayload, lookups, storage
+  middleware/       cors, session, csrf, upload, rateLimit, errorHandler
+  constants.js      role ladder, allow-lists, sentinels
+server/db/
+  models/index.js   whole schema + migration logic
+  sequelize.js      provider selection
+server/scripts/     migrate, backfills, grantSuperUser
+docs/handoff/       rebuild handoff + 41 screenshots
+```
+
+---
+
+## Data model
+
+20 tables. `submissions` is the aggregate root; everything else is lookups,
+ledgers, or access control.
+
+### `submissions` — 56 columns
+
+| Group | Columns |
+|---|---|
+| Identity | `id`, `created_at`, `updated_at`, `created_via_id` |
+| Reporter | `created_by`, `created_by_email`, **`reporter_user_id`** |
+| Classification | `type_id`, `application_id`, `status_id`, `priority_level_id`, `enhancement_request_type_id` |
+| The report | `summary_of_issue`, `what_happened_exact_details`, `steps_to_reproduce`, `request`, `screen_title`, `date_time_of_error` |
+| References | `policy_num`, `account_num`, `transaction_num`, `jira_number` |
+| Triage | `reviewer`, `decision_notes`, `duplicate_reference`, `duplicate_of`, `fingerprint` |
+| Impact | `impact_details`, `impact_notes`, `policy_premium_impact`, `direct_dollar_impact`, `policies_affected_count`, `occurrence_*` |
+| Workaround | `needs_workaround`, `workaround_provided` |
+| Cleanup | `is_cleanup`, `cleanup_status_id`, `cleanup_tag_type_id` |
+| EasyVista | `easyvista_ticket_id`, `easyvista_submitted_by`, `easyvista_application_id` |
+| Resubmission | `is_resubmission`, `resubmission_of_*`, `has_resubmission`, `latest_resubmission_*` |
+| Flags | `is_retired`, `is_public`, `logged_defect` |
+| Release | `release_number`, `release_notes`, `desired_completion_date` |
+
+**Lookups are FK-only.** The legacy text columns were dropped; rows store only
+`*_id` and names are hydrated at read time by `helpers/lookups.js`. Anything
+reading `row.status` directly gets `undefined` — this caused a real bug where
+every hand-off was recorded as `New`.
+
+**`reporter_user_id`, not `created_by`, answers "is this mine".** A rename or a
+typo would silently unlink someone's whole history, and two people share a name.
+
+**`easyvista_application_id` is a snapshot** taken at send time, not derived, so a
+later redirect cannot rewrite what was transmitted.
+
+### Lookup tables
+
+All share `{ id, name, sort_order, is_active }`. Runtime-editable; deactivated,
+never deleted.
+
+`submission_types` · `defect_enhancement_statuses` · `cleanup_statuses` ·
+`cleanup_tag_types` · `applications` · `enhancement_request_types` ·
+`priority_levels` · `submission_sources` · `occurrence_timeframes`
+
+### Ledgers, children and access
+
+| Table | Purpose |
+|---|---|
+| `submission_status_events` | Every status change. Append-only. |
+| `submission_routings` | Custody chain — one row per hand-off. `from_application_id` null marks the original filing. `status_at_handoff` preserves what it was when it left. `note` is immutable and **internal**. |
+| `attachments` | `filename`, `mime_type`, `file_path` (local path or Supabase public URL), `uploaded_by_role` |
+| `excel_import_runs` | Import audit trail |
+| `submission_embeddings` | One row per `(submission_id, scope)`; vector stored as JSON in TEXT |
+| `users` | `username`, `password_hash`, `role`, `is_super_user`, `external_id` (the IdP's stable key), `display_name`, `email` |
+| `user_application_roles` | **A grant.** `(user_id, application_id, role)`, audited by `granted_by`. **No row is no access.** |
+| `application_ad_groups` | Maps an AD group to an application. Sets a default. **Grants nothing.** |
+| `admin_view_preferences` | Per-admin columns, filters, pinned queue |
+
+Full column-by-column detail and the reasons behind each shape:
+[handoff §15](docs/handoff/README.md#15-data-model).
+
+---
+
+## API reference
+
+All under `/api`. Admin routes require a session; `/api/admin/*` mutations also
+require the CSRF header.
+
+### Auth, identity, health
+
+| Method | Path | Notes |
+|---|---|---|
+| `POST` | `/api/auth/login` | |
+| `POST` | `/api/auth/logout` | |
+| `GET` | `/api/auth/me` | |
+| `GET` | `/api/viewer` | **The identity envelope.** Always 200; anonymous shape when unauthenticated. |
+| `GET` | `/api/realtime/token` | Short-lived socket token. 401 for non-admins. |
+| `GET` | `/api/health`, `/health` | |
+
+### Metadata
+
+| Method | Path |
+|---|---|
+| `GET` | `/api/meta/options` (public) |
+| `GET` | `/api/admin/meta/options` |
+| `POST` | `/api/admin/meta/:category` |
+| `PUT` | `/api/admin/meta/:category/:id` |
+| `POST` | `/api/admin/meta/:category/reorder` |
+
+### Submissions — public / rep
+
+| Method | Path | Notes |
+|---|---|---|
+| `POST` | `/api/submissions` | Rep filing. Reporter resolved server-side. |
+| `GET` | `/api/public/submissions` | Field-allow-listed, `is_public` gated |
+| `GET` | `/api/public/submissions/:id` | Same |
+
+### Submissions — admin
+
+| Method | Path | Notes |
+|---|---|---|
+| `GET` | `/api/admin/submissions` | Access-scoped |
+| `GET` | `/api/admin/submissions/:id` | Out of scope → **404, not 403** |
+| `POST` | `/api/admin/submissions` | |
+| `PUT` | `/api/admin/submissions/:id` | Optimistic concurrency → 409 |
+| `POST` | `/api/admin/submissions/bulk-visibility` | |
+| `POST` | `/api/admin/submissions/bulk-retire` | |
+| `POST` | `/api/admin/submissions/:id/redirect` | Moves the ticket |
+| `POST` | `/api/admin/submissions/:id/easyvista-preview` | Dry run; writes nothing |
+| `POST` | `/api/admin/submissions/:id/submit-easyvista` | |
+| `POST` | `/api/admin/submissions/ai-search` | |
+| `GET` | `/api/admin/submissions/export-fields` | |
+| `GET` | `/api/admin/submissions/export-xlsx` | Same scope as the queue |
+| `POST` | `/api/admin/submissions/import-xlsx/analyze` | |
+| `POST` | `/api/admin/submissions/import-xlsx` | |
+| `GET` | `/api/admin/submissions/import-xlsx/history` | |
+
+### Attachments, access, preferences, AI
+
+| Method | Path | Notes |
+|---|---|---|
+| `DELETE` | `/api/admin/attachments/:id` | Authorised against the **parent ticket**, not the attachment id |
+| `GET` | `/api/admin/access` | Super user |
+| `PUT` | `/api/admin/access/users/:id/grants` | Super user; whole set replaced |
+| `POST` | `/api/admin/access/bulk` | Super user; all-or-nothing |
+| `PUT` | `/api/admin/access/users/:id/super-user` | Super user; refuses to remove the last one |
+| `POST` / `DELETE` | `/api/admin/access/ad-groups[/:id]` | Super user |
+| `GET` / `PUT` / `DELETE` | `/api/admin/view-preferences` | `PUT` replaces the whole row |
+| `GET` | `/api/ai-search/status`, `/api/admin/ai-search/status` | `{ enabled, summaryEnabled }` |
+| `POST` | `/api/ai-search` | Public; **rate-limited per IP** |
+
+### Dev only — never in production
+
+`/api/dev/impersonate*` — triple-gated; the route is **not registered** unless
+`AUTH_MODE=local` **and** `NODE_ENV != production` **and**
+`DEV_IMPERSONATION=true`, so it 404s rather than existing-and-refusing.
+
+### Error contract
+
+4xx may surface their message; **5xx stay generic in production**, so DB and
+internal details never reach a client.
+
+---
+
+## Security model
+
+### Authentication
+
+Session cookie `bc_sid`, httpOnly, 8-hour `maxAge`, `bcrypt`-hashed passwords.
+
+In production the cookie is `secure: true` and `sameSite: none` (overridable via
+`SESSION_COOKIE_SAME_SITE` / `_SECURE` / `_DOMAIN`).
+
+**The server refuses to start in production** if `SESSION_SECRET` is the
+development default or shorter than 32 characters.
+
+### Authorisation — per application, fail closed
+
+Triage rights come from `user_application_roles` and **nowhere else**. The role
+ladder is ordered weakest first, and the order is load-bearing: a role confers
+everything before it.
+
+- **`viewer`** — read the queue and its tickets; export. Changes nothing.
+- **`admin`** — everything in that application.
+
+**No row is no access.** An admin with no grants sees **no tickets**, never all
+of them — enforced by construction, not by a conditional: no grants yields
+`{ application_id: [] }`, which renders as SQL `IN (NULL)` and matches nothing. A
+super user yields `{}`, the single bypass.
+
+Access scoping runs **first and unconditionally**; no query parameter can widen
+what a caller may see.
+
+**Read scope is wider than write scope.** A team that redirects a ticket keeps
+reading it (via the routing ledger) and loses the ability to change it
+immediately (write asks only about the ticket's *current* application).
+
+**AD groups grant nothing.** An AD group says which application a person *works
+in* — it prefills their form and scopes their board. Triage is granted
+deliberately, by a super user, one application at a time, so nobody acquires the
+ability to change other teams' tickets by being added to a distribution group.
+
+`ensureSuperUser` re-reads `is_super_user` from the users row rather than the
+session, so a demotion takes effect on the demoted person's very next request.
+
+### Public data boundary
+
+Public responses are field-allow-listed through one function,
+`mapPublicSubmission`. Never exposed publicly: `created_by_email`, `reviewer`,
+`decision_notes`, `impact_details`, `impact_notes`, the dollar-impact figures,
+`fingerprint`, `reporter_user_id`, `easyvista_submitted_by`, and the routing
+`note`.
+
+The allow-list must hold in **five** places — public REST, **socket broadcasts**
+to unauthenticated watchers, **public AI summary input**, **the text embedded for
+public semantic search**, and **the literal keyword/identifier lookup doc**. The
+last three are the ones a rebuild will most easily miss: if the *embedding* is
+built from internal text, a public search can surface a ticket *because of* a
+decision note.
+
+### CSRF
+
+Double-submit cookie, no external dependency. A non-httpOnly `bc_csrf` cookie is
+issued to every client; state-changing requests to `/api/admin/*` must echo it in
+`X-CSRF-Token`. The client does this centrally in `lib/api.js`'s shared
+`request()` helper — keep it centralised.
+
+### Other
+
+- `helmet` sets security headers. CSP is off on the API (the SPA host owns its
+  own); `crossOriginResourcePolicy: 'cross-origin'` so the frontend origin can
+  load `/uploads` images.
+- `/uploads` is served with `X-Content-Type-Options: nosniff`.
+- Uploads: a generic temp handler for trusted, separately-validated files (the
+  admin Excel import) and an **image-only** handler for attachments.
+- CORS is an explicit allow-list from `CLIENT_ORIGIN` (comma-separated) with
+  `credentials: true`.
+- Rate limiting is in-memory — single instance only.
+- Optimistic concurrency is enforced **twice**: at save time against the loaded
+  version, and again inside the `UPDATE`'s `WHERE`, so two admins who both passed
+  the read-time check cannot both write. The second one gets a 409 and a
+  field-by-field three-way diff to resolve.
+
+---
+
+## Real-time updates
+
+Socket.IO, connecting **directly to the API host** rather than same-origin (see
+[Architecture](#architecture)).
+
+| Event | Direction | Audience |
+|---|---|---|
+| `admin:notification` | server → client | admins room |
+| `public:update` | server → client | everyone — **allow-listed fields only** |
+| `ticket:presence` | server → client | admins viewing a ticket |
+| `ticket:enter` / `ticket:leave` / `ticket:activity` | client → server | presence |
+
+A redirect emits to **both** queues — the ticket leaves one board and appears on
+the other, and neither admin should have to refresh.
+
+**Ticket presence** is an advisory soft lock: `submissionId → Map<socketId, {...}>`,
+where the holder is the earliest opener still connected. In-memory and ephemeral,
+so it auto-clears on disconnect. The client re-announces on every reconnect,
+because a network blip would otherwise silently drop the lock while the modal is
+still open.
+
+The client calls `resetSocket()` after login and logout, because the server
+assigns rooms and presence handlers **at connect time only**.
+
+---
+
+## AI semantic search
+
+**Optional and self-disabling.** With no summary key set,
+`/api/ai-search/status` reports `enabled: false` and every AI surface renders
+nothing. Full details: [`server/docs/ai-search.md`](server/docs/ai-search.md).
+
+`AI_PROVIDER` is a master switch driving both the summary and the embeddings
+vendor, so one line picks the whole stack and never a mix:
+
+| `AI_PROVIDER` | Summary | Embeddings | Third parties |
+|---|---|---|---|
+| `openai` | OpenAI Chat Completions | OpenAI embeddings | 1 |
+| `anthropic` | Claude | **local**, in-process | **0** |
+
+The `local` provider runs a small model in-process via `transformers.js` — no
+vendor, no key, no per-call cost, and ticket text never leaves the server.
+
+### Pipeline
+
+```
+1. Cheap DB pre-filter → candidates (application, time window, scope)
+2. Ensure candidate embeddings exist (bounded self-heal)
+3. Embed query, rank by cosine similarity
+4. LLM ranks the candidates and writes a grounded summary
+5. Return the summary + the REAL hydrated DB rows, in TWO sections
+```
+
+**Ticket data always comes from the database row, never from the model's text.**
+The model may only reference tickets it was given.
+
+Results come back in two labelled sections because they answer different
+questions: **AI matches** (semantically endorsed) and **Keyword matches** (literal
+hits on ID, incident number, Jira number, policy, account, reporter, or ticket
+text). A pasted incident number is a *lookup*, which cosine similarity is
+structurally bad at.
+
+**Identifiers are matched literally and are deliberately never embedded** —
+embedding `I250101_0001` adds no meaning and dilutes the topical signal, and any
+change to an embedded document changes its `content_hash`, which would re-embed
+the entire corpus.
+
+Two vectors per ticket: `admin` (full internal text) and `public` (public-safe
+text only, and only when `is_public = 1`). Unpublishing deletes the public
+vector. Stored as JSON float arrays in a TEXT column with cosine ranking done **in
+application memory**, so it works identically on SQLite and Postgres with **no
+pgvector dependency**.
+
+That choice exists only to keep the local SQLite path working, and it is why the
+candidate set loaded for ranking is capped. A rebuild on **PostgreSQL should use
+`pgvector`** and rank in the database, which removes the cap. On an engine without
+a vector type, keep the current approach or move AI search to a separate service —
+see [handoff §19](docs/handoff/README.md#decision-1-the-database-engine).
+
+```bash
+npm run backfill:embeddings    # index existing tickets; idempotent
+```
+
+---
+
+## EasyVista integration
+
+**Two independent switches:**
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `EASYVISTA_ENABLED` | **off** | Whether a send actually leaves the app |
+| `EASYVISTA_DEMO_MODE` | **on** | Whether an un-wired send is presented as though real |
+
+Credentials alone are **not** enough to start transmitting. The payload shape,
+endpoint path and response parsing are all still unconfirmed, so turning
+`EASYVISTA_ENABLED` on is the conscious act of saying the integration is ready.
+
+### The repurposed-fields problem
+
+EasyVista's Billing Center catalog **does not have fields named after what we
+send**. Existing fields are repurposed — `E_KCL_CHECK_VOID_REASON` carries the
+summary, `E_KCL_MKT_AUDIENCE` carries what happened, and so on. That mapping
+lives in exactly one place (`server/src/helpers/easyVistaPayload.js`) and the
+admin modal shows both names side by side so the repurposing is visible rather
+than folklore.
+
+Everything is **also** rendered into `Description` as an HTML table, because the
+repurposed fields are not surfaced anywhere readable in the EasyVista UI.
+
+> ⚠️ **Known issue, EasyVista side:** EV overwrites `Description` with its own
+> form-question results, which come through empty. Making it stick is an EV-side
+> fix. Raise this before rebuilding.
+
+### Preview cannot lie
+
+The preview and the real request are built by the **same function**, and the
+dry-run endpoint runs the real submit path and returns immediately before the API
+call. A preview built from a second, hand-maintained copy of the format drifts
+silently and the admin trusts it anyway.
+
+EasyVista accepts a defect **or** an enhancement and nothing else, so a
+`Cleanup Only` task must have a type chosen before it can be sent. Which fields
+*block* a send follows the **chosen** type, not the ticket's type.
+
+Attachments: at most **four**. ⚠️ **Transmission is the one genuinely
+unimplemented feature** — the picker, cap, validation and confirm dialog are all
+built and tested; the outbound request awaits the contract. See
+[handoff §12](docs/handoff/README.md#12-easyvista-integration).
 
 ---
 
 ## Deployment
 
-### Production Architecture
+> **The internal deployment target is company servers and a company database** —
+> not Vercel, Render or Supabase. The prototype's hosting is documented below as
+> *context*, because four things in this codebase exist only because of it and
+> should be **deleted** rather than reproduced.
+>
+> **Vite stays** — it is the build tool, not a host. `npm run build` still
+> produces `client/dist/`; you serve that from your own web server.
+>
+> The database engine and the hosting shape are **not yet decided**. See
+> [What the internal deployment needs](#what-the-internal-deployment-needs) and
+> [handoff §19](docs/handoff/README.md#19-deployment-topology-and-what-it-costs-you),
+> which carries the full dialect-sensitivity inventory and reverse-proxy
+> requirements.
 
-| Component | Host | Notes |
-|-----------|------|-------|
-| Client (React SPA) | **Vercel** | Static build, SPA fallback |
-| Server (Express API) | **Render** | Node.js web service |
-| Database | **PostgreSQL** | Render Postgres, Supabase, or any provider |
-| File Storage | **Supabase Storage** | Or local filesystem for single-server setups |
+### What the internal deployment needs
 
-### Vercel Configuration
+| # | Requirement | Why |
+|---|---|---|
+| 1 | **Persistent, backed-up attachment storage behind authorisation** | Attachments are screenshots that may contain customer policy and account data |
+| 2 | **A shared session store** (DB or Redis), or SSO with stateless tokens | `express-session` currently has no store — see gotcha 2 |
+| 3 | **A reverse proxy that carries WebSocket upgrades** | Lets the socket stay same-origin and use the session cookie |
+| 4 | **TLS in front, with `trust proxy` matching** | `secure: true` cookies need HTTPS; rate limiting needs the real client IP |
+| 5 | **A secret store** for the session secret, DB credentials and AI keys | They currently live in a gitignored `.env` |
+| 6 | **A reviewable migration step** in the deploy pipeline | Production currently self-syncs on boot |
+| 7 | **Outbound HTTPS** to the AI vendor and EasyVista | Verify this works **through the corporate proxy** early |
 
-`client/vercel.json` rewrites:
-- `/api/*` → proxied to Render backend
-- `/socket.io/*` → proxied to Render backend (WebSocket support)
-- `/*` → `/index.html` (SPA catch-all)
+### What the reverse proxy must do
 
-### Build Commands
+| Requirement | Notes |
+|---|---|
+| Serve `client/dist` as the document root | — |
+| **SPA fallback** — unmatched paths return `/index.html` | Without it, refreshing `/admin/metadata` 404s. IIS: URL Rewrite. nginx: `try_files $uri /index.html`. |
+| Reverse-proxy `/api/*` to the Node process | Keeps the API same-origin, so the session cookie just works |
+| Reverse-proxy `/socket.io/*` **with WebSocket upgrade** | IIS: enable the WebSocket Protocol feature + ARR. nginx: `proxy_set_header Upgrade $http_upgrade; proxy_set_header Connection "upgrade";`. Getting this right lets you delete the realtime-token mechanism. |
+| Terminate TLS and forward the real client IP | `X-Forwarded-For` / `X-Forwarded-Proto` |
+| Preserve `X-Content-Type-Options: nosniff` on file-serving paths | The app sets it on `/uploads` |
+
+### What to delete on your own infrastructure
+
+Four things exist **only** because of the prototype's hosting:
+
+1. **The direct WebSocket connection and the entire realtime-token mechanism** —
+   `server/src/helpers/realtimeToken.js`, `GET /api/realtime/token`, and the token
+   fetch in `client/src/lib/socket.js`. Vercel could not carry WebSocket upgrades,
+   so the socket connects cross-origin to the API host, which broke cookie auth,
+   which required a signed handshake token. On your own proxy, keep the socket
+   same-origin and use the session. **This removes an entire auth path.**
+2. **`sameSite: 'none'`** → `lax`. Same-origin serving makes `none` unnecessary.
+3. **`keepAlive.js`** — a daily `SELECT 1` so a free-tier Supabase project is not
+   paused. Meaningless on your own database.
+4. **The Supabase Storage backend** — replace it with a file share or object store
+   behind an authorising endpoint, which fixes the public-URL problem in the
+   process.
+
+Also delete once SSO lands: the dev impersonation route, and the
+browser-remembered "my reports" ids in `useViewer`.
+
+### Data-type defects
+
+**Money — fixed.** `policy_premium_impact` and `direct_dollar_impact` are now
+`DECIMAL(14,2)`. They were `REAL`, which Sequelize maps to single-precision
+`float4` on Postgres, so the **stored** value was wrong — `1234567.89` became
+`1234567.875` (displaying a cent adrift, and landing wrong in Excel exports) and
+`0.07` became `0.07000000029802322`. SQLite's `REAL` is a double, so this only ever
+damaged hosted data and never reproduced locally.
+
+Run the migration against any existing database **before** the boot sync gets to it:
 
 ```bash
-# Client production build
-cd client && npm run build    # Output: client/dist/
-
-# Server — no build step, runs directly
-cd server && node src/index.js
+cd server
+npm run migrate:money-columns              # dry run: reports types + damaged rows
+npm run migrate:money-columns -- --apply   # perform the ALTER
 ```
+
+It cannot recover precision `float4` already destroyed — the dry run reports how
+many rows carry the damage signature.
+
+**Timestamps — not fixed, specified instead.** Every timestamp is an ISO string in
+a `TEXT` column (`timestamps: false` on every model). This is deliberately left for
+the rebuild because it is not just a type change: **`updated_at` doubles as the
+optimistic-concurrency token and is compared as a string**, so converting it
+naively makes every save return a spurious 409. Malformed legacy values also
+already exist — the AI search window filter runs in JavaScript specifically to
+tolerate them. Full conversion notes:
+[handoff §19](docs/handoff/README.md#timestamps-what-a-conversion-has-to-handle).
+
+### The prototype's hosting — for reference only
+
+| Component | Host | Notes |
+|---|---|---|
+| Client (React SPA) | Vercel | Static build, SPA fallback rewrite |
+| Server (Express API) | Render | Node web service, no build step |
+| Database | Supabase PostgreSQL | `DATABASE_URL`, SSL required |
+| File storage | Supabase Storage (**public** bucket) | Falls back to local disk if unset |
+| EasyVista | External | Off unless explicitly enabled |
+
+#### Client — Vercel
+
+```bash
+cd client && npm run build      # output: client/dist/
+```
+
+`client/vercel.json`:
+
+```json
+{
+  "rewrites": [
+    { "source": "/api/(.*)", "destination": "https://<api-host>/api/$1" },
+    { "source": "/(.*)",     "destination": "/index.html" }
+  ]
+}
+```
+
+Two things to note:
+
+1. **There is no `/socket.io` rewrite, and that is deliberate.** Vercel rewrites
+   cannot carry WebSocket upgrades. The socket connects straight to the API host
+   instead — see [Architecture](#architecture).
+2. **The API host is hardcoded in two places.** `client/vercel.json` (the rewrite
+   destination) and `client/src/lib/socket.js` (the production fallback). Both
+   must change per environment.
+
+Client build-time variables:
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `VITE_API_BASE` | `''` (same-origin, i.e. use the Vercel rewrite) | Point the REST client at an explicit API origin |
+| `VITE_SOCKET_URL` | the hardcoded Render URL in production, same-origin in dev | Socket target |
+
+#### Server — Render
+
+```bash
+cd server && node src/index.js     # or: npm start
+```
+
+No build step. Set `NODE_ENV=production`, which turns on:
+
+- `trust proxy 1` (Render terminates TLS upstream)
+- **schema self-sync on boot** — `sync({ alter: true })` plus `findOrCreate`
+  lookup seeds, so a deploy adding a column needs no manual migrate step. It is
+  non-fatal: the server starts anyway and logs the failure.
+- generic 5xx error bodies
+- `secure: true`, `sameSite: none` session cookies
+
+Required server variables in production: `SESSION_SECRET` (≥32 chars, or the
+server **refuses to start**), `DATABASE_URL`, `CLIENT_ORIGIN` (the Vercel
+origin — comma-separated for several).
+
+### Deployment gotchas — most of these carry over
+
+Found on the prototype's hosting. All but #5 are still live concerns on internal
+infrastructure.
+
+1. **Attachments are lost on every restart unless durable storage is
+   configured.** Render's filesystem is ephemeral; without `SUPABASE_URL` +
+   `SUPABASE_SERVICE_ROLE_KEY` + a bucket, uploads land in `server/uploads/` and
+   vanish, leaving `attachments` rows pointing at files that no longer exist.
+   **Carries over to any container or non-persistent disk.**
+
+2. **Sessions are lost on every restart, and cannot scale past one instance.**
+   `express-session` is configured with **no store**, so it uses the default
+   in-memory `MemoryStore`. Every deploy signs every admin out, and a second
+   instance would not share sessions. **The rebuild needs a real session store**
+   (Postgres or Redis) — or, better, SSO with stateless tokens.
+
+3. **Ticket presence and rate limiting are also in-memory** — same single-instance
+   constraint.
+
+4. **Attachment URLs are public.** Supabase uploads go to a **public** bucket, so
+   an attachment URL is reachable by anyone who has it — unguessable, but not
+   behind authorisation. Since attachments are screenshots that may contain
+   customer policy data, **the rebuild should serve them through an authorising
+   endpoint or signed, expiring URLs.**
+
+5. **Render free tier spins down when idle.** `GET /health` exists for external
+   ping services to keep it warm. Expect cold-start latency otherwise.
+
+6. **Supabase free-tier projects pause after ~7 days idle.** `keepAlive.js` runs
+   a daily `SELECT 1` to prevent it. Delete it on paid infrastructure. Note that
+   its log line appears **regardless of database provider** and does not mean you
+   are connected to Supabase.
+
+7. **`sameSite: 'none'` is more permissive than the current setup needs.**
+   Because Vercel proxies `/api/*` server-side, the browser sees the API as
+   same-origin. `lax` would be sufficient. Tighten it in the rebuild.
+
+8. **Boot-time `sync({ alter: true })` is a prototype convenience.** Convenient
+   for a fast-moving prototype; for production, prefer explicit versioned
+   migrations run as a deploy step, so schema changes are reviewable and
+   reversible.
+
+9. **Dev impersonation must stay unreachable.** It is triple-gated and the route
+   is not registered in production, but confirm `DEV_IMPERSONATION` is unset and
+   `NODE_ENV=production` in every deployed environment.
+
+### Go-live checklist — internal deployment
+
+**Configuration**
+- [ ] `NODE_ENV=production`
+- [ ] `SESSION_SECRET` ≥32 chars, from the secret store (the server refuses to start otherwise)
+- [ ] Database connection configured for the chosen engine; `DB_PROVIDER` set explicitly
+- [ ] `CLIENT_ORIGIN` lists exactly the real portal origin(s)
+- [ ] AI provider key from the secret store, and **the key currently in `server/.env` rotated**
+- [ ] `EASYVISTA_ENABLED` set deliberately (off until the contract is confirmed)
+- [ ] `DEV_IMPERSONATION` unset
+
+**Infrastructure**
+- [ ] Persistent, backed-up attachment storage, behind authorisation
+- [ ] A shared session store, or SSO with stateless tokens
+- [ ] Reverse proxy: static root, SPA fallback, `/api` proxy, `/socket.io` **with WebSocket upgrade**
+- [ ] TLS in front, `trust proxy` matching the hop count
+- [ ] Outbound HTTPS to the AI vendor verified **through the corporate proxy**
+- [ ] Process supervision with restart-on-failure
+- [ ] Backup and restore tested for the database **and** attachments
+
+**Data**
+- [ ] Migrations run as a reviewable deploy step, not on boot
+- [ ] `npm run seed:admin` run; seeded password rotated
+- [ ] At least one super user granted (`npm run grant:super-user <user> --apply`)
+- [ ] `npm run backfill:embeddings` if AI search is configured
+- [ ] `npm run migrate:money-columns -- --apply` run against the target database, **before** the boot sync reaches it
+- [ ] Timestamps converted to native types, existing ISO strings parsed and validated
+
+**Deleted before go-live**
+- [ ] `realtimeToken.js`, `GET /api/realtime/token`, and the socket token fetch
+- [ ] `keepAlive.js`
+- [ ] `sameSite: 'none'` → `lax`
+- [ ] The Supabase Storage backend (replaced, not merely unconfigured)
+- [ ] SQLite portability workarounds and the `sqljs` provider path
+- [ ] Dev impersonation route
 
 ---
 
-## Configuration Reference
+## Configuration reference
 
-All environment variables for `server/.env`:
+`server/.env`. See [`server/.env.example`](server/.env.example).
+
+### Core
 
 | Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `PORT` | No | `4000` | Server listening port |
-| `NODE_ENV` | No | `development` | `development` or `production` |
-| `CLIENT_ORIGIN` | No | `http://localhost:5173` | Comma-separated allowed CORS origins |
-| `SESSION_SECRET` | **Yes (prod)** | `local-dev-secret-change-me` | Express session encryption secret |
-| `SESSION_COOKIE_SAME_SITE` | No | `none` (prod) / `lax` (dev) | Cookie SameSite policy |
+|---|---|---|---|
+| `PORT` | No | `4000` | Listening port |
+| `NODE_ENV` | No | `development` | `production` enables proxy trust, boot self-sync, secure cookies, generic 5xx |
+| `CLIENT_ORIGIN` | No | `http://localhost:5173` | Comma-separated CORS allow-list |
+| `SESSION_SECRET` | **Yes (prod)** | dev default | **≥32 chars in production or the server refuses to start** |
+| `SESSION_COOKIE_SAME_SITE` | No | `none` (prod) / `lax` (dev) | Cookie SameSite |
 | `SESSION_COOKIE_SECURE` | No | `true` (prod) / `false` (dev) | Cookie Secure flag |
 | `SESSION_COOKIE_DOMAIN` | No | — | Cookie domain for cross-origin setups |
-| `DB_MODE` | No | `local` | `local` (SQLite) or `hosted` (PostgreSQL) |
-| `DB_PROVIDER` | No | auto from DB_MODE | `postgres` or `sqljs` |
-| `DATABASE_URL` | If postgres | — | PostgreSQL connection string |
-| `SQLITE_PATH` | No | `./data/dev.sqlite` | SQLite file location |
-| `SUPABASE_URL` | No | — | Supabase project URL (enables cloud storage) |
-| `SUPABASE_SERVICE_ROLE_KEY` | No | — | Supabase service role key |
-| `SUPABASE_STORAGE_BUCKET` | No | `attachments` | Supabase storage bucket name |
-| `ADMIN_LOGINS` | No | `admin` | Comma-separated admin usernames to seed |
-| `SEED_ADMIN_PASSWORD` | No | `admin123` | Password for seeded admin accounts |
-| `EASYVISTA_BASE_URL` | No | — | EasyVista API URL (blank = stub mode) |
-| `EASYVISTA_API_KEY` | No | — | EasyVista API bearer token |
 
-### AI Semantic Search (all optional — blank keys keep the feature hidden)
+### Database
 
 | Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `AI_PROVIDER` | No | — | Master switch: `openai` or `anthropic` (drives summary + embeddings) |
-| `ANTHROPIC_API_KEY` | If Claude | — | Claude key (when the summary is Anthropic) |
-| `OPENAI_API_KEY` | If OpenAI | — | OpenAI key (summary and/or embeddings) |
-| `VOYAGE_API_KEY` | No | — | Voyage key (only if `EMBEDDINGS_PROVIDER=voyage`) |
-| `AI_MODEL` | No | `claude-haiku-4-5` | Anthropic summary model |
-| `OPENAI_SUMMARY_MODEL` | No | `gpt-4o-mini` | OpenAI summary model |
-| `EMBEDDINGS_PROVIDER` | No | from `AI_PROVIDER` | `local` (self-hosted) / `openai` / `voyage` |
-| `AI_SUMMARY_PROVIDER` | No | from `AI_PROVIDER` | `anthropic` / `openai` (granular override) |
-| `AI_SEARCH_TOP_K` | No | `20` | Candidate tickets sent to the summary model |
-| `AI_SEARCH_RECENCY_WEIGHT` | No | `0.15` | Recency boost in ranking (`0` = pure match) |
-| `AI_SEARCH_RECENCY_HALFLIFE_DAYS` | No | `180` | How fast the recency boost decays |
-| `AI_SEARCH_MIN_SIMILARITY` | No | `0.25` | Minimum raw match (cosine similarity) for a ticket to count as a result; `0` disables the floor |
-| `AI_SEARCH_PUBLIC_ENABLED` | No | `true` | Toggle the public/rep-form surfaces |
-| `AI_SEARCH_ENABLED` | No | `true` | Master on/off for the whole feature |
+|---|---|---|---|
+| `DB_MODE` | No | `local` | `local` (SQLite) or `hosted` (PostgreSQL) |
+| `DB_PROVIDER` | No | from `DB_MODE` | `sqljs` or `postgres` (explicit override) |
+| `DATABASE_URL` | If postgres | — | Connection string; the app **throws** without it |
+| `SQLJS_PATH` / `SQLITE_PATH` | No | `./data/dev.sqlite` | Local database file |
 
-See [`server/docs/ai-search.md`](server/docs/ai-search.md) for presets, cost, tuning, and the full variable list (rate-limit knobs, inline-embed cap, etc.).
+Resolution: `DB_PROVIDER || (DB_MODE === 'hosted' ? 'postgres' : 'sqljs')`.
+
+### File storage
+
+| Variable | Required | Default | Description |
+|---|---|---|---|
+| `SUPABASE_URL` | No | — | Enables Supabase Storage when set with the key below |
+| `SUPABASE_SERVICE_ROLE_KEY` | No | — | Service role key |
+| `SUPABASE_STORAGE_BUCKET` | No | `attachments` | Bucket name |
+
+All three present → Supabase Storage. Otherwise local disk. **See gotcha 1 above.**
+
+### Identity
+
+| Variable | Required | Default | Description |
+|---|---|---|---|
+| `AUTH_MODE` | No | `local` | `local` or `sso` |
+| `SUBMIT_REQUIRES_AUTH` | No | `true` when `AUTH_MODE=sso` | Whether filing needs a signed-in person |
+| `ADMIN_LOGINS` | No | `admin` | Comma-separated usernames to seed |
+| `SEED_ADMIN_USERNAME` / `SEED_ADMIN_PASSWORD` | No | `admin` / `admin123` | Seeding only. **Never real credentials.** |
+| `DEV_IMPERSONATION` | No | `false` | Dev only; one of three required gates |
+
+### EasyVista
+
+| Variable | Required | Default | Description |
+|---|---|---|---|
+| `EASYVISTA_ENABLED` | No | **off** | Master switch for real transmission |
+| `EASYVISTA_DEMO_MODE` | No | **on** | Present a stub send as real |
+| `EASYVISTA_BASE_URL` / `EASYVISTA_API_KEY` | No | — | Not sufficient to enable |
+| `EASYVISTA_REQUESTS_PATH` | No | `/requests` | Override the unconfirmed endpoint path without a code change |
+| `EASYVISTA_ADMIN_MAILS` | No | — | `username:mail,...` — stopgap until `users.email` is populated |
+
+### AI semantic search — all optional
+
+| Variable | Default | Description |
+|---|---|---|
+| `AI_PROVIDER` | — | **Master switch:** `openai` or `anthropic` |
+| `ANTHROPIC_API_KEY` | — | Claude key |
+| `OPENAI_API_KEY` | — | OpenAI key (summary and/or embeddings) |
+| `VOYAGE_API_KEY` | — | Only if `EMBEDDINGS_PROVIDER=voyage` |
+| `AI_MODEL` | `claude-haiku-4-5` | Anthropic summary model |
+| `OPENAI_SUMMARY_MODEL` | `gpt-4o-mini` | OpenAI summary model |
+| `AI_SUMMARY_PROVIDER` | from `AI_PROVIDER` | Granular override |
+| `EMBEDDINGS_PROVIDER` | `openai` if provider is openai, else `local` | `local` / `openai` / `voyage` |
+| `EMBEDDINGS_MODEL` | per provider | Model pin |
+| `AI_SEARCH_ENABLED` | `true` | Master on/off |
+| `AI_SEARCH_PUBLIC_ENABLED` | `true` | Public and rep-form surfaces |
+| `AI_SEARCH_TOP_K` | `20` | Candidates sent to the summary model |
+| `AI_SEARCH_MIN_SIMILARITY` | `0.25` | Raw-cosine floor; `0` disables |
+| `AI_SEARCH_RECENCY_WEIGHT` | `0.15` | Recency boost; `0` = pure match |
+| `AI_SEARCH_RECENCY_HALFLIFE_DAYS` | `180` | Recency decay |
+| `AI_SEARCH_MAX_QUERY_LENGTH` | `500` | |
+| `AI_SEARCH_MAX_INLINE_EMBED` | `25` | Inline self-heal cap per search |
+| `AI_SEARCH_PUBLIC_RATE_LIMIT` | `20` | Per-IP requests |
+| `AI_SEARCH_PUBLIC_RATE_WINDOW_MS` | `60000` | Rate-limit window |
+
+### Client
+
+| Variable | Default | Description |
+|---|---|---|
+| `VITE_API_BASE` | `''` | REST base; empty means same-origin |
+| `VITE_SOCKET_URL` | hardcoded API host in prod | Socket target |
+
+---
+
+## Local development
+
+```bash
+cd client && npm run dev     # :5173, proxies /api /uploads /socket.io to :4000
+cd server && npm run dev     # :4000 (nodemon)
+```
+
+### Verification gates
+
+```bash
+cd client && npm run lint    # ESLint incl. react-compiler rules — must stay green
+cd server && npm test        # node:test
+```
+
+### Scripts
+
+| Command | Purpose |
+|---|---|
+| `npm run migrate` | Sync schema + seed lookups |
+| `npm run seed:admin` | Create admin users |
+| `npm run seed:sample` | Sample submissions (skips a non-empty table) |
+| `npm run backfill:embeddings` | Index existing tickets for AI search; idempotent |
+| `npm run backfill:public-visibility` | Make existing non-cleanup tickets public. **Dry run by default**; `-- --apply` to write |
+| `npm run migrate:money-columns` | Convert the money columns `REAL` → `DECIMAL(14,2)`. **Dry run by default**; `-- --apply` to write. No-ops on SQLite. |
+| `npm run grant:super-user` | Grant/revoke super user. **Dry run by default**; `--apply` to write |
+
+Every destructive maintenance script is **dry-run by default** and reports what it
+would do. `backfillPublicVisibility` persists the exact set of ids it flipped so
+the change can be reverted precisely.
+
+> All of these target **whatever `server/.env` points at**. With
+> `DB_PROVIDER=postgres` that is the live Supabase database.
+
+---
+
+## Known gaps
+
+| Gap | Detail |
+|---|---|
+| **EasyVista attachment transmission** | The only genuinely unimplemented feature. Contract unknown. |
+| **`Description` overwritten by EasyVista** | EV-side bug; needs raising with their team. |
+| **No true snapshots** | `reported_snapshot` / `easyvista_snapshot` do not exist, so the Report tab shows current saved values and says so. |
+| **SSO not wired** | `AUTH_MODE=local`. Every seam is in place; nothing is connected. Anonymous filing stays open because the local login is admin-only. |
+| **No session store** | In-memory; sign-out on every restart, single instance only. |
+| **Public attachment URLs** | Unguessable but unauthenticated. |
+| **`users` has no populated email** | EasyVista requestor mail comes from an env map as a stopgap. |
+| **AD group names unknown** | `application_ad_groups` is empty; the app works without it. |
+| **In-memory rate limiting and presence** | Single instance only. |
+| **In-memory cosine ranking** | Capped candidate set; use `pgvector` if the rebuild lands on PostgreSQL. |
+| ~~Currency stored as floating point~~ | **Fixed** — now `DECIMAL(14,2)`, with an explicit migration. See [Data-type defects](#data-type-defects). |
+| **Timestamps stored as ISO strings in `TEXT`** | Not fixed, specified for the rebuild. `updated_at` doubles as the concurrency token compared as a string, so a naive conversion 409s every save. Malformed legacy values exist. |
+| **Public board sorts client-side** | The list endpoint returns the whole board. Fine at prototype volume. |
+| **Admin queue at 390px** | Usable but cramped — the weakest surface. |
+
+There is also a set of **SQLite/Postgres portability workarounds** that exist only
+because the prototype supports both — notably that composite unique indexes must
+be created as raw SQL, because SQLite's `sync({ alter: true })` mis-derives them
+into per-column `UNIQUE` constraints (which on `user_application_roles` would
+silently cap every admin at one application forever). A Postgres-only rebuild can
+delete all of them; they are catalogued with reasons in
+[handoff §14](docs/handoff/README.md#portability-traps-you-can-probably-delete)
+and in `server/db/models/index.js`.
+
+---
+
+## Further reading
+
+| Document | Contents |
+|---|---|
+| [`docs/handoff/README.md`](docs/handoff/README.md) | **Rebuild handoff** — every decision and why, 41 screenshots, acceptance checklist |
+| [`server/docs/ai-search.md`](server/docs/ai-search.md) | AI search presets, cost, tuning, full variable list |
+| [`server/docs/easyvista-description-format.md`](server/docs/easyvista-description-format.md) | The EasyVista description payload format |
+| [`CLAUDE.md`](CLAUDE.md) | Conventions and skills for AI-assisted work in this repo |
+| [`plan.md`](plan.md) | Running project plan |
+
+The prototype's inline comments are unusually dense with *why*. When this README
+is not specific enough, read the comment above the code rather than inferring
+intent from the code.
 
 ---
 
 ## License
 
-This project is proprietary internal tooling. All rights reserved.
+Proprietary internal tooling. All rights reserved.
