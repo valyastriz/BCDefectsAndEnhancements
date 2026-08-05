@@ -13,7 +13,7 @@ const { isBlank } = require('../helpers/utils');
 const { mapSubmission, mapPublicSubmission, toExportCellValue } = require('../helpers/mappers');
 const { emitAdminNotification, emitPublicUpdate } = require('../socket');
 const { scheduleEmbeddingRefresh } = require('../services/embeddingIndexService');
-const { ADMIN_EXPORT_FIELDS, ADMIN_EXPORT_FIELDS_BY_KEY } = require('../helpers/export');
+const { ADMIN_EXPORT_FIELDS, ADMIN_EXPORT_FIELDS_BY_KEY, EXPORT_FIELD_GROUPS } = require('../helpers/export');
 const { buildStatusTimeline } = require('../helpers/timeline');
 const {
   listFilteredAdminSubmissions,
@@ -71,7 +71,10 @@ router.get('/api/admin/submissions/export-xlsx', ensureAdmin, attachViewer, asyn
 
 router.get('/api/admin/submissions/export-fields', ensureAdmin, async (_req, res) => {
   return res.json({
-    fields: ADMIN_EXPORT_FIELDS.map(({ key, label }) => ({ key, label })),
+    fields: ADMIN_EXPORT_FIELDS.map(({ key, label, group }) => ({ key, label, group })),
+    // The groups the dialog draws, in the order it draws them. Sent with the
+    // fields so the two cannot disagree about which groups exist.
+    groups: EXPORT_FIELD_GROUPS.map(({ key, label }) => ({ key, label })),
   });
 });
 

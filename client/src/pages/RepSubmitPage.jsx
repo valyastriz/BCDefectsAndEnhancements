@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../lib/api';
 import { useViewer } from '../hooks/useViewer';
@@ -10,7 +10,10 @@ import { SubmitReadinessRail } from '../components/public/SubmitReadinessRail';
 const initialForm = {
   created_by: '',
   type: 'defect',
-  application_name: 'Billing Center',
+  // `application_name` is deliberately NOT here. The form has no application
+  // picker, so holding one in form state only created somewhere for a hardcoded
+  // application name to live; it is derived from the viewer at send time instead
+  // (see homeApplicationName).
   policy_num: '',
   account_num: '',
   transaction_num: '',
@@ -87,6 +90,18 @@ export function RepSubmitPage() {
   const { viewer } = useViewer();
   const knownReporter = viewer.isAuthenticated ? viewer.user : null;
 
+  // Which application this ticket belongs to. Read from the viewer's own
+  // membership — the server decides it from their AD groups, else their most-filed
+  // application — with the portal's first active application as the fallback for
+  // someone who has neither. The page never names an application itself: this is a
+  // multi-application portal, and a hardcoded name silently files Policy Center's
+  // tickets into Billing Center's queue.
+  const homeApplicationName = useMemo(() => {
+    const list = Array.isArray(viewer.applications) ? viewer.applications : [];
+    const home = list.find((app) => String(app.id) === String(viewer.homeApplicationId));
+    return home?.name || list[0]?.name || '';
+  }, [viewer.applications, viewer.homeApplicationId]);
+
   const [form, setForm] = useState(initialForm);
   const [files, setFiles] = useState([]);
   const [fileUrls, setFileUrls] = useState([]);
@@ -160,7 +175,7 @@ export function RepSubmitPage() {
       const payload = {
         ...form,
         created_by_email: '-',
-        application_name: isEnhancement ? 'Billing Center' : form.application_name || 'Billing Center',
+        application_name: homeApplicationName,
         steps_to_reproduce: isDefect ? form.steps_to_reproduce || '-' : '-',
         request: isDefect ? '-' : form.request,
         // Defect-only, and the server enforces that too — an enhancement is not
@@ -182,6 +197,7 @@ export function RepSubmitPage() {
         // The confirmation must echo the name the server actually recorded, not
         // the (ignored) form field, or a signed-in rep sees a blank "filed by".
         name: knownReporter ? knownReporter.displayName : form.created_by,
+        application: homeApplicationName,
         fileCount: files.length,
       });
       setForm(initialForm);
@@ -241,7 +257,8 @@ export function RepSubmitPage() {
                 <h4>{submitted.summary}</h4>
               </div>
               <p className="rs-recap-meta">
-                {submitted.type === 'defect' ? 'Defect' : 'Enhancement'} · Billing Center
+                {submitted.type === 'defect' ? 'Defect' : 'Enhancement'}
+                {submitted.application ? ` · ${submitted.application}` : ''}
                 {submitted.screen ? ` · ${submitted.screen}` : ''}
                 {` · Reported by ${submitted.name}`}
                 {submitted.fileCount > 0
@@ -269,7 +286,7 @@ export function RepSubmitPage() {
     <div className="rs-page">
       <div className="rs-head">
         <div>
-          <h1>Report a Billing Center issue</h1>
+          <h1>{homeApplicationName ? `Report a ${homeApplicationName} issue` : 'Report an issue'}</h1>
           <p>
             Defects and enhancements go to the same triage queue. You&rsquo;ll get a reference
             number and can follow it on the Status Board.
@@ -282,31 +299,32 @@ export function RepSubmitPage() {
         <div className="rs-main">
 
           <section className="rs-card">
-            <p className="rs-grouplabel">What are you reporting?</p>
-            <div className="rs-types">
-              <button
-                type="button"
-                className="rs-type"
-                aria-pressed={isDefect}
-                onClick={() => setType('defect')}
-              >
-                <span className="rs-type-mark" aria-hidden="true" />
-                <span className="rs-type-name">Defect</span>
-              </button>
-              <button
-                type="button"
-                className="rs-type"
-                aria-pressed={isEnhancement}
-                onClick={() => setType('enhancement')}
-              >
-                <span className="rs-type-mark" aria-hidden="true" />
-                <span className="rs-type-name">Enhancement</span>
-              </button>
+            {/* The type choice reshapes the form, but it is still one bit of
+                information — it rides on the group-label row rather than owning a
+                card of its own. */}
+            <div className="rs-cardhead">
+              <p className="rs-grouplabel">Your request</p>
+              <div className="rs-seg" role="group" aria-label="What are you reporting?">
+                <button
+                  type="button"
+                  className="rs-type"
+                  aria-pressed={isDefect}
+                  onClick={() => setType('defect')}
+                >
+                  <span className="rs-type-mark" aria-hidden="true" />
+                  <span className="rs-type-name">Defect</span>
+                </button>
+                <button
+                  type="button"
+                  className="rs-type"
+                  aria-pressed={isEnhancement}
+                  onClick={() => setType('enhancement')}
+                >
+                  <span className="rs-type-mark" aria-hidden="true" />
+                  <span className="rs-type-name">Enhancement</span>
+                </button>
+              </div>
             </div>
-          </section>
-
-          <section className="rs-card">
-            <p className="rs-grouplabel">Your request</p>
 
             {showErrors && missing.length > 0 && (
               <div className="rs-alert" role="alert">
@@ -331,51 +349,55 @@ export function RepSubmitPage() {
               </div>
             )}
 
-            {knownReporter ? (
-              // Stated rather than asked. The rep still sees whose name goes on
-              // the ticket — they just cannot put someone else's there.
-              <div className="rs-field rs-reporter">
-                <span className="rs-reporter-label">Filing as</span>
-                <span className="rs-reporter-name">{knownReporter.displayName}</span>
-                {knownReporter.email && (
-                  <span className="rs-reporter-email">{knownReporter.email}</span>
-                )}
-              </div>
-            ) : (
-              <Field
-                name="created_by"
-                label="Your name"
-                required
-                error={errorFor('created_by')}
-              >
-                <input
-                  id="rs-created_by"
-                  type="text"
-                  autoComplete="name"
-                  placeholder="First and last name"
-                  value={form.created_by}
-                  onChange={(e) => updateField('created_by', e.target.value)}
-                />
-              </Field>
-            )}
+            {/* Who is filing and what it is about are both short — they share a
+                row rather than each taking one. */}
+            <div className="rs-row--who">
+              {knownReporter ? (
+                // Stated rather than asked. The rep still sees whose name goes on
+                // the ticket — they just cannot put someone else's there.
+                <div className="rs-field rs-reporter">
+                  <span className="rs-reporter-label">Filing as</span>
+                  <span className="rs-reporter-name">{knownReporter.displayName}</span>
+                  {knownReporter.email && (
+                    <span className="rs-reporter-email">{knownReporter.email}</span>
+                  )}
+                </div>
+              ) : (
+                <Field
+                  name="created_by"
+                  label="Your name"
+                  required
+                  error={errorFor('created_by')}
+                >
+                  <input
+                    id="rs-created_by"
+                    type="text"
+                    autoComplete="name"
+                    placeholder="First and last name"
+                    value={form.created_by}
+                    onChange={(e) => updateField('created_by', e.target.value)}
+                  />
+                </Field>
+              )}
 
-            <div className="rs-field-lead">
-              <Field
-                name="summary_of_issue"
-                label="Summarize it in one line"
-                required
-                counter={`${form.summary_of_issue.length} / ${SUMMARY_MAX_LENGTH}`}
-                error={errorFor('summary_of_issue')}
-              >
-                <input
-                  id="rs-summary_of_issue"
-                  type="text"
-                  maxLength={SUMMARY_MAX_LENGTH}
-                  placeholder="e.g. Renewal invoice shows the prior term's installment amount"
-                  value={form.summary_of_issue}
-                  onChange={(e) => updateField('summary_of_issue', e.target.value)}
-                />
-              </Field>
+              <div className="rs-field-lead">
+                <Field
+                  name="summary_of_issue"
+                  label="Summarize it in one line"
+                  required
+                  counter={`${form.summary_of_issue.length} / ${SUMMARY_MAX_LENGTH}`}
+                  error={errorFor('summary_of_issue')}
+                >
+                  <input
+                    id="rs-summary_of_issue"
+                    type="text"
+                    maxLength={SUMMARY_MAX_LENGTH}
+                    placeholder="e.g. Renewal invoice shows the prior term's installment amount"
+                    value={form.summary_of_issue}
+                    onChange={(e) => updateField('summary_of_issue', e.target.value)}
+                  />
+                </Field>
+              </div>
             </div>
 
             <DuplicateCheck query={form.summary_of_issue} />
@@ -492,18 +514,19 @@ export function RepSubmitPage() {
                     onChange={(e) => updateField('steps_to_reproduce', e.target.value)}
                   />
                 </Field>
-              </section>
 
-              {/* Defects only. An enhancement is by definition not stopping
-                  anyone today, so there is nothing to work around.
+                {/* Defects only. An enhancement is by definition not stopping
+                    anyone today, so there is nothing to work around.
 
-                  The wording is deliberately scoped to THIS case. "Blocked" or
-                  "to keep working" reads as the whole job being stopped, so a
-                  rep with one stuck account talks themselves out of ticking it
-                  — which is exactly the case the team can most easily help
-                  with. */}
-              <section className="rs-card">
-                <p className="rs-grouplabel">Do you need a workaround?</p>
+                    It sits in this card rather than a titled one of its own: a
+                    card around a single checkbox cost 120px for one boolean, and
+                    the checkbox's own text asks the question the title was asking.
+
+                    The wording is deliberately scoped to THIS case. "Blocked" or
+                    "to keep working" reads as the whole job being stopped, so a
+                    rep with one stuck account talks themselves out of ticking it
+                    — which is exactly the case the team can most easily help
+                    with. */}
                 <label className="rs-flag">
                   <input
                     type="checkbox"

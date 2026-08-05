@@ -1,6 +1,7 @@
 import { Badge } from '../bite-size/BitsizeUI';
 import { formatCurrency, formatNumber, formatDateOnly } from '../../utils/formatUtils';
 import { inlineDisplayType } from '../../utils/mappers';
+import { TRACKER_LABEL } from '../../constants/tracker';
 
 /**
  * Map a defect/enhancement status onto its visual variant. The three parked
@@ -196,7 +197,7 @@ export const COLUMN_DEFS = {
   easyvista: {
     headerStyle: { width: 118 },
     renderCell: (row) => (
-      <td data-label="EasyVista" className="muted" style={{ whiteSpace: 'nowrap' }}>{row.easyvista_ticket_id || '—'}</td>
+      <td data-label={`${TRACKER_LABEL} #`} className="muted" style={{ whiteSpace: 'nowrap' }}>{row.easyvista_ticket_id || '—'}</td>
     ),
   },
   jiraCard: {

@@ -9,6 +9,10 @@ export function NewSubmissionsAlert({ count, onViewNewSubmissions }) {
     <div style={{
       display: 'flex',
       alignItems: 'center',
+      // The action never shrinks and never wraps its label, so on a phone the
+      // three items cannot share one line. Wrapping drops the button to its own
+      // line instead of pushing it past the banner's right edge.
+      flexWrap: 'wrap',
       gap: 12,
       padding: '12px 18px',
       borderRadius: 8,

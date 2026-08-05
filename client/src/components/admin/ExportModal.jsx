@@ -1,86 +1,148 @@
-import { Button, Card, Input, Modal, Notice, Select } from '../bite-size/BitsizeUI';
+import { Button, Modal, Notice } from '../bite-size/BitsizeUI';
 
 /**
- * Modal for exporting filtered submissions to Excel.
+ * Export to Excel.
+ *
+ * Leads with how many tickets the queue's filters match — the fact the old dialog
+ * never stated, so "exports the filtered items" was a promise the admin had to
+ * take on trust. Every export field is offered, grouped, with presets to start
+ * from, and the button states the shape of the file it will produce.
  */
 export function ExportModal({
   exportModalOpen,
   closeExportModal,
   exportWorking,
   exportError,
+  exportFieldGroups,
+  exportPresets,
   selectedExportFieldKeys,
-  exportFieldSearch,
-  setExportFieldSearch,
-  visibleExportFields,
   selectedExportFieldSet,
-  selectAllVisibleExportFields,
-  clearVisibleExportFields,
+  exportMatchingRowCount,
   toggleExportField,
+  toggleExportGroup,
+  applyExportPreset,
   exportFilteredSubmissions,
 }) {
+  const columnCount = selectedExportFieldKeys.length;
+  const rowCount = Number(exportMatchingRowCount || 0);
+  const noRows = rowCount === 0;
+  const noColumns = columnCount === 0;
+  const loading = exportFieldGroups.length === 0 && !exportError;
+
+  const buttonLabel = noColumns
+    ? 'Choose at least one column'
+    : `Download ${rowCount} row${rowCount === 1 ? '' : 's'} × ${columnCount} column${columnCount === 1 ? '' : 's'}`;
+
+  const footNote = noRows
+    ? 'Nothing matches the queue’s filters, so there is nothing to download.'
+    : (noColumns ? 'A spreadsheet with no columns would be an empty file.' : '');
+
   return (
     <Modal
       open={exportModalOpen}
       onClose={closeExportModal}
       title="Export to Excel"
-    >
-      <div className="stack">
-        <p className="muted" style={{ marginTop: 0 }}>
-          Exports currently filtered admin items. Choose which fields to include in the spreadsheet.
-        </p>
-
-        <Input
-          label="Search fields"
-          placeholder="Filter by field name"
-          value={exportFieldSearch}
-          onChange={(event) => setExportFieldSearch(event.target.value)}
-        />
-
-        <div className="bs-actions" style={{ marginTop: 0 }}>
-          <Button type="button" kind="ghost" onClick={selectAllVisibleExportFields} disabled={exportWorking || visibleExportFields.length === 0}>
-            Select Visible
-          </Button>
-          <Button type="button" kind="ghost" onClick={clearVisibleExportFields} disabled={exportWorking || visibleExportFields.length === 0}>
-            Clear Visible
-          </Button>
-        </div>
-
-        {exportError && <Notice text={exportError} />}
-
-        <Card title={`Fields (${selectedExportFieldKeys.length} selected)`}>
-          <div style={{ maxHeight: 320, overflowY: 'auto', paddingRight: 4 }}>
-            {visibleExportFields.length === 0 ? (
-              <p className="muted" style={{ margin: 0 }}>No fields match the current search.</p>
-            ) : (
-              <div className="stack" style={{ gap: 8 }}>
-                {visibleExportFields.map((field) => {
-                  const fieldKey = String(field?.key || '').trim();
-                  const checked = selectedExportFieldSet.has(fieldKey);
-                  return (
-                    <label key={fieldKey} className="toggle-row" style={{ cursor: exportWorking ? 'default' : 'pointer', justifyContent: 'flex-start', gap: 8 }}>
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        onChange={() => toggleExportField(fieldKey)}
-                        disabled={exportWorking}
-                      />
-                      <span>{field.label}</span>
-                    </label>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        </Card>
-
-        <div className="bs-actions">
-          <Button type="button" onClick={exportFilteredSubmissions} disabled={exportWorking || selectedExportFieldKeys.length === 0}>
-            {exportWorking ? 'Exporting…' : 'Download Excel'}
+      className="xl-modal"
+      footer={(
+        <div className="at-foot">
+          <Button
+            type="button"
+            onClick={exportFilteredSubmissions}
+            disabled={exportWorking || noColumns || noRows || loading}
+          >
+            {exportWorking ? 'Preparing the file…' : buttonLabel}
           </Button>
           <Button type="button" kind="ghost" onClick={closeExportModal} disabled={exportWorking}>
             Cancel
           </Button>
+          <span className="at-foot-note">{footNote}</span>
         </div>
+      )}
+    >
+      <div className="xl-body">
+        <div className="xl-count">
+          <b>{rowCount}</b>
+          <span>
+            {rowCount === 1 ? 'ticket matches' : 'tickets match'} your current filters and will be
+            exported. Change the filters on the queue to export a different set.
+          </span>
+        </div>
+
+        {exportError && <Notice text={exportError} />}
+
+        {loading && !exportError && (
+          <div className="xl-groups">
+            {[0, 1, 2, 3].map((index) => (
+              <div key={index} className="xl-group" aria-hidden="true">
+                <div className="xl-group-head"><span className="sk-bar" style={{ width: 120 }} /></div>
+                <div className="xl-group-body">
+                  {[0, 1, 2, 3].map((line) => (
+                    <span key={line} className="sk-bar" style={{ width: `${60 + line * 8}%` }} />
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {!loading && (
+          <>
+            <div className="xl-presets">
+              <span className="xl-presets-lbl">Start from</span>
+              {exportPresets.map((preset) => (
+                <button
+                  key={preset.key}
+                  type="button"
+                  className="xl-preset"
+                  disabled={exportWorking}
+                  onClick={() => applyExportPreset(preset.key)}
+                >
+                  {preset.label} ({preset.keys.length})
+                </button>
+              ))}
+              <button
+                type="button"
+                className="xl-preset"
+                disabled={exportWorking || noColumns}
+                onClick={() => applyExportPreset('none')}
+              >
+                Clear
+              </button>
+            </div>
+
+            <div className="xl-groups">
+              {exportFieldGroups.map((group) => (
+                <div key={group.key} className="xl-group">
+                  <div className="xl-group-head">
+                    <b>{group.label}</b>
+                    <span className="xl-group-n">{group.selectedCount} of {group.fields.length}</span>
+                    <button
+                      type="button"
+                      className="xl-group-all"
+                      disabled={exportWorking}
+                      onClick={() => toggleExportGroup(group.key)}
+                    >
+                      {group.selectedCount === group.fields.length ? 'None' : 'All'}
+                    </button>
+                  </div>
+                  <div className="xl-group-body">
+                    {group.fields.map((field) => (
+                      <label key={field.key} className="xl-ck">
+                        <input
+                          type="checkbox"
+                          checked={selectedExportFieldSet.has(String(field.key))}
+                          disabled={exportWorking}
+                          onChange={() => toggleExportField(field.key)}
+                        />
+                        <span>{field.label}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
       </div>
     </Modal>
   );

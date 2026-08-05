@@ -36,6 +36,12 @@ const { emitAdminNotification } = require('../socket');
 
 const router = express.Router();
 
+// How much of the sheet the analyze step echoes back for the pre-write preview.
+// Small on purpose: the preview exists to let an admin recognise their own data,
+// not to ship the spreadsheet through the API a second time.
+const ANALYZE_SAMPLE_ROWS = 3;
+const ANALYZE_SAMPLE_CELL_CHARS = 200;
+
 // ── Analyze uploaded Excel file ──────────────────────────────────────────────
 router.post('/api/admin/submissions/import-xlsx/analyze', ensureAdmin, tempUpload.single('file'), async (req, res) => {
   const uploadedFile = req.file;
@@ -82,7 +88,10 @@ router.post('/api/admin/submissions/import-xlsx/analyze', ensureAdmin, tempUploa
       || applicationAliases.some((alias) => normalizedHeaders.includes(alias));
     const allowedStatuses = await withDb(async (db) => getDefectEnhancementStatuses(db, { includeRetired: true }));
 
-    const unknownStatusesSet = new Set();
+    // How many rows carry each unrecognised status, not just which ones: the
+    // dialog asks the admin to decide what one means, and "appears in 6 rows" is
+    // what tells them whether the decision matters.
+    const unknownStatusCounts = {};
     rawRows.forEach((rawRow) => {
       const row = normalizeImportRow(rawRow);
       const rawStatus = String(
@@ -96,7 +105,7 @@ router.post('/api/admin/submissions/import-xlsx/analyze', ensureAdmin, tempUploa
       ).trim();
       if (!rawStatus) return;
       if (!allowedStatuses.includes(rawStatus)) {
-        unknownStatusesSet.add(rawStatus);
+        unknownStatusCounts[rawStatus] = (unknownStatusCounts[rawStatus] || 0) + 1;
       }
     });
 
@@ -106,9 +115,22 @@ router.post('/api/admin/submissions/import-xlsx/analyze', ensureAdmin, tempUploa
       mappingTargets: IMPORT_COLUMN_TARGETS.map((target) => ({ key: target.key, label: target.label })),
       suggestedMappings,
       requiresApplicationDefault: !hasApplicationColumn,
-      unknownStatuses: Array.from(unknownStatusesSet),
+      unknownStatuses: Object.keys(unknownStatusCounts),
+      unknownStatusCounts,
       allowedStatuses,
-      previewRows: Math.min(rawRows.length, 5),
+      // The first rows as they sit in the sheet, keyed by their own header. The
+      // dialog shows them BEFORE anything is written, and maps them through
+      // whatever the admin has since decided — so the preview cannot claim a
+      // mapping the import will not use. Cells are clipped because a preview only
+      // has to be recognisable.
+      sampleRows: rawRows.slice(0, ANALYZE_SAMPLE_ROWS).map((rawRow) => {
+        const sample = {};
+        for (const header of headers) {
+          sample[header] = String(rawRow?.[header] ?? '').slice(0, ANALYZE_SAMPLE_CELL_CHARS);
+        }
+        return sample;
+      }),
+      previewRows: Math.min(rawRows.length, ANALYZE_SAMPLE_ROWS),
       totalRows: rawRows.length,
     });
   } finally {

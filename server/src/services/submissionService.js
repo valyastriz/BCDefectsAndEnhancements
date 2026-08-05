@@ -3,6 +3,7 @@ const {
   CLEANUP_TO_SUBMISSION_STATUS,
   SUBMISSION_TO_CLEANUP_STATUS,
   UNASSIGNED_APPLICATION,
+  TRACKER_LABEL,
 } = require('../constants');
 const {
   buildAllLookupMaps,
@@ -1471,7 +1472,7 @@ async function submitSubmissionToEasyVista(db, { id, body, username, viewer, dry
 
   if (selectedAttachments.length > EASYVISTA_MAX_ATTACHMENTS) {
     return {
-      error: `EasyVista accepts at most ${EASYVISTA_MAX_ATTACHMENTS} files. Deselect ${selectedAttachments.length - EASYVISTA_MAX_ATTACHMENTS} to continue.`,
+      error: `${TRACKER_LABEL} accepts at most ${EASYVISTA_MAX_ATTACHMENTS} files. Deselect ${selectedAttachments.length - EASYVISTA_MAX_ATTACHMENTS} to continue.`,
       status: 400,
     };
   }
@@ -1498,7 +1499,7 @@ async function submitSubmissionToEasyVista(db, { id, body, username, viewer, dry
       };
     }
     return {
-      error: 'Choose whether this Cleanup Only task goes to EasyVista as a Defect or an Enhancement.',
+      error: `Choose whether this Cleanup Only task goes to the ${TRACKER_LABEL} as a Defect or an Enhancement.`,
       status: 400,
     };
   }
@@ -1653,7 +1654,7 @@ async function submitSubmissionToEasyVista(db, { id, body, username, viewer, dry
       await logStatusChange(
         db,
         submission.id,
-        `Cleanup Status: Tagged as ${sentAsLabel} on first EasyVista submission (${result.ticketId})`,
+        `Cleanup Status: Tagged as ${sentAsLabel} on first ${TRACKER_LABEL} submission (${result.ticketId})`,
         easyVistaSubmittedBy,
         updatedAt,
       );
@@ -1828,14 +1829,14 @@ async function submitSubmissionToEasyVista(db, { id, body, username, viewer, dry
   await logStatusChange(
     db,
     submission.id,
-    `Resubmission: From (EasyVista ${submission.easyvista_ticket_id}) to (EasyVista ${result.ticketId}) as Submission #${resubmissionId}, sent as ${sentAsLabel}`,
+    `Resubmission: From (${TRACKER_LABEL} ${submission.easyvista_ticket_id}) to (${TRACKER_LABEL} ${result.ticketId}) as Submission #${resubmissionId}, sent as ${sentAsLabel}`,
     easyVistaSubmittedBy,
     updatedAt,
   );
   await logStatusChange(
     db,
     resubmissionId,
-    `Resubmission: From (EasyVista ${submission.easyvista_ticket_id}) to (EasyVista ${result.ticketId}), Origin Submission #${submission.id}, sent as ${sentAsLabel}`,
+    `Resubmission: From (${TRACKER_LABEL} ${submission.easyvista_ticket_id}) to (${TRACKER_LABEL} ${result.ticketId}), Origin Submission #${submission.id}, sent as ${sentAsLabel}`,
     easyVistaSubmittedBy,
     updatedAt,
   );

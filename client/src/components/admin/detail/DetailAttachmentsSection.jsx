@@ -1,5 +1,6 @@
 import { Badge } from '../../bite-size/BitsizeUI';
 import { resolveAttachmentUrl } from '../../../utils/formatUtils';
+import { TRACKER_LABEL } from '../../../constants/tracker';
 
 /**
  * Files — evidence for the ticket.
@@ -41,7 +42,7 @@ export function DetailAttachmentsSection({
           <h4>No attachments yet</h4>
           <p>
             Nothing has been uploaded for this ticket. Add a file above and it will travel
-            with the EasyVista handoff when you save.
+            with the {TRACKER_LABEL} hand-off when you save.
           </p>
         </div>
       ) : (

@@ -203,6 +203,49 @@ function resolveLookupModel(category) {
   return dbModels[category.modelName] || null;
 }
 
+/**
+ * How many submissions hold each value of one lookup list.
+ *
+ * ONE grouped query per category, not one per row: nine lists holding forty-five
+ * values between them would otherwise be forty-five COUNT round trips every time
+ * the metadata page loads.
+ *
+ * Returns a Map keyed by lookup id. A value no submission references is simply
+ * absent — the caller reads a missing key as zero rather than the query having to
+ * produce a row for it.
+ *
+ * Failure is not fatal: usage counts are additive information on a page that
+ * still works without them, so a broken count returns an empty Map instead of
+ * failing the whole load.
+ */
+async function countSubmissionsByLookup(category) {
+  const idColumn = category?.submissionIdColumn;
+  if (!idColumn) return new Map();
+  const dbModels = dbApi.getModels() || {};
+  const Submission = dbModels.Submission;
+  if (!Submission?.sequelize) return new Map();
+
+  try {
+    const rows = await Submission.findAll({
+      attributes: [
+        idColumn,
+        [Submission.sequelize.fn('COUNT', Submission.sequelize.col('id')), 'usage_count'],
+      ],
+      group: [idColumn],
+      raw: true,
+    });
+    const counts = new Map();
+    for (const row of rows || []) {
+      const lookupId = Number(row[idColumn]);
+      if (!Number.isFinite(lookupId)) continue;
+      counts.set(lookupId, Number(row.usage_count || 0));
+    }
+    return counts;
+  } catch {
+    return new Map();
+  }
+}
+
 async function getDefectEnhancementStatuses(db, { includeRetired = false } = {}) {
   try {
     const dbModels = dbApi.getModels() || {};
@@ -301,6 +344,7 @@ module.exports = {
   formatMissingLookupError,
   resolveLookupCategory,
   resolveLookupModel,
+  countSubmissionsByLookup,
   getDefectEnhancementStatuses,
   getSubmissionTypes,
   getCleanupStatuses,

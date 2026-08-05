@@ -5,6 +5,7 @@ const { toBooleanSql } = require('../helpers/utils');
 const {
   resolveLookupCategory,
   resolveLookupModel,
+  countSubmissionsByLookup,
   getDefectEnhancementStatuses,
   getSubmissionTypes,
   getCleanupStatuses,
@@ -45,11 +46,15 @@ router.get('/api/meta/options', async (_req, res) => {
 
 router.get('/api/admin/meta/options', ensureAdmin, async (_req, res) => {
   return withDb(async (db) => {
-    const mapRow = (row, hasRetiredFlag) => ({
+    const mapRow = (row, hasRetiredFlag, usageCount) => ({
       id: Number(row.id),
       name: String(row.name || ''),
       sortOrder: Number(row.sort_order || 0),
       isActive: Boolean(row.is_active),
+      // How many submissions hold this value. Additive to the old shape, and the
+      // spine of the metadata page: switching off a value nothing uses is safe,
+      // switching off one that 25 tickets use is a statement about those tickets.
+      usageCount,
       ...(hasRetiredFlag ? { isRetired: Boolean(row.is_retired) } : {}),
     });
 
@@ -60,13 +65,18 @@ router.get('/api/admin/meta/options', ensureAdmin, async (_req, res) => {
       if (!LookupModel) {
         throw new Error(`Lookup model is not initialized for ${category.key}`);
       }
-      const rows = await LookupModel.findAll({
-        attributes: ['id', 'name', 'sort_order', 'is_active', ...(category.hasRetiredFlag ? ['is_retired'] : [])],
-        order: [['sort_order', 'ASC'], ['id', 'ASC']],
-        raw: true,
-      });
+      // Two queries per category — the values, and one GROUP BY over the
+      // submissions that reference them. Never one COUNT per value.
+      const [rows, usageCounts] = await Promise.all([
+        LookupModel.findAll({
+          attributes: ['id', 'name', 'sort_order', 'is_active', ...(category.hasRetiredFlag ? ['is_retired'] : [])],
+          order: [['sort_order', 'ASC'], ['id', 'ASC']],
+          raw: true,
+        }),
+        countSubmissionsByLookup(category),
+      ]);
       return (rows || []).map((row) => ({
-        ...mapRow(row, category.hasRetiredFlag),
+        ...mapRow(row, category.hasRetiredFlag, usageCounts.get(Number(row.id)) || 0),
       }));
     };
 

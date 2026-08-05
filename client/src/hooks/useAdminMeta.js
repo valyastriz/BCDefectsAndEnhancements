@@ -87,25 +87,15 @@ export function useAdminMeta({ setFilters, setNotice }) {
   }, [setFilters]);
 
   // ── Metadata CRUD core (shared with AdminMetadataPage) ─────────────────────
+  //
+  // The dashboard only needs the loaded lists; editing them is the metadata page's
+  // job. So only what the queue actually reads is taken out of the shared hook —
+  // re-exporting the edit surface here would be a public API nothing calls.
 
-  const {
-    adminMetaOptions,
-    adminMetaLoading,
-    adminMetaSaving,
-    adminMetaError,
-    selectedMetaCategory,
-    setSelectedMetaCategory,
-    newMetaName,
-    setNewMetaName,
-    metaDraftNames,
-    setMetaDraftNames,
-    activeMetaCategoryConfig,
-    activeMetaItems,
-    loadAdminMeta,
-    saveMetaItem,
-    addMetaItem,
-    moveMetaItem,
-  } = useMetaManagement({ onLoaded: syncRuntimeOptionsFromMeta, onNotice: setNotice });
+  const { adminMetaOptions, loadAdminMeta } = useMetaManagement({
+    onLoaded: syncRuntimeOptionsFromMeta,
+    onNotice: setNotice,
+  });
 
   // ── Computed runtime options ───────────────────────────────────────────────
 
@@ -182,22 +172,8 @@ export function useAdminMeta({ setFilters, setNotice }) {
     runtimeTypeFilterOptions,
     dynamicCoreStatusSet,
     dynamicCleanupStatusSet,
-    // Meta management
+    // The loaded lists, for anything that needs more than the name arrays above.
     adminMetaOptions,
-    adminMetaLoading,
-    adminMetaSaving,
-    adminMetaError,
-    selectedMetaCategory,
-    setSelectedMetaCategory,
-    newMetaName,
-    setNewMetaName,
-    metaDraftNames,
-    setMetaDraftNames,
-    activeMetaCategoryConfig,
-    activeMetaItems,
     loadAdminMeta,
-    saveMetaItem,
-    addMetaItem,
-    moveMetaItem,
   };
 }

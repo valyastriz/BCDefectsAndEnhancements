@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../lib/api';
 import { editableFromDetail, normalizeAdminRow, buildAdminUpdatePayload, hasPendingModalChanges } from '../utils/mappers';
+import { TRACKER_LABEL, TRACKER_LABEL_THE } from '../constants/tracker';
 
 /**
  * Custom hook for the admin submission detail/edit modal.
@@ -545,7 +546,7 @@ export function useDetailModal({ loadRows, setRows, setError, currentUsername })
     setEasyVistaConfirmation('');
     setDetailError('');
     if (!resolvedSendAsType) {
-      setDetailError('Choose whether this goes to EasyVista as a Defect or an Enhancement.');
+      setDetailError(`Choose whether this goes to ${TRACKER_LABEL_THE} as a Defect or an Enhancement.`);
       return;
     }
     if (easyVistaMissingRequirements.length > 0) return;
@@ -585,7 +586,7 @@ export function useDetailModal({ loadRows, setRows, setError, currentUsername })
       // caveat, which is the point.
       const simulated = result?.source === 'stub';
       const suffix = simulated
-        ? ' (placeholder — EasyVista is not connected yet, nothing was transmitted)'
+        ? ` (placeholder — ${TRACKER_LABEL_THE} is not connected yet, nothing was transmitted)`
         : '';
       if (result?.resubmission) {
         setEasyVistaConfirmation(

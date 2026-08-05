@@ -19,6 +19,12 @@ Monorepo with two apps:
   react-compiler rules). Run it before considering frontend work done.
 - **Tests:** `cd server && npm test` (Node built-in `node:test`). Add/extend
   tests when changing the code they cover.
+- **Browser verification:** `client/scripts/verify-*.mjs` (Playwright) drive the
+  real app at 1500/820/390px in both themes and assert what unit tests cannot —
+  per-container overflow, field counts, live behaviour. Run with the server on
+  :4000 and Vite on :5173 already up; `--shots <dir>` also writes PNGs. Extend
+  these rather than writing throwaway checkers. A script that WRITES must prove it
+  put the data back (see `verify-metadata-page.mjs`'s closing check).
 
 ## Important project facts
 
@@ -29,9 +35,12 @@ Monorepo with two apps:
   - `postgres` / `DB_MODE=hosted` — the **live Supabase** DB, i.e. production
     data. Requires `DATABASE_URL`; `db/sequelize.js:24` throws without it.
 
-  **As of 2026-08-01 `.env` is `sqljs` / `local` with an empty `DATABASE_URL`,
-  so local runs are sandboxed.** This flips, so check the file rather than
-  trusting this line, and confirm before anything destructive when hosted.
+  **As of 2026-08-05 `.env` is `postgres` / `DB_MODE=hosted`, so `npm run dev`
+  talks to the hosted Supabase database.** It is all test data and the owner has
+  confirmed reading and writing it for verification is fine — but it is shared,
+  so put back anything a check changes, and get sign-off before a destructive or
+  bulk operation. This setting flips: check the file rather than trusting this
+  line.
 
   Note: `[keepAlive] Supabase heartbeat OK` in the server log does **not** mean
   you are on Supabase data — it is a separate keep-alive ping (`keepAlive.js`)
@@ -104,7 +113,9 @@ code. Map:
 ## Workflow expectations
 
 - Commit/push only when asked. Branch work happens on `dev`; `main` is the
-  release branch (they currently track together).
+  release branch. **As of 2026-08-05 `origin/dev` is 15 commits behind
+  `origin/main`** — they no longer track together, and `main` is where the work has
+  been landing. Check before assuming either.
 - Keep `npm run lint` (client) and `npm test` (server) passing.
 - Skills live in `.claude/skills/`, committed as plain files so Claude Code
   discovers them on every OS (Windows included). `.claude/settings.local.json`

@@ -1,5 +1,6 @@
 // ── Formatting utilities (pure functions, no component dependencies) ─────────
 import { RETIRED_STATUS, CLEANUP_ONLY_STATUS } from '../constants/adminConstants';
+import { TRACKER_LABEL } from '../constants/tracker';
 
 /**
  * Parse a value to a finite number, returning 0 for non-numeric input.
@@ -32,7 +33,7 @@ export function formatCreatedViaLabel(value) {
     admin_backdated: 'Backdated Button',
     admin_cleanup: 'Cleanup Button',
     admin_manual: 'Admin Manual',
-    admin_easyvista_resubmission: 'EasyVista Resubmission',
+    admin_easyvista_resubmission: `${TRACKER_LABEL} Resubmission`,
   };
   if (knownLabels[normalized]) return knownLabels[normalized];
   return normalized
@@ -153,7 +154,7 @@ export function buildRespondToUserMailto(detail) {
   ];
   if (detail.policy_num) referenceLines.push(`Policy #: ${detail.policy_num}`);
   if (detail.account_num) referenceLines.push(`Account #: ${detail.account_num}`);
-  if (detail.easyvista_ticket_id) referenceLines.push(`EasyVista Ticket: ${detail.easyvista_ticket_id}`);
+  if (detail.easyvista_ticket_id) referenceLines.push(`${TRACKER_LABEL} Ticket: ${detail.easyvista_ticket_id}`);
 
   const body = [
     `Hi ${detail.created_by || 'there'},`,

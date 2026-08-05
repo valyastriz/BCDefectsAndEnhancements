@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button, Card, Notice } from '../components/bite-size/BitsizeUI';
 import { useAccessManagement, roleFor } from '../hooks/useAccessManagement';
+import { TRACKER_LABEL } from '../constants/tracker';
 
 // The catalog, in the order the dropdown offers it. Weakest first, matching
 // server/src/constants.js — "no access" is an option here rather than the
@@ -466,7 +467,7 @@ export function AdminAccessPage({ user }) {
 
         <div className="access-cardfoot">
           <strong>View</strong> reads the queue and exports. <strong>Admin</strong> adds editing,
-          status, attachments, redirect, EasyVista and public visibility.
+          status, attachments, redirect, {TRACKER_LABEL} hand-off and public visibility.
           {unassignedTicketCount > 0 && (
             <> {unassignedTicketCount} ticket{unassignedTicketCount === 1 ? ' has' : 's have'} no
               application set and {unassignedTicketCount === 1 ? 'is' : 'are'} visible to super users only.</>

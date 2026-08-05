@@ -1,6 +1,7 @@
 import { Button, Input, MultiSelectDropdown, Select } from '../bite-size/BitsizeUI';
 import { ADMIN_FILTER_GROUPS } from '../../constants/adminConstants';
 import { formatCreatedViaLabel } from '../../utils/formatUtils';
+import { TRACKER_LABEL } from '../../constants/tracker';
 
 /**
  * The grouped filter panel — everything except the two controls that live in the
@@ -87,7 +88,7 @@ export function FilterPanel({
     ),
     submittedBy: () => (
       <Input
-        label="Submitted by (EasyVista)"
+        label={`Submitted by (${TRACKER_LABEL})`}
         placeholder="Filter by admin username"
         value={filters.submittedBy}
         onChange={(e) => patch('submittedBy')(e.target.value)}

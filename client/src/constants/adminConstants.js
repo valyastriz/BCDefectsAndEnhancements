@@ -19,15 +19,93 @@ export const STATUS_TO_CLEANUP = {
 // other status is summed into the strip's expandable "other statuses" card.
 export const SCOPE_STRIP_STATUSES = ['New', 'Approved', 'Submitted', 'Deployed'];
 
+// Every list the Manage Metadata page can show, in the order it shows them.
+//
+// `feeds` names the surfaces the list actually drives. It is on the registry
+// rather than written into the page because the page is the only reader, and a
+// list added here without saying what it feeds is a list nobody can judge before
+// changing. `readOnly` marks a list the app writes itself.
+//
+// Adding a list is one entry here plus its LOOKUP_TABLES row on the server
+// (server/src/constants.js) — nothing else.
 export const ADMIN_META_CATEGORIES = [
-  { key: 'statuses', label: 'Defect/Enhancement Statuses', endpointCategory: 'statuses', optionsKey: 'statuses', supportsRetired: true },
-  { key: 'types', label: 'Submission Types', endpointCategory: 'types', optionsKey: 'types', supportsRetired: false },
-  { key: 'cleanupStatuses', label: 'Cleanup Statuses', endpointCategory: 'cleanup-statuses', optionsKey: 'cleanupStatuses', supportsRetired: false },
-  { key: 'cleanupTagTypes', label: 'Cleanup Tag Types', endpointCategory: 'cleanup-tag-types', optionsKey: 'cleanupTagTypes', supportsRetired: false },
-  { key: 'applications', label: 'Applications', endpointCategory: 'applications', optionsKey: 'applications', supportsRetired: false },
-  { key: 'enhancementRequestTypes', label: 'Enhancement Request Types', endpointCategory: 'enhancement-request-types', optionsKey: 'enhancementRequestTypes', supportsRetired: false },
-  { key: 'priorityLevels', label: 'Priority Levels', endpointCategory: 'priority-levels', optionsKey: 'priorityLevels', supportsRetired: false },
-  { key: 'submissionSources', label: 'Submission Sources', endpointCategory: 'submission-sources', optionsKey: 'submissionSources', supportsRetired: false },
+  {
+    key: 'statuses',
+    label: 'Defect/Enhancement Statuses',
+    endpointCategory: 'statuses',
+    optionsKey: 'statuses',
+    supportsRetired: true,
+    feeds: 'The Status column and Triage tab in the admin queue, the Status filter, and the four-stop track on the public board.',
+    note: 'A switched-off status stays in the Status filter so admins can still find old tickets on it and move them somewhere current.',
+  },
+  {
+    key: 'types',
+    label: 'Submission Types',
+    endpointCategory: 'types',
+    optionsKey: 'types',
+    supportsRetired: false,
+    feeds: `The Defect / Enhancement choice on the submit form, and which fields the ${TRACKER_LABEL} hand-off requires.`,
+  },
+  {
+    key: 'cleanupStatuses',
+    label: 'Cleanup Statuses',
+    endpointCategory: 'cleanup-statuses',
+    optionsKey: 'cleanupStatuses',
+    supportsRetired: false,
+    feeds: 'The Cleanup Status column and its filter, for tickets tracked as cleanup work.',
+  },
+  {
+    key: 'cleanupTagTypes',
+    label: 'Cleanup Tag Types',
+    endpointCategory: 'cleanup-tag-types',
+    optionsKey: 'cleanupTagTypes',
+    supportsRetired: false,
+    feeds: `How a cleanup task is tagged once it is raised — set by the Add-a-ticket dialog and the ${TRACKER_LABEL} hand-off, not typed in.`,
+  },
+  {
+    key: 'applications',
+    label: 'Applications',
+    endpointCategory: 'applications',
+    optionsKey: 'applications',
+    supportsRetired: false,
+    feeds: 'Which queue a ticket belongs to — the submit form, the queue scope strip, redirect targets, and every per-application role on the Access page.',
+    note: 'Adding an application here makes it available to grant on the Access page and to redirect tickets into.',
+  },
+  {
+    key: 'enhancementRequestTypes',
+    label: 'Enhancement Request Types',
+    endpointCategory: 'enhancement-request-types',
+    optionsKey: 'enhancementRequestTypes',
+    supportsRetired: false,
+    feeds: `The Request Type dropdown on enhancements — required before an enhancement can go to the ${TRACKER_LABEL}.`,
+  },
+  {
+    key: 'priorityLevels',
+    label: 'Priority Levels',
+    endpointCategory: 'priority-levels',
+    optionsKey: 'priorityLevels',
+    supportsRetired: false,
+    feeds: `The Priority dropdown on the Triage tab, and the priority sent with every ${TRACKER_LABEL} submission.`,
+  },
+  // Feeds a live dropdown but had no panel until this page was rebuilt, so nobody
+  // could change it.
+  {
+    key: 'occurrenceTimeframes',
+    label: 'Occurrence Timeframes',
+    endpointCategory: 'occurrence-timeframes',
+    optionsKey: 'occurrenceTimeframes',
+    supportsRetired: false,
+    feeds: 'The Time Frame dropdown on the Impact tab — the "per" in "40 times per week".',
+  },
+  {
+    key: 'submissionSources',
+    label: 'Submission Sources',
+    endpointCategory: 'submission-sources',
+    optionsKey: 'submissionSources',
+    supportsRetired: false,
+    readOnly: 'The app writes these itself when a ticket is created, so they are shown for reference rather than edited.',
+    feeds: 'The Created Via column and filter — how each ticket got into the portal.',
+  },
 ];
 
 export const ADMIN_FILTERS_STORAGE_KEY = 'bc.admin.filters';
@@ -39,28 +117,39 @@ export const ADMIN_VIEW_PREFS_STORAGE_KEY = 'bc.admin.viewPrefs';
 // ── Per-admin view registries ───────────────────────────────────────────────
 // Canonical column registry for the admin submissions table. `key` is the stable
 // identifier persisted in view preferences; `sortKey` maps into SORT_COLS (null =
-// not sortable). Keep keys in sync with the server allow-list ADMIN_VIEW_COLUMN_KEYS
+// not sortable); `exportKey` is the export field this column shows, which is what
+// lets the export dialog offer "what's on screen" as a real answer rather than a
+// hardcoded list (null = the column has no single export field behind it). Keep
+// keys in sync with the server allow-list ADMIN_VIEW_COLUMN_KEYS
 // (server/src/constants.js). Default view = every column visible, in this order.
 export const ADMIN_TABLE_COLUMNS = [
-  { key: 'id', label: 'ID', sortKey: 'id' },
-  { key: 'reportedDate', label: 'Reported / Updated', sortKey: 'reportedDate' },
-  { key: 'statusUpdate', label: 'Status Update', sortKey: 'statusUpdate' },
-  { key: 'type', label: 'Type', sortKey: 'type' },
-  { key: 'summary', label: 'Summary', sortKey: 'summary' },
-  { key: 'status', label: 'Defect/Enhancement Status', sortKey: 'status' },
-  { key: 'cleanupStatus', label: 'Cleanup Status', sortKey: null },
-  { key: 'isPublic', label: 'Public', sortKey: 'isPublic' },
-  { key: 'easyvista', label: `${TRACKER_LABEL} #`, sortKey: 'easyvista' },
-  { key: 'jiraCard', label: 'JIRA Card #', sortKey: 'jiraCard' },
-  { key: 'policyPremium', label: 'Policy Premium ($)', sortKey: 'policyPremium' },
-  { key: 'directImpact', label: 'Direct Impact ($)', sortKey: 'directImpact' },
-  { key: 'policiesImpacted', label: 'Policies Impacted', sortKey: 'policiesImpacted' },
-  { key: 'frequency', label: 'Frequency', sortKey: 'frequency' },
+  { key: 'id', label: 'ID', sortKey: 'id', exportKey: 'id' },
+  { key: 'reportedDate', label: 'Reported / Updated', sortKey: 'reportedDate', exportKey: 'created_at' },
+  { key: 'statusUpdate', label: 'Status Update', sortKey: 'statusUpdate', exportKey: 'status_update_at' },
+  { key: 'type', label: 'Type', sortKey: 'type', exportKey: 'type' },
+  { key: 'summary', label: 'Summary', sortKey: 'summary', exportKey: 'summary_of_issue' },
+  { key: 'status', label: 'Defect/Enhancement Status', sortKey: 'status', exportKey: 'status' },
+  { key: 'cleanupStatus', label: 'Cleanup Status', sortKey: null, exportKey: 'cleanup_status' },
+  { key: 'isPublic', label: 'Public', sortKey: 'isPublic', exportKey: 'is_public' },
+  { key: 'easyvista', label: `${TRACKER_LABEL} #`, sortKey: 'easyvista', exportKey: 'easyvista_ticket_id' },
+  { key: 'jiraCard', label: 'JIRA Card #', sortKey: 'jiraCard', exportKey: 'jira_number' },
+  { key: 'policyPremium', label: 'Policy Premium ($)', sortKey: 'policyPremium', exportKey: 'policy_premium_impact' },
+  { key: 'directImpact', label: 'Direct Impact ($)', sortKey: 'directImpact', exportKey: 'direct_dollar_impact' },
+  { key: 'policiesImpacted', label: 'Policies Impacted', sortKey: 'policiesImpacted', exportKey: 'policies_affected_count' },
+  { key: 'frequency', label: 'Frequency', sortKey: 'frequency', exportKey: 'occurrence_rate' },
   // Which application's queue a ticket belongs to. Off by default because the
   // summary cell already tags it — this is the dedicated column for anyone who
   // wants to scan a merged, multi-application queue by that alone.
-  { key: 'application', label: 'Application', sortKey: null },
+  { key: 'application', label: 'Application', sortKey: null, exportKey: 'application_name' },
 ];
+
+/** The export fields behind a set of visible column keys, in registry order. */
+export function exportKeysForColumns(columnKeys = []) {
+  const visible = new Set(columnKeys);
+  return ADMIN_TABLE_COLUMNS
+    .filter((column) => visible.has(column.key) && column.exportKey)
+    .map((column) => column.exportKey);
+}
 
 // Canonical filter registry — keys match the filter fields in buildDefaultFilters()
 // and the FiltersBar controls. Keep in sync with the server allow-list

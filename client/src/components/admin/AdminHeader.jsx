@@ -64,10 +64,12 @@ function MenuItem({ onClick, disabled = false, children }) {
 /**
  * Admin page header.
  *
- * One primary action (create a ticket) with the two creation flows behind it;
- * the spreadsheet round-trip under "Data"; metadata and sign-out under the
- * signed-in user. Every action from the previous flat six-button row is still
- * reachable, one level down.
+ * One primary action that opens the one dialog for adding a ticket — new or
+ * historical, defect, enhancement or cleanup. It was a two-item menu while those
+ * were two dialogs; a menu whose only job is to reveal a single item is a click
+ * that buys nothing, and the type now lives inside the dialog where a fourth one
+ * can join it. The spreadsheet round-trip sits under "Data"; metadata and sign-out
+ * under the signed-in user.
  */
 export function AdminHeader({
   user,
@@ -76,8 +78,7 @@ export function AdminHeader({
   exportWorking,
   onOpenImport,
   onOpenExport,
-  onOpenBackdated,
-  onOpenCleanup,
+  onOpenAddTicket,
   onNavigateMetadata,
   onNavigateAccess,
   // Only a portal super user can manage access, so the entry point is hidden
@@ -115,18 +116,9 @@ export function AdminHeader({
           }}
         />
 
-        <Menu
-          label="New ticket"
-          triggerClassName="bs-btn bs-btn-primary"
-          trigger={<>New ticket <span aria-hidden="true">▾</span></>}
-        >
-          {({ close }) => (
-            <>
-              <MenuItem onClick={() => { close(); onOpenBackdated(); }}>Backdated ticket…</MenuItem>
-              <MenuItem onClick={() => { close(); onOpenCleanup(); }}>Cleanup task…</MenuItem>
-            </>
-          )}
-        </Menu>
+        <button type="button" className="bs-btn bs-btn-primary" onClick={onOpenAddTicket}>
+          Add a ticket…
+        </button>
 
         <Menu
           label="Data import and export"

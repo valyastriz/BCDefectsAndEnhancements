@@ -4,6 +4,7 @@ import { api } from '../../../lib/api';
 import { buildAdminUpdatePayload, hasPendingModalChanges } from '../../../utils/mappers';
 import { resolveAttachmentUrl } from '../../../utils/formatUtils';
 import { EASYVISTA_REQUIREMENT_FIELD } from '../../../constants/detailModalConstants';
+import { TRACKER_LABEL, TRACKER_LABEL_THE } from '../../../constants/tracker';
 
 /**
  * Which payload rows an admin can edit, and how. Anything absent from here is
@@ -178,7 +179,7 @@ export function DetailEasyVistaSection({
   return (
     <>
       <div className="dm-ev-head">
-        <h4>What EasyVista will receive</h4>
+        <h4>What {TRACKER_LABEL_THE} will receive</h4>
         <p>
           Every field below is what actually goes out, editable in place. The list is built
           by the server from the same code that sends it, so it cannot drift from the
@@ -193,8 +194,8 @@ export function DetailEasyVistaSection({
       {preview && !preview.live && !preview.demo && (
         <Notice
           kind="info"
-          text={'The EasyVista connection is not switched on yet. Sending records a placeholder '
-            + 'ticket number and files stay here — nothing is transmitted.'}
+          text={`The ${TRACKER_LABEL} connection is not switched on yet. Sending records a `
+            + 'placeholder ticket number and files stay here — nothing is transmitted.'}
         />
       )}
 
@@ -220,13 +221,13 @@ export function DetailEasyVistaSection({
         </div>
         <p className="dm-sendas-note">
           {mustChoose
-            ? `This is a Cleanup Only task and EasyVista has no such type, so pick the one it should be raised under.${
+            ? `This is a Cleanup Only task and ${TRACKER_LABEL_THE} has no such type, so pick the one it should be raised under.${
               isResubmit
                 ? ' It already has a ticket, so sending creates a new submission with that type; this one stays Cleanup Only.'
                 : ' This is its first send, so the task itself becomes cleanup work tagged with the type you pick.'}`
             : resolvedSendAsType === defaultSendAsType
               ? `Matches the ticket's own type.${isResubmit ? ' The new submission this creates will have this type.' : ''}`
-              : `Overriding the ticket's own type — EasyVista will be told this is a ${sentAsLabel}. ${
+              : `Overriding the ticket's own type — ${TRACKER_LABEL_THE} will be told this is a ${sentAsLabel}. ${
                 isResubmit
                   ? 'The new submission gets that type; this record keeps its own.'
                   : 'This record keeps its own type.'}`}
@@ -247,7 +248,7 @@ export function DetailEasyVistaSection({
             <li>
               Creates a <strong>new submission</strong>
               {resolvedSendAsType && <> as a <strong>{sentAsLabel}</strong></>} and a{' '}
-              <strong>new EasyVista ticket</strong>.
+              <strong>new {TRACKER_LABEL} ticket</strong>.
             </li>
             <li>
               <strong>{detail.easyvista_ticket_id} is not updated</strong> — it stays as it is,
@@ -272,7 +273,7 @@ export function DetailEasyVistaSection({
           </summary>
           <ul>
             <li><strong>No new submission is created</strong> — this record is updated in place.</li>
-            <li>Stores the new EasyVista id and sets the status to <strong>Submitted</strong>.</li>
+            <li>Stores the new {TRACKER_LABEL} id and sets the status to <strong>Submitted</strong>.</li>
             {isCleanupOnly && resolvedSendAsType && (
               <li>Tags this task as <strong>Cleanup + {sentAsLabel}</strong>.</li>
             )}
@@ -348,7 +349,7 @@ export function DetailEasyVistaSection({
           disabled={blocked || locked || working || !preview}
           onClick={() => setConfirming(true)}
         >
-          {isResubmit ? 'Re-submit to EasyVista…' : 'Submit to EasyVista…'}
+          {isResubmit ? `Re-submit to ${TRACKER_LABEL_THE}…` : `Submit to ${TRACKER_LABEL_THE}…`}
         </Button>
       </div>
 
@@ -398,7 +399,7 @@ function EasyVistaFiles({
         <span>
           {all.length === 0
             ? 'none on this ticket'
-            : `${selected.length} of ${all.length} selected · EasyVista accepts ${max}`}
+            : `${selected.length} of ${all.length} selected · ${TRACKER_LABEL_THE} accepts ${max}`}
         </span>
       </div>
 
@@ -489,22 +490,22 @@ function EasyVistaConfirm({
         className="dm-confirm"
         role="dialog"
         aria-modal="true"
-        aria-label={isResubmit ? 'Re-submit to EasyVista?' : 'Submit to EasyVista?'}
+        aria-label={isResubmit ? `Re-submit to ${TRACKER_LABEL_THE}?` : `Submit to ${TRACKER_LABEL_THE}?`}
         onClick={(e) => e.stopPropagation()}
       >
         <header className="dm-confirm-head">
-          <h3>{isResubmit ? 'Re-submit to EasyVista?' : 'Submit to EasyVista?'}</h3>
+          <h3>{isResubmit ? `Re-submit to ${TRACKER_LABEL_THE}?` : `Submit to ${TRACKER_LABEL_THE}?`}</h3>
         </header>
 
         <div className="dm-confirm-body">
           <div className="dm-consequence">
-            <h5>{isResubmit ? 'This forks the ticket' : 'This creates an EasyVista ticket'}</h5>
+            <h5>{isResubmit ? 'This forks the ticket' : `This creates a ${TRACKER_LABEL} ticket`}</h5>
             <ul>
               {isResubmit ? (
                 <>
                   <li>
                     Creates a <strong>new submission as a {sentAsLabel}</strong> with a{' '}
-                    <strong>new EasyVista ticket</strong>.
+                    <strong>new {TRACKER_LABEL} ticket</strong>.
                   </li>
                   <li>
                     <strong>{detail.easyvista_ticket_id} will not be updated.</strong> This
@@ -520,7 +521,7 @@ function EasyVistaConfirm({
                 </>
               ) : (
                 <>
-                  <li>Raises it in EasyVista as a <strong>{sentAsLabel}</strong> and stores the id here.</li>
+                  <li>Raises it in {TRACKER_LABEL_THE} as a <strong>{sentAsLabel}</strong> and stores the id here.</li>
                   <li>Sets the status to <strong>Submitted</strong>. <strong>No new submission is created.</strong></li>
                   {isCleanupOnly && (
                     <li>Tags this task as <strong>Cleanup + {sentAsLabel}</strong>.</li>
@@ -591,7 +592,7 @@ function EasyVistaConfirm({
           </p>
           <div className="dm-foot-actions">
             <Button kind="ghost" onClick={onClose}>Cancel</Button>
-            <Button onClick={onSend}>Send to EasyVista</Button>
+            <Button onClick={onSend}>Send to {TRACKER_LABEL_THE}</Button>
           </div>
         </div>
       </div>

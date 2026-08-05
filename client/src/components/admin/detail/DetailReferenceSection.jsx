@@ -1,5 +1,6 @@
 import { Input, Textarea } from '../../bite-size/BitsizeUI';
 import { DetailGroup, DetailReadOnly } from './DetailPane';
+import { TRACKER_LABEL } from '../../../constants/tracker';
 import {
   formatCreatedViaLabel,
   isAutoEasyVistaReporter,
@@ -25,7 +26,7 @@ export function DetailReferenceSection({ detail, edit, setEdit }) {
           <DetailReadOnly label="Submitted to EV By" value={edit.easyvista_submitted_by} />
         ) : (
           <Input
-            label="Submitted to EV By"
+            label={`Submitted to ${TRACKER_LABEL} By`}
             value={edit.easyvista_submitted_by}
             placeholder="Unknown"
             onChange={(e) => setEdit((p) => ({ ...p, easyvista_submitted_by: e.target.value }))}
@@ -40,10 +41,10 @@ export function DetailReferenceSection({ detail, edit, setEdit }) {
         <Input
           label="Duplicate Reference"
           value={edit.duplicate_of}
-          placeholder="EasyVista / JIRA / ID"
+          placeholder={`${TRACKER_LABEL} / JIRA / ID`}
           onChange={(e) => setEdit((p) => ({ ...p, duplicate_of: e.target.value }))}
         />
-        <p className="bs-field-hint">An EasyVista ID, a JIRA key, or a submission ID.</p>
+        <p className="bs-field-hint">A {TRACKER_LABEL} ID, a JIRA key, or a submission ID.</p>
       </DetailGroup>
 
       <DetailGroup label="Release">

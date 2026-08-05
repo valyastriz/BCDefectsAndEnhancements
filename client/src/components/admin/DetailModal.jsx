@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Modal } from '../bite-size/BitsizeUI';
 import { editableFromDetail } from '../../utils/mappers';
+import { TRACKER_LABEL } from '../../constants/tracker';
 import {
   DETAIL_TABS,
   EASYVISTA_REQUIREMENT_SECTION,
@@ -150,7 +151,7 @@ export function DetailModal({
     { key: DETAIL_TABS.impact, label: 'Impact', warn: blockedTabs.has(DETAIL_TABS.impact) },
     {
       key: DETAIL_TABS.easyvista,
-      label: 'EasyVista Submission',
+      label: `${TRACKER_LABEL} Submission`,
       warn: easyVistaMissingRequirements.length > 0,
     },
   ];

@@ -1304,6 +1304,37 @@ tr.clickable:hover td { background: var(--blue-50); }
     flex: 1 1 auto;
     max-width: 58%;
   }
+  /* The value is a flex item, so by default it refuses to shrink below its own
+     min-content. The Summary cell's min-content is its widest badge — an
+     application name, a "Resubmitted: EV-#####" reference — and that pushed the
+     card wider than its container, which the card then clipped rather than
+     scrolled. Letting the value shrink is half the fix; the other half is the
+     narrow block below. */
+  .admin-submissions-table tbody td > * {
+    min-width: 0;
+  }
+}
+
+/* Below this the 42% label column leaves too little for a cell holding chips that
+   cannot wrap mid-word, so the label sits ABOVE its value and the value gets the
+   whole card width. Same information, no clipped right-hand gutter. */
+@media (max-width: 560px) {
+  .admin-submissions-table tbody td {
+    flex-direction: column;
+    /* flex-start, not stretch: stretch would blow a bare checkbox up to the full
+       card width. The two inline editors opt into the full width themselves. */
+    align-items: flex-start;
+    justify-content: flex-start;
+    gap: 4px;
+  }
+  .admin-submissions-table tbody td::before {
+    flex: none;
+  }
+  .admin-submissions-table tbody td .bs-inline-select,
+  .admin-submissions-table tbody td .bs-inline-input {
+    max-width: none;
+    align-self: stretch;
+  }
 }
 
 /* ─────────────────────────────────────────────
@@ -2167,9 +2198,14 @@ tr[data-selected="true"] td { background: color-mix(in srgb, var(--color-primary
 }
 .bs-modal-head { flex-wrap: wrap; }
 
-/* The tabbed body does not scroll — the active pane does. */
+/* The tabbed body does not scroll — the active pane does.
+   The child combinator is load-bearing: the detail modal's footer renders TWO more
+   modals inside its own DOM (the redirect dialog and the EasyVista confirm, both in
+   detail/DetailActions.jsx), so as a descendant selector this rule reached their
+   `.bs-modal-body` too — stripping its 20/24 padding and imposing a three-row grid
+   on it. That was the reported "redirect dialog has no horizontal padding". */
 .dm-modal { container-type: inline-size; }
-.dm-modal .bs-modal-body {
+.dm-modal > .bs-modal-body {
   overflow: hidden;
   padding: 0;
   display: grid;
@@ -2835,19 +2871,35 @@ select.dm-prow-input { cursor: pointer; }
 
 /* ── Two columns: the form, and the rail that owns the primary action ── */
 .rs-cols { display: grid; grid-template-columns: minmax(0,1fr) 316px; gap: 16px; align-items: start; }
-.rs-main { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.rs-main { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 .rs-rail { display: flex; flex-direction: column; gap: 14px; position: sticky; top: 16px; }
 
+/* Four cards, not six. Six cost six sets of padding plus five gaps — and read as
+   six unrelated forms — for what are three questions: what you are reporting,
+   what happened, and the evidence. No field, label, validation rule or question
+   order changed; what changed is how many boxes the fields are spread across and
+   how much air each box carries. Measured 1626px -> 1209px on a desktop.
+   See the approved review:
+   https://claude.ai/code/artifact/58f88812-d2db-4eaf-92c4-b1e527a4575c */
 .rs-card {
   background: var(--color-surface); border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg); padding: 16px 18px 18px;
-  box-shadow: var(--shadow-sm); display: flex; flex-direction: column; gap: 13px; min-width: 0;
+  border-radius: var(--radius-lg); padding: 14px 16px 16px;
+  box-shadow: var(--shadow-sm); display: flex; flex-direction: column; gap: 11px; min-width: 0;
 }
 .rs-grouplabel {
   margin: 0; font-size: 10.5px; font-weight: 800; letter-spacing: .09em; text-transform: uppercase;
   color: var(--color-primary); padding-bottom: 7px; border-bottom: 1px solid var(--color-border);
   display: flex; align-items: center; gap: 9px; flex-wrap: wrap;
 }
+
+/* The group label and the type choice share one row. The rule belongs to the row,
+   so the label inside it drops its own. */
+.rs-cardhead {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 10px 18px; flex-wrap: wrap;
+  padding-bottom: 7px; border-bottom: 1px solid var(--color-border);
+}
+.rs-cardhead .rs-grouplabel { padding-bottom: 0; border-bottom: 0; }
 .rs-chip {
   font-size: 9.5px; font-weight: 800; letter-spacing: .07em; text-transform: uppercase;
   border-radius: 999px; padding: 2px 7px;
@@ -2856,8 +2908,16 @@ select.dm-prow-input { cursor: pointer; }
 }
 .rs-chip--opt { background: color-mix(in srgb, var(--color-muted) 16%, var(--color-surface)); color: var(--color-muted); }
 
-/* ── Type picker: two cards, because this choice reshapes the whole form ── */
+/* ── Type picker ──────────────────────────────────────────────────────────────
+   The type choice is one bit of information. As two stacked full-width cards
+   inside their own titled card it cost 123px; as a segmented pair sharing the
+   group-label row it costs nothing of its own. `.rs-types` is kept for anything
+   that still wants the two-card shape. */
 .rs-types { display: grid; grid-template-columns: 1fr 1fr; gap: 11px; }
+.rs-seg {
+  display: inline-flex; gap: 4px; padding: 3px; border-radius: 999px;
+  background: var(--color-bg); border: 1px solid var(--color-border);
+}
 /* One row: the mark and the name. The descriptions these cards used to carry
    were the bulk of their height, so the padding comes down with them. */
 .rs-type {
@@ -2867,6 +2927,17 @@ select.dm-prow-input { cursor: pointer; }
   transition: border-color .15s, background .15s, box-shadow .15s;
 }
 .rs-type:hover { border-color: color-mix(in srgb, var(--color-primary) 45%, var(--color-border)); }
+.rs-seg .rs-type {
+  border: 0; background: transparent; box-shadow: none;
+  padding: 6px 15px; border-radius: 999px; gap: 7px; grid-template-columns: auto auto;
+}
+.rs-seg .rs-type-mark { width: 15px; height: 15px; border-width: 1.5px; }
+.rs-seg .rs-type-mark::after { width: 7px; height: 7px; }
+.rs-seg .rs-type-name { font-size: 13.5px; }
+.rs-seg .rs-type[aria-pressed='true'] {
+  background: var(--color-surface); box-shadow: var(--shadow-sm);
+  border: 1px solid color-mix(in srgb, var(--color-primary) 40%, transparent);
+}
 .rs-type-mark {
   width: 19px; height: 19px; border-radius: 50%;
   border: 2px solid color-mix(in srgb, var(--color-text) 25%, transparent);
@@ -2908,9 +2979,11 @@ select.dm-prow-input { cursor: pointer; }
 .rs-hint { margin: 0; font-size: 12.5px; color: var(--color-muted); }
 /* The whole row is the hit target — a 13px checkbox on its own is a poor one,
    especially on a phone. */
+/* It used to be a titled card wrapped around a single checkbox — 120px for one
+   boolean. It belongs with what happened, and its own text asks the question. */
 .rs-flag {
   display: flex; align-items: center; gap: 10px; cursor: pointer;
-  padding: 11px 13px; border-radius: var(--radius-sm);
+  padding: 9px 12px; border-radius: var(--radius-sm);
   border: 1px solid color-mix(in srgb, var(--color-text) 22%, var(--color-surface));
   font-size: 14px; font-weight: 550;
 }
@@ -2932,14 +3005,23 @@ select.dm-prow-input { cursor: pointer; }
 
 .rs-row { display: grid; gap: 11px; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); }
 .rs-row--when { grid-template-columns: minmax(0,2fr) minmax(0,1.1fr) minmax(0,1fr); }
+/* A short identifying field and a one-line summary do not each need a full row of
+   an 848px column. One per row again on narrow screens. */
+.rs-row--who {
+  display: grid; gap: 11px; grid-template-columns: minmax(0, 250px) minmax(0, 1fr);
+  align-items: end;
+}
+.rs-row--who .rs-field-lead { min-width: 0; }
+@media (max-width: 760px) {
+  .rs-row--who { grid-template-columns: minmax(0, 1fr); }
+}
 
-/* Optional reference numbers: kept in view — a rep filing a defect has the
-   record open — but visibly secondary to the required fields above. */
+/* Optional reference numbers. They already sat three-up; the dashed box around
+   them added a border, a heading row and 25px of padding for three optional
+   fields. The heading stays — it is the only thing saying they are optional —
+   and the box goes. */
 .rs-sub {
-  border: 1px dashed color-mix(in srgb, var(--color-text) 18%, transparent);
-  border-radius: var(--radius); padding: 12px 13px 13px;
-  background: color-mix(in srgb, var(--color-text) 2.5%, var(--color-surface));
-  display: flex; flex-direction: column; gap: 10px;
+  display: flex; flex-direction: column; gap: 8px;
 }
 .rs-sub-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
 .rs-sub-head b { font-size: 12.5px; font-weight: 700; }
@@ -3016,12 +3098,17 @@ select.dm-prow-input { cursor: pointer; }
 }
 @keyframes rs-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }
 
-/* ── Screenshots ── */
+/* ── Screenshots ──────────────────────────────────────────────────────────────
+   The drop zone stacked an icon, a headline, a button and a two-line hint into a
+   column, 169px tall. Laid out as a row it says the same things in half the
+   height. Nothing is removed — drag, browse and paste all still work.
+   Deliberately NOT shrinking the textareas above: they carry the actual report,
+   and a smaller box invites a shorter answer. */
 .rs-drop {
   border: 1.5px dashed color-mix(in srgb, var(--color-primary) 40%, transparent);
   background: color-mix(in srgb, var(--color-primary) 4%, var(--color-surface));
-  border-radius: var(--radius); padding: 20px 16px; text-align: center;
-  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  border-radius: var(--radius); padding: 12px 14px; text-align: left;
+  display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; gap: 8px 12px;
   transition: background .15s, border-color .15s, box-shadow .15s;
 }
 .rs-drop:hover { background: color-mix(in srgb, var(--color-primary) 7%, var(--color-surface)); }
@@ -3033,10 +3120,16 @@ select.dm-prow-input { cursor: pointer; }
   background: color-mix(in srgb, var(--color-primary) 10%, var(--color-surface));
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 20%, transparent);
 }
-.rs-drop-icon { font-size: 20px; line-height: 1; }
-.rs-drop b { font-size: 13.5px; font-weight: 700; }
-.rs-drop > span { font-size: 12px; color: var(--color-muted); max-width: 46ch; }
+.rs-drop-icon { order: 1; font-size: 18px; line-height: 1; flex: 0 0 auto; }
+.rs-drop b { order: 2; font-size: 13.5px; font-weight: 700; }
+/* `:not(.rs-drop-icon)` matters — the icon is also a bare span child, and without
+   the exclusion this selector (two classes plus a type) outranks `.rs-drop-icon`
+   (two classes) and drags the icon onto its own line. */
+.rs-drop > span:not(.rs-drop-icon) {
+  order: 4; flex: 1 1 100%; font-size: 12px; color: var(--color-muted); max-width: none;
+}
 .rs-drop-browse {
+  order: 3; margin-left: auto;
   font: inherit; font-size: 13px; font-weight: 650; cursor: pointer;
   padding: 6px 15px; border-radius: var(--radius-sm);
   border: 1px solid color-mix(in srgb, var(--color-primary) 45%, transparent);
@@ -3282,15 +3375,17 @@ select.dm-prow-input { cursor: pointer; }
 .access-page .bs-header { margin-bottom: 0; }
 .access-signedin { font-size: 12.5px; margin: 0; }
 
-/* Summary — the count that matters is how many people see nothing. */
-.access-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(168px, 1fr)); gap: 12px; }
-.access-tile {
+/* Summary — the count that matters is how many people see nothing.
+   The metadata page's tiles are the same object, so they share these rules rather
+   than restating them under an md- name. */
+.access-tiles, .md-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(168px, 1fr)); gap: 12px; }
+.access-tile, .md-tile {
   background: var(--color-surface); border: 1px solid var(--color-border);
   border-radius: var(--radius); padding: 14px 16px; box-shadow: var(--shadow-sm);
   display: flex; flex-direction: column; gap: 2px;
 }
-.access-tile-num { font-size: 26px; font-weight: 650; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
-.access-tile-lbl { font-size: 13px; color: var(--color-muted); }
+.access-tile-num, .md-tile-num { font-size: 26px; font-weight: 650; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.access-tile-lbl, .md-tile-lbl { font-size: 13px; color: var(--color-muted); }
 .access-tile--attention { border-color: #eab308; }
 .access-tile--attention .access-tile-num { color: var(--status-cleanup-only-fg); }
 
@@ -3900,4 +3995,553 @@ select.dm-prow-input { cursor: pointer; }
 }
 @keyframes sk-shimmer { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
 @media (prefers-reduced-motion: reduce) { .sk-bar::after { animation: none; } }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   at- — Add a ticket. One dialog, two modes. The mode decides which fields
+   exist rather than which are greyed out: an admin filing today's report should
+   never scroll past a "Deployed Date".
+
+   Lifted from the approved mockup so the built dialog and the artifact are
+   literally the same CSS:
+   https://claude.ai/code/artifact/d5f3f12b-f9d0-47e8-8466-39672584afce
+   ══════════════════════════════════════════════════════════════════════════ */
+.at-modal { max-width: 940px; }
+.at-body { display: flex; flex-direction: column; gap: 16px; }
+
+/* Mode + type are the two questions that reshape everything below, so they sit
+   together above the form rather than inside it as ordinary fields. */
+.at-modes { display: flex; flex-direction: column; gap: 9px; }
+.at-seg { display: inline-flex; gap: 4px; padding: 4px; border-radius: 999px;
+  background: var(--color-bg); border: 1px solid var(--color-border); align-self: flex-start; }
+.at-seg button {
+  font: inherit; font-size: 13.5px; font-weight: 650; cursor: pointer;
+  padding: 7px 16px; border-radius: 999px; border: 1px solid transparent;
+  background: transparent; color: var(--color-muted);
+}
+.at-seg button:hover { color: var(--color-text); }
+.at-seg button[aria-pressed='true'] {
+  background: var(--color-surface); color: var(--color-primary);
+  border-color: color-mix(in srgb, var(--color-primary) 38%, transparent);
+  box-shadow: var(--shadow-sm);
+}
+.at-seg button:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+.at-modenote { margin: 0; font-size: 13px; color: var(--color-muted); max-width: 76ch; }
+.at-modenote b { color: var(--color-text); font-weight: 650; }
+
+.at-grouprow { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.at-grouprow .at-seg { align-self: auto; }
+
+.at-sec { display: flex; flex-direction: column; gap: 11px; }
+.at-sec-lbl {
+  margin: 0; font-size: 10.5px; font-weight: 800; letter-spacing: .09em; text-transform: uppercase;
+  color: var(--color-primary); padding-bottom: 7px; border-bottom: 1px solid var(--color-border);
+  display: flex; align-items: center; gap: 9px; flex-wrap: wrap;
+}
+.at-sec-tag {
+  font-size: 9.5px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase;
+  border-radius: 999px; padding: 2px 7px; color: var(--color-muted);
+  background: color-mix(in srgb, var(--color-muted) 15%, var(--color-surface));
+}
+
+.at-row { display: grid; gap: 11px; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); }
+.at-row--2 { grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+.at-f { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.at-f-lbl { font-size: 13px; font-weight: 650; display: flex; align-items: baseline; gap: 6px; }
+.at-req { color: var(--color-danger); font-style: normal; font-weight: 700; }
+.at-opt {
+  font-size: 10px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase;
+  color: var(--color-muted); margin-left: auto;
+}
+.at-f input, .at-f select, .at-f textarea {
+  width: 100%; font: inherit; font-size: 14px; color: var(--color-text);
+  background: var(--color-surface); border-radius: var(--radius-sm); padding: 9px 12px;
+  border: 1px solid color-mix(in srgb, var(--color-text) 22%, var(--color-surface));
+}
+.at-f textarea { resize: vertical; min-height: 84px; line-height: 1.55; }
+.at-f input:focus, .at-f select:focus, .at-f textarea:focus {
+  outline: none; border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 20%, transparent);
+}
+.at-hint { font-size: 12px; color: var(--color-muted); }
+
+/* Collapsed by default: an admin filing a historical ticket usually has its
+   dates and its number, not its dollar impact. */
+.at-fold { border: 1px solid var(--color-border); border-radius: var(--radius); }
+.at-fold > summary {
+  cursor: pointer; padding: 11px 13px; display: flex; align-items: center; gap: 9px;
+  font-size: 13.5px; font-weight: 650; list-style: none;
+}
+.at-fold > summary::-webkit-details-marker { display: none; }
+.at-fold > summary::after { content: ''; margin-left: auto; width: 8px; height: 8px;
+  border-right: 1.8px solid var(--color-muted); border-bottom: 1.8px solid var(--color-muted);
+  transform: rotate(45deg); transition: transform .15s ease; }
+.at-fold[open] > summary::after { transform: rotate(-135deg); }
+.at-fold > summary span { font-weight: 400; font-size: 12.5px; color: var(--color-muted); }
+.at-fold-body { padding: 0 13px 13px; display: flex; flex-direction: column; gap: 11px; }
+
+/* Mode gating. Fields belong to a mode; they are absent in the other, not
+   disabled — a disabled "Deployed Date" still costs a line to scroll past. */
+.at-body[data-mode='new'] .at-only-hist { display: none; }
+.at-body[data-mode='hist'] .at-only-new { display: none; }
+
+/* Branch gating. data-branch is computed rather than read straight off the type,
+   because a cleanup task can itself be tagged as a defect or an enhancement and
+   then wants that branch's fields. So: defect -> defect, enhancement ->
+   enhancement, cleanup -> whatever it is tagged as (or none). One attribute to
+   key off instead of a rule per type/tag pair. */
+.at-body:not([data-branch='defect']) .at-only-def { display: none; }
+.at-body:not([data-branch='enhancement']) .at-only-enh { display: none; }
+.at-body:not([data-type='cleanup']) .at-only-clean { display: none; }
+/* Internal-only cleanup: no downstream hand-off, so it asks for a description
+   instead of a defect/enhancement branch. */
+.at-body:not([data-branch='none']) .at-only-internal { display: none; }
+/* The hand-off offer only exists once the cleanup task has been tagged as
+   something the Service Desk accepts — and only for a NEW one. A historical
+   task already went wherever it went, and records its number in "Where it
+   already went"; offering to send it again would contradict the footer and could
+   raise a duplicate downstream. */
+.at-body[data-branch='none'] .at-only-tagged,
+.at-body[data-mode='hist'] .at-only-tagged { display: none; }
+
+/* The cleanup tag is a second question inside the first, so it is indented
+   under it rather than presented as a peer field. */
+.at-tagrow {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: 11px 13px; border-radius: var(--radius);
+  background: var(--color-bg); border: 1px solid var(--color-border);
+}
+.at-tagrow > span:first-child { font-size: 13px; font-weight: 650; }
+.at-tagnote { flex: 1 1 100%; margin: 0; font-size: 12.5px; color: var(--color-muted); }
+.at-flag {
+  display: flex; align-items: flex-start; gap: 10px; cursor: pointer;
+  padding: 11px 13px; border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border); background: var(--color-surface);
+}
+.at-flag input { margin-top: 2px; flex: none; width: 15px; height: 15px; }
+.at-flag b { font-size: 13.5px; font-weight: 650; display: block; }
+.at-flag span { font-size: 12.5px; color: var(--color-muted); }
+
+/* The footer row shared by all three dialogs. `.bs-modal-foot` deliberately
+   carries no padding of its own — each footer's content brings its own gutters —
+   so this is where they live, matching the mockup's 13/18. */
+.at-foot {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 13px 18px;
+}
+.at-foot-note { font-size: 12.5px; color: var(--color-muted); flex: 1 1 240px; }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   xl- — the Excel dialogs. Import is a sequence, so it is drawn as one.
+   ══════════════════════════════════════════════════════════════════════════ */
+.xl-modal { max-width: 900px; }
+.xl-body { display: flex; flex-direction: column; gap: 16px; }
+
+.xl-steps { display: flex; align-items: center; gap: 0; flex-wrap: wrap; }
+.xl-step { display: flex; align-items: center; gap: 9px; font-size: 13px; color: var(--color-muted); }
+.xl-step-n {
+  width: 23px; height: 23px; border-radius: 50%; display: grid; place-items: center; flex: none;
+  font-size: 12px; font-weight: 800; background: var(--color-bg); color: var(--color-muted);
+  border: 1px solid var(--color-border);
+}
+.xl-step--on { color: var(--color-text); font-weight: 650; }
+.xl-step--on .xl-step-n { background: var(--color-primary); color: #fff; border-color: var(--color-primary); }
+.xl-step--done .xl-step-n { background: var(--status-approved-bg); color: var(--status-approved-fg);
+  border-color: color-mix(in srgb, var(--status-approved-fg) 35%, transparent); }
+.xl-step-bar { flex: 1 1 22px; min-width: 22px; height: 1px; background: var(--color-border); margin: 0 11px; }
+
+.xl-panel { display: flex; flex-direction: column; gap: 13px; }
+.xl-drop {
+  border: 1.5px dashed color-mix(in srgb, var(--color-primary) 40%, transparent);
+  background: color-mix(in srgb, var(--color-primary) 4%, var(--color-surface));
+  border-radius: var(--radius); padding: 14px 16px;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px;
+}
+.xl-drop b { font-size: 13.5px; }
+.xl-drop-hint { flex: 1 1 100%; font-size: 12px; color: var(--color-muted); }
+.xl-file {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 11px 13px; border-radius: var(--radius);
+  background: var(--color-bg); border: 1px solid var(--color-border);
+}
+.xl-file b { font-size: 13.5px; }
+.xl-file-meta { font-size: 12.5px; color: var(--color-muted); }
+.xl-file .bs-btn { margin-left: auto; }
+
+/* The headline of step 2. Most columns match themselves, so the count is the
+   reassurance and only the exceptions are worth the admin's attention. */
+.xl-matched {
+  display: flex; align-items: center; gap: 10px; padding: 11px 13px; border-radius: var(--radius);
+  background: var(--status-approved-bg); color: var(--status-approved-fg); font-size: 13.5px;
+}
+.xl-matched b { font-weight: 750; }
+.xl-needs {
+  padding: 11px 13px; border-radius: var(--radius); font-size: 13.5px;
+  background: var(--status-cleanup-only-bg); color: var(--status-cleanup-only-fg);
+}
+.xl-needs b { font-weight: 750; }
+
+.xl-maps { display: flex; flex-direction: column; gap: 8px; }
+.xl-map {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1.1fr); gap: 10px;
+  align-items: center; padding: 9px 11px; border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border); background: var(--color-surface);
+}
+.xl-map--todo { border-color: #eab308; background: color-mix(in srgb, #eab308 7%, var(--color-surface)); }
+.xl-map-src { font-size: 13.5px; font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.xl-map-src span { display: block; font-family: var(--mono); font-size: 11px; color: var(--color-muted); font-weight: 400; }
+.xl-map-arrow { color: var(--color-muted); }
+.xl-map select {
+  font: inherit; font-size: 13.5px; width: 100%; padding: 7px 10px; border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text);
+}
+.xl-map--todo select { border-color: #eab308; }
+
+.xl-preview { overflow-x: auto; border: 1px solid var(--color-border); border-radius: var(--radius); }
+.xl-preview table { width: 100%; border-collapse: collapse; min-width: 560px; }
+.xl-preview th {
+  text-align: left; font-size: 10.5px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--color-muted); background: var(--color-bg); padding: 8px 11px; white-space: nowrap;
+  border-bottom: 1px solid var(--color-border);
+}
+.xl-preview td { padding: 8px 11px; font-size: 13px; border-bottom: 1px solid var(--color-border); white-space: nowrap; }
+.xl-preview tr:last-child td { border-bottom: 0; }
+.xl-preview-cap { font-size: 12.5px; color: var(--color-muted); }
+
+.xl-result { display: flex; flex-direction: column; gap: 10px; }
+.xl-tally { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; }
+.xl-tallybox {
+  padding: 12px 14px; border-radius: var(--radius); border: 1px solid var(--color-border);
+  background: var(--color-surface); display: flex; flex-direction: column; gap: 2px;
+}
+.xl-tallybox b { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.xl-tallybox span { font-size: 12.5px; color: var(--color-muted); }
+.xl-tallybox--bad b { color: var(--status-rejected-fg); }
+.xl-rows { margin: 0; padding-left: 20px; font-size: 13px; display: flex; flex-direction: column; gap: 4px; }
+
+/* ── Export ── */
+.xl-count {
+  display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+  padding: 13px 15px; border-radius: var(--radius);
+  background: var(--blue-50); border: 1px solid color-mix(in srgb, var(--color-primary) 22%, transparent);
+}
+:root[data-theme='dark'] .xl-count { background: #17293f; }
+.xl-count b { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.xl-count span { font-size: 13px; color: var(--color-muted); }
+.xl-presets { display: flex; gap: 7px; flex-wrap: wrap; align-items: center; }
+.xl-presets-lbl { font-size: 12px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--color-muted); }
+.xl-preset {
+  font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer;
+  padding: 6px 12px; border-radius: 999px;
+  border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text);
+}
+.xl-preset:hover { border-color: var(--color-primary); color: var(--color-primary); }
+.xl-preset:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+
+.xl-groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(268px, 1fr)); gap: 12px; }
+.xl-group { border: 1px solid var(--color-border); border-radius: var(--radius); overflow: hidden; }
+.xl-group-head {
+  display: flex; align-items: center; gap: 9px; padding: 9px 12px;
+  background: var(--color-bg); border-bottom: 1px solid var(--color-border);
+}
+.xl-group-head b { font-size: 13px; font-weight: 700; }
+.xl-group-n { font-size: 11.5px; color: var(--color-muted); font-variant-numeric: tabular-nums; margin-left: auto; }
+.xl-group-all {
+  font: inherit; font-size: 11.5px; font-weight: 650; cursor: pointer; padding: 2px 8px;
+  border-radius: 999px; border: 1px solid var(--color-border);
+  background: var(--color-surface); color: var(--color-primary);
+}
+.xl-group-body { padding: 8px 12px 10px; display: flex; flex-direction: column; gap: 5px; }
+.xl-ck { display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer; padding: 2px 0; }
+.xl-ck input { width: 15px; height: 15px; flex: none; }
+
+/* ── Narrow screens ──────────────────────────────────────────────────────────
+   The mockup was reviewed at desktop width, where the segmented controls and the
+   three-column mapping row fit on one line. In a phone-width modal body (~300px
+   of usable space) they do not, and a dialog that scrolls sideways is a defect —
+   so the pill groups wrap and the mapping row stacks. Driven by the window,
+   because these live inside .bs-modal, which is already width-capped. */
+@media (max-width: 560px) {
+  .at-seg { flex-wrap: wrap; align-self: stretch; border-radius: var(--radius); }
+  .at-seg button { flex: 1 1 auto; }
+  .at-grouprow { align-items: flex-start; flex-direction: column; gap: 8px; }
+  .at-grouprow .at-seg { align-self: stretch; }
+  .at-tagrow { flex-direction: column; align-items: stretch; }
+
+  .xl-map { grid-template-columns: minmax(0, 1fr); gap: 6px; }
+  /* With the row stacked, an arrow pointing down the page is the honest glyph;
+     a right-pointing one would now point at nothing. */
+  .xl-map-arrow { display: none; }
+  .xl-step-bar { display: none; }
+  .xl-steps { gap: 6px 14px; }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   md- — the metadata page (pages/AdminMetadataPage.jsx)
+   Lifted from the approved redesign mockup so the built page and the artifact are
+   literally the same CSS:
+   https://claude.ai/code/artifact/d54d37c6-97ac-4913-b387-0a179fb13892
+   The tiles are shared with the Access page — see .access-tile above.
+   ═══════════════════════════════════════════════════════════════════════════ */
+.md-page { max-width: 1240px; margin: 0 auto; display: flex; flex-direction: column; gap: 18px; }
+.md-page .bs-header { margin-bottom: 0; }
+.md-signedin { font-size: 12.5px; color: var(--color-muted); margin: 0; }
+
+.md-card { overflow: hidden; }
+.md-body { display: grid; grid-template-columns: 232px minmax(0, 1fr); align-items: stretch; }
+
+/* Narrow-screen list picker. Nine lists is too many to swipe through to reach
+   the one you want, so below the two-column breakpoint the rail is replaced by a
+   dropdown rather than being turned on its side. Same state, one selection. */
+.md-picker { display: none; }
+.md-picker-lbl {
+  font-size: 10.5px; font-weight: 800; letter-spacing: .085em; text-transform: uppercase;
+  color: var(--color-muted); flex: none;
+}
+.md-picker-select {
+  font: inherit; font-size: 14px; font-weight: 600; cursor: pointer;
+  flex: 1 1 auto; min-width: 0; padding: 9px 34px 9px 12px;
+  border: 1px solid var(--color-border); border-radius: var(--radius-sm);
+  background-color: var(--color-surface); color: var(--color-text);
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%2364748b' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 12px center;
+  appearance: none; -webkit-appearance: none;
+}
+.md-picker-select:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 1px; }
+/* The open list is drawn by the OS, so the options need their own colours. */
+.md-picker-select option { background: var(--color-surface); color: var(--color-text); font-weight: 500; }
+
+/* Rail — nine lists, each carrying its own size so curation debt is visible
+   before you click into it. */
+.md-rail {
+  border-right: 1px solid var(--color-border); background: var(--color-bg);
+  padding: 12px; display: flex; flex-direction: column; gap: 2px; min-width: 0;
+}
+.md-rail-lbl {
+  font-size: 10.5px; font-weight: 800; letter-spacing: .085em; text-transform: uppercase;
+  color: var(--color-muted); padding: 4px 8px 8px; margin: 0;
+}
+.md-railitem {
+  font: inherit; text-align: left; cursor: pointer; width: 100%;
+  border: 1px solid transparent; border-radius: var(--radius-sm); background: transparent;
+  color: var(--color-text); padding: 8px 10px; display: flex; flex-direction: column; gap: 1px;
+}
+.md-railitem:hover { background: var(--color-surface); border-color: var(--color-border); }
+.md-railitem:focus-visible { outline: 2px solid var(--color-primary); outline-offset: -1px; }
+.md-railitem--on {
+  background: var(--color-surface); border-color: var(--color-border);
+  box-shadow: inset 3px 0 0 var(--color-primary); font-weight: 650;
+}
+.md-railitem-name { font-size: 13.5px; letter-spacing: -.005em; }
+.md-railitem--on .md-railitem-name { color: var(--color-primary); }
+.md-railitem-sub { font-size: 11.5px; color: var(--color-muted); font-variant-numeric: tabular-nums; }
+.md-rail-sep { height: 1px; background: var(--color-border); margin: 8px 4px; }
+.md-rail-foot { padding: 0 4px; }
+.md-rail-foot .bs-btn { width: 100%; justify-content: center; }
+
+/* List pane */
+.md-list { min-width: 0; display: flex; flex-direction: column; }
+.md-listhead { padding: 15px 18px; border-bottom: 1px solid var(--color-border); }
+.md-listhead h3 { margin: 0; font-size: 16px; font-weight: 700; letter-spacing: -.012em; }
+.md-listtitle { display: flex; align-items: baseline; gap: 9px; flex-wrap: wrap; }
+/* The size of the list, stated where it cannot be truncated away. On narrow
+   screens the dropdown clips its own option text once closed, so this is the
+   only place the count survives. */
+.md-headcount {
+  font-size: 12px; font-weight: 650; color: var(--color-muted);
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.md-feeds { margin: 4px 0 0; font-size: 12.5px; color: var(--color-muted); max-width: 74ch; }
+.md-feeds b { color: var(--color-text); font-weight: 650; }
+
+.md-addrow { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 12px; }
+.md-input {
+  font: inherit; font-size: 13.5px; padding: 7px 11px; border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text);
+  min-width: 220px; flex: 1 1 220px; max-width: 340px;
+}
+.md-input::placeholder { color: var(--color-muted); }
+.md-input:focus-visible { outline: 2px solid var(--color-primary); outline-offset: -1px; border-color: var(--color-primary); }
+.md-addhint { font-size: 12px; color: var(--color-muted); flex: 1 1 100%; margin: 0; }
+
+.md-tablewrap { overflow-x: auto; }
+/* Its own floor: the global `table { min-width: 1400px }` exists for the very wide
+   admin queue and would push this table's last column behind a scrollbar. */
+.md-table { width: 100%; border-collapse: collapse; min-width: 620px; }
+.md-table th {
+  text-align: left; font-size: 10.5px; font-weight: 800; letter-spacing: .07em;
+  text-transform: uppercase; color: var(--color-muted);
+  padding: 9px 14px; background: var(--color-bg);
+  border-bottom: 1px solid var(--color-border); white-space: nowrap;
+}
+.md-table td {
+  padding: 9px 14px; border-bottom: 1px solid var(--color-border);
+  vertical-align: middle; font-size: 14px;
+}
+.md-table tr:last-child td { border-bottom: 0; }
+.md-col-use { width: 132px; }
+.md-col-on { width: 168px; }
+.md-col-order { width: 96px; }
+.md-row--off .md-name-input { color: var(--color-muted); }
+.md-row--locked { background: color-mix(in srgb, var(--color-muted) 5%, transparent); }
+
+/* The name is the primary edit, so it is a field at rest rather than text that
+   turns into one — nothing to discover, and no second click before typing. */
+.md-namecell { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.md-name-input {
+  font: inherit; font-size: 14px; font-weight: 550; width: 100%;
+  padding: 6px 9px; border-radius: var(--radius-sm);
+  border: 1px solid transparent; background: transparent; color: var(--color-text);
+}
+.md-name-input:hover:not(:disabled) { border-color: var(--color-border); background: var(--color-surface); }
+.md-name-input:focus {
+  outline: none; border-color: var(--color-primary); background: var(--color-surface);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 18%, transparent);
+}
+.md-name-input:disabled { cursor: default; }
+.md-name-raw { font-family: var(--mono); font-size: 11px; color: var(--color-muted); padding-left: 9px; }
+.md-name-dirty { font-size: 11.5px; font-weight: 650; color: var(--status-cleanup-only-fg); padding-left: 9px; }
+/* Protection belongs to the value, so it is stated once, next to the name —
+   not a third time beside a switch that is already visibly disabled. */
+.md-name-lock {
+  display: inline-flex; align-items: center; gap: 4px; margin-left: 9px; align-self: flex-start;
+  font-size: 11px; font-weight: 650; padding: 2px 7px; border-radius: 999px;
+  background: var(--status-holding-bg); color: var(--status-holding-fg);
+}
+
+/* Usage — the consequence column. A value nothing uses is safe to switch off;
+   a value 25 tickets use is not, and the number is the whole warning. */
+.md-use { display: inline-flex; align-items: baseline; gap: 5px; font-variant-numeric: tabular-nums; }
+.md-use-n { font-size: 15px; font-weight: 650; }
+.md-use-w { font-size: 12.5px; color: var(--color-muted); }
+.md-use--zero .md-use-n { color: var(--color-muted); font-weight: 500; }
+
+/* One switch, not the old Enabled + Disabled checkbox pair asking the same
+   question twice. */
+.md-switchcell { display: flex; align-items: center; gap: 9px; }
+.md-switch { display: inline-flex; align-items: center; cursor: pointer; flex: none; position: relative; }
+.md-switch input { position: absolute; opacity: 0; width: 0; height: 0; }
+.md-track {
+  width: 38px; height: 22px; border-radius: 999px; background: var(--slate-300);
+  position: relative; transition: background .14s ease; flex: none; display: inline-block;
+}
+:root[data-theme='dark'] .md-track { background: #3b4a63; }
+.md-track::after {
+  content: ''; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px;
+  border-radius: 50%; background: #fff; box-shadow: var(--shadow-sm); transition: transform .14s ease;
+}
+.md-switch input:checked + .md-track { background: var(--color-primary); }
+.md-switch input:checked + .md-track::after { transform: translateX(16px); }
+.md-switch input:focus-visible + .md-track { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+.md-switch input:disabled + .md-track { opacity: .5; cursor: not-allowed; }
+.md-switch-txt { font-size: 12.5px; color: var(--color-muted); }
+.md-switch-txt--on { color: var(--color-text); font-weight: 600; }
+
+.md-orderbtns { display: flex; gap: 4px; }
+.md-obtn {
+  font: inherit; font-size: 13px; line-height: 1; cursor: pointer;
+  width: 28px; height: 28px; display: grid; place-items: center;
+  border: 1px solid var(--color-border); border-radius: var(--radius-sm);
+  background: var(--color-surface); color: var(--color-text);
+}
+.md-obtn:hover:not(:disabled) { border-color: var(--color-primary); color: var(--color-primary); }
+.md-obtn:disabled { opacity: .3; cursor: not-allowed; }
+.md-obtn:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 1px; }
+
+.md-saved { font-size: 12px; font-weight: 650; color: var(--status-approved-fg); white-space: nowrap; }
+
+/* Switching off a value tickets already use is the one irreversible-feeling
+   action here, so it states the consequence in place instead of a dialog that
+   interrupts the row you are reading. */
+.md-consequence td {
+  background: var(--status-cleanup-only-bg); color: var(--status-cleanup-only-fg);
+  font-size: 13px; padding: 12px 14px;
+}
+.md-consequence-in { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center; }
+.md-consequence-in p { margin: 0; flex: 1 1 320px; }
+.md-consequence-in b { font-weight: 750; }
+.md-cbtn {
+  font: inherit; font-size: 13px; font-weight: 650; cursor: pointer;
+  padding: 6px 12px; border-radius: var(--radius-sm);
+  border: 1px solid currentColor; background: transparent; color: inherit;
+}
+.md-cbtn--go { background: var(--status-cleanup-only-fg); color: var(--status-cleanup-only-bg); }
+.md-cbtn:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+
+.md-listfoot {
+  margin-top: auto; padding: 12px 18px; border-top: 1px solid var(--color-border);
+  background: var(--color-bg); font-size: 12.5px; color: var(--color-muted);
+}
+.md-listfoot strong { color: var(--color-text); font-weight: 650; }
+
+/* Shared empty / error / locked surface */
+.md-state { padding: 44px 24px; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 9px; }
+.md-state h4 { margin: 0; font-size: 15.5px; font-weight: 700; }
+.md-state p { margin: 0; color: var(--color-muted); font-size: 13.5px; max-width: 52ch; }
+.md-state--error h4 { color: var(--color-danger); }
+
+.md-skel {
+  display: inline-block; height: 12px; border-radius: var(--radius-sm);
+  background: var(--color-border); animation: md-pulse 1.4s ease-in-out infinite;
+}
+@keyframes md-pulse { 0%,100% { opacity: 1; } 50% { opacity: .45; } }
+
+/* ── Responsive ────────────────────────────────────────────────────────────
+   Below the two-column breakpoint the rail gives way to a dropdown, and the
+   table becomes one card per value — a row of a text field, a switch and two
+   order buttons cannot survive a phone. */
+@media (max-width: 900px) {
+  .md-body { grid-template-columns: minmax(0, 1fr); }
+  .md-rail { display: none; }
+  .md-picker {
+    display: flex; align-items: center; gap: 10px; padding: 11px 12px;
+    border-bottom: 1px solid var(--color-border); background: var(--color-bg);
+  }
+  .md-picker .bs-btn { flex: none; }
+}
+@media (max-width: 560px) {
+  /* The "List" caption is dropped rather than given a line of its own: the
+     dropdown already reads out the list it is showing, so the caption was
+     repeating it. The select keeps an aria-label, so nothing is lost to a
+     screen reader. */
+  .md-picker-lbl { display: none; }
+}
+@media (max-width: 700px) {
+  .md-table { min-width: 0; }
+  .md-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  /* Width is left to auto. A `width: 100%` here plus a horizontal margin on the
+     row makes every card 24px wider than its container, which the card's
+     overflow:hidden then clips — the right-hand gutter disappears rather than
+     scrolling, so nothing looks broken except the padding. The inset belongs to
+     the wrapper's padding instead. */
+  .md-table, .md-table tbody { display: block; }
+  /* The card is a two-line unit, not four stacked label/value rows: the name
+     takes the first line and the count, switch and order controls share the
+     second. Stacking them made every card 165px tall to carry one value, and the
+     labels were restating what the controls already say — "25 tickets" is
+     self-evidently a count, and a switch reading "Offered" needs no caption. */
+  .md-table tr {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px;
+    border: 1px solid var(--color-border); border-radius: var(--radius);
+    margin: 0 0 8px; padding: 9px 12px; background: var(--color-surface);
+  }
+  .md-table tr:last-child { margin-bottom: 0; }
+  .md-table td { border: 0; padding: 0; display: flex; align-items: center; }
+  .md-table td:first-child { flex: 1 1 100%; display: block; }
+  .md-col-use, .md-col-on { width: auto; flex: 0 0 auto; }
+  /* Order sits at the far end of the meta line, away from the switch, so a
+     mis-tap flips nothing. */
+  .md-col-order { width: auto; flex: 0 0 auto; margin-left: auto; }
+  .md-name-input { padding: 4px 8px; }
+  /* The consequence strip is not a value card, so it drops the card chrome the
+     row rule above would otherwise give it — its own cell carries the colour. */
+  .md-consequence { margin: 0 0 10px; border: 0; padding: 0; background: transparent; }
+  .md-consequence td { display: block; border-radius: var(--radius); }
+  /* The gutter the rows used to carry as margin. */
+  .md-tablewrap { overflow-x: visible; padding: 10px 12px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .md-skel { animation: none; }
+  .md-track, .md-track::after, .md-name-input, .md-obtn { transition: none; }
+}
 

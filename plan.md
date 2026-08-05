@@ -11,15 +11,42 @@ Everything below this line up to the `---` is the live work queue. It is written
 be read by someone with no memory of the session that produced it. The dated
 sections after it are the historical record and unchanged.
 
-## 0. Read this first — two corrections to stale facts
+## Where this stands, in ten lines
 
-1. **`CLAUDE.md:30` is wrong.** It says `server/.env` is `sqljs` / `DB_MODE=local`
-   with an empty `DATABASE_URL`. It is now `DB_MODE=hosted`,
+**Done and on `main`:** the portal rename and the `TRACKER_LABEL` pass (§1), all
+three approved artifacts — Add-a-ticket/Import/Export, the Metadata page, the
+compacted Submit form (§2) — and the whole §3 found-not-fixed list except one
+held item (§3b). Client lint and build clean, 258 server tests, 119 browser checks
+across three committed scripts in `client/scripts/` (§0.3).
+
+**Do these next, in this order:**
+1. **Delete submission #84** — a retired test ticket the screenshot verification had
+   to create. There is no submission DELETE endpoint, so it needs a hand.
+2. **Say yes or no to the status-history backfill** (§3b). Dry run is done and
+   printed; `npm run backfill:tracker-history -- --apply` writes the 7 rows.
+3. **Answer the two Phase 1 questions** (§5 step 4b): the authoritative per-type
+   field map for report requests, and whether analysts are a new role or admins
+   with a per-type grant. Both block §4 Phase 1.
+4. Then §5 step 5 (build Phase 1, mockups first) and step 6 (screenshots + docs).
+
+**Branch note:** `origin/dev` is **15 commits behind `origin/main`**. The claim
+further down that they "currently track together" is out of date — `main` is where
+the work is. Decide whether `dev` gets fast-forwarded or retired.
+
+## 0. Read this first
+
+1. **`npm run dev` talks to hosted Supabase.** `server/.env` is `DB_MODE=hosted`,
    `DB_PROVIDER=postgres`, `DATABASE_URL=…@aws-0-us-west-2.pooler.supabase.com`.
-   So a local `npm run dev` talks to **hosted Supabase**. The owner has confirmed
-   that data is entirely test data, the whole app is a prototype to be rebuilt by
-   developers, and it is fine to read *and write* for verification and
-   screenshots. Fix that CLAUDE.md line when convenient.
+   The owner has confirmed that data is entirely test data, the whole app is a
+   prototype to be rebuilt by developers, and it is fine to read *and write* for
+   verification and screenshots. `CLAUDE.md` has been corrected to say so.
+
+   **But it is shared, so put back anything a check changes.** The metadata
+   verification script writes, and an early version of it left a renamed status
+   and a switched-off status behind in the hosted database; both were restored by
+   hand. `client/scripts/verify-metadata-page.mjs` now ends by comparing a
+   before/after fingerprint of every lookup value and failing if anything drifted.
+   Any future script that writes should do the same.
 2. **The portal is called "Service Requests Portal"** / "Submit · Track ·
    Resolve" (`client/src/components/bite-size/Layout.jsx:112`,
    `client/index.html:6`). It was briefly "Defects & Enhancements Portal" earlier
@@ -28,8 +55,28 @@ sections after it are the historical record and unchanged.
    defects portal. **Named for the destination deliberately** — the alternative
    was re-shooting 43+ desktop screenshots a second time when the other request
    types land. Do not narrow it again.
+3. **The verification harness is committed now.** `client/scripts/` holds three
+   Playwright scripts and one shared module; they are the record of what has been
+   checked by eye and by measurement, and they run against the real app:
+   - `verify-admin-data-entry.mjs` — the three §2c dialogs plus the redirect
+     dialog. Read-only.
+   - `verify-metadata-page.mjs` — the §2a page. Makes ONE reversible write and
+     proves it undid it.
+   - `verify-submit-form.mjs` — the §2b form. Read-only.
+   - `lib/overflow-probe.mjs` — the per-container overflow probe every one of them
+     uses. Read its header before changing it: each exclusion in it is there
+     because a false positive buried a real finding.
 
-## 1. Landed and verified (2026-08-05)
+   All three need the server on :4000 and Vite on :5173 already running, and take
+   an optional `--shots <dir>`. If Vite has been running across a lot of edits its
+   module graph can go stale and a page will fail to mount with a bogus "does not
+   provide an export named …" — restart it rather than debugging the source.
+
+## 1. Landed and verified (2026-08-05, first pass)
+
+The tracker-rename groundwork. The second pass (§2, §3) finished the job — every
+remaining user-visible "EasyVista" string in the admin client and the server now
+routes through `TRACKER_LABEL` too.
 
 - **Site rename** — brand + `<title>`. The title had been the Vite default
   `client` since scaffolding.
@@ -58,9 +105,13 @@ sections after it are the historical record and unchanged.
 - **`playwright` added to `client/devDependencies`** for verification and the
   screenshot harness. Browsers already cached in `%LOCALAPPDATA%\ms-playwright`.
 
-## 2. Approved by the owner, NOT yet built
+## 2. BUILT AND VERIFIED (2026-08-05, second pass)
 
-Three artifacts, all approved. Build to match them; they are the contract.
+All three approved artifacts are built. The descriptions below are kept as the
+record of what was agreed; what actually shipped, and where it departed from the
+mockup, is noted under each. Verified by
+`client/scripts/verify-admin-data-entry.mjs` (2c), `verify-metadata-page.mjs` (2a)
+and `verify-submit-form.mjs` (2b) — see §0.3.
 
 ### 2a. Metadata page redesign — v5
 `https://claude.ai/code/artifact/d54d37c6-97ac-4913-b387-0a179fb13892`
@@ -96,6 +147,33 @@ Target: `client/src/pages/AdminMetadataPage.jsx` (rewrite),
   changes; cleaning the junk `orm_source_1772230352163_u` value in the read-only
   Submission Sources list.
 
+**Shipped.** `usageCount` is additive on every row of
+`GET /api/admin/meta/options`, computed by `countSubmissionsByLookup`
+(`server/src/helpers/lookups.js`) as **two queries per category** — the values,
+plus one GROUP BY over the submissions referencing them. Nine lists, 45 values, 18
+queries; never one COUNT per value. A failed count returns an empty Map rather
+than failing the page, so counts are the only thing lost.
+
+Occurrence Timeframes is the 9th panel. `ADMIN_META_CATEGORIES` now also carries
+`feeds` (what each list actually drives, shown under the list title) and
+`readOnly`, so adding a list is one registry entry plus its `LOOKUP_TABLES` row.
+
+The draft-name bug is fixed by removing the reseeding effect entirely rather than
+narrowing it: `metaDraftNames` now holds **only** names the admin has typed, keyed
+`category:id`, so there is nothing to reseed and no way for one row's save to
+clobber another's draft.
+
+**Two departures from the mockup, both deliberate:**
+- The protected `Retired` status is **shown**, marked "Protected", with its
+  controls disabled — the old page filtered the row out of the list entirely. The
+  mockup's treatment is better: a value that exists should be visible.
+- **A refused save keeps the table.** The mockup has one error state; a first
+  build wired `adminMetaError` to it unconditionally, so a rename rejected as a
+  duplicate replaced the whole list with "This list didn't load" and took the
+  admin's typed text with it. A failed *load* still renders that state (there is
+  nothing to draw); a failed *save* is a banner above the rows. Found by the
+  verification script provoking a 409, not by reading the code.
+
 ### 2b. Submit form compaction
 `https://claude.ai/code/artifact/58f88812-d2db-4eaf-92c4-b1e527a4575c`
 
@@ -112,6 +190,19 @@ reference-numbers box flattened, heading kept; reporter paired with the one-line
 summary via `.rs-row--who`; card padding 16/18 → 14/16.
 **Textareas deliberately untouched** — they carry the actual report and their
 height comes from `rows` in the JSX anyway.
+
+**Shipped, and measured shorter than the review predicted:** the form column is
+**1106px** for a signed-in reporter on a desktop, against the review's 1209px,
+because "Filing as" replaces a name field and takes its row with it. 4 cards for a
+defect, 3 for an enhancement. The counts are asserted rather than eyeballed — 10
+fields and 11 controls, where 11 is the review's 12 minus the reporter's input; the
+drop zone measures 86px against the old 169px; the textareas are still `rows={5}`
+and `rows={3}`.
+
+One thing removed that the review did not mention: `application_name` is no longer
+in the form's state at all. It was only there to hold a hardcoded `'Billing
+Center'`, and the form has no application picker, so it is now derived from the
+viewer at send time (see §3's genericization note).
 
 ### 2c. Admin data entry — Add a ticket, Import, Export
 `https://claude.ai/code/artifact/d5f3f12b-f9d0-47e8-8466-39672584afce`
@@ -153,53 +244,147 @@ old dialog never stated. All **48** fields (verified programmatically against
 with presets, and a button stating the shape: "Download 83 rows × 10 columns",
 disabled at zero columns.
 
-## 3. Found, not yet fixed
+### What shipped for 2c
 
-- **Hardcoded application list, two places.** Every other application dropdown
-  reads `dynamicApplications` from the lookups, but
-  `components/admin/ImportModal.jsx:116-117` hardcodes `Billing Center` /
-  `Policy Center` — so **an application added on the Metadata page never appears
-  as the import default**. And `components/admin/CleanupTaskModal.jsx:173`
-  renders a read-only `Application Name = "Billing Center"` that *duplicates* the
-  editable Application select 60 lines above it. Both die with 2c.
-- **Redirect dialog has no horizontal padding** (owner-reported): open a ticket →
-  More → redirect to another queue, and the text sits flush against the modal
-  edges. Not yet traced. Note `.rs-stickybar` full-bleeds with `margin: 0 -24px`
-  to match `.app-main`'s 24px padding (`index.css:3234`) — that class of
-  container/gutter coupling is a likely suspect.
-- **Clipped-overflow bug class, worth sweeping for.** The metadata mockup had
-  mobile cards at `width: 100%` **plus** a 12px horizontal margin, so every card
-  was 12px wider than its container and `overflow: hidden` on the card silently
-  clipped it — the right-hand gutter vanished instead of scrolling. A
-  document-level "does the page scroll sideways" check **cannot see this**. Use
-  `scrollWidth` vs `clientWidth` per container.
-  `scratchpad/check-overflow.mjs` in the session temp dir did this; re-create it
-  and run it against the real pages.
-- **Status-history backfill, approved and not run.** 7 rows in
-  `submission_status_events` contain "EasyVista", all one shape:
-  `Resubmission: From (EasyVista EV-#####) to (EasyVista EV-#####)…`. Written by
-  `services/submissionService.js:1656,1831,1838`. Parsing is prefix-based
-  (`utils/formatUtils.js:189`, `helpers/timeline.js:18-45`,
-  `routes/publicRoutes.js:21`) so nothing breaks either way. Dry-run then apply.
-- **Server-side strings still say EasyVista** — `submissionService.js:1474,1501`
-  (API errors), `helpers/export.js:38-39` (spreadsheet headers),
-  `easyvista.js:70,85,134` (thrown errors surfaced in the UI). Route through
-  `TRACKER_LABEL`.
-- **Admin client strings still say EasyVista** — detail modal tab label
-  (`DetailModal.jsx:153`), `DetailActions.jsx:95-96`, `DetailAlerts.jsx:193,208`,
-  `DetailReferenceSection.jsx:39-46`, `DetailSubmissionSection.jsx:19,26`,
-  `DetailAttachmentsSection.jsx:44`, the whole `DetailEasyVistaSection.jsx` body,
-  `FilterPanel.jsx:90`, `submissionColumns.jsx:199`, `hooks/useDetailModal.js:548,588-595`,
-  `hooks/useCleanupModal.js:92`, `AdminAccessPage.jsx:469`,
-  `utils/formatUtils.js:35,156`.
-- **Hardcoded "Billing Center" as application data** (owner asked for full
-  genericization): `pages/RepSubmitPage.jsx:13,163,244,272` (incl. the h1
-  "Report a Billing Center issue"), `utils/formDefaults.js:15,53`,
-  `utils/mappers.js:15`, `hooks/useBackdatedModal.js:71`,
-  `hooks/useCleanupModal.js:145-146`. Should derive from the viewer's
-  pinned/granted application with a fallback when they have none.
+`AddTicketModal` + `useAddTicketModal` replace `BackdatedTicketModal`,
+`CleanupTaskModal`, `useBackdatedModal`, `useCleanupModal`, `defaultBackdatedForm`
+and `defaultCleanupForm` — all deleted. Field visibility is CSS driven by three
+data attributes on `.at-body` (`data-mode`, `data-type`, `data-branch`), so a
+cleanup task tagged as a defect gets the defect branch's fields without a rule per
+type/tag pair. The `at-`, `xl-` and `md-` CSS is lifted from the artifacts
+verbatim into `index.css`, so the built dialogs and the mockups are the same CSS.
+
+**Four departures from the mockups, all deliberate:**
+1. **The header is a plain `Add a ticket…` button, not a one-item menu.** A menu
+   whose only job is to reveal a single item costs a click; §4's fourth type lands
+   as a fourth segment *inside* the dialog, so the menu would never regrow.
+2. **`Impact details` was added to the enhancement branch.** The mockup omits it,
+   but `submissionService.js:1508` refuses an enhancement hand-off without it — so
+   a dialog that never asked would have offered a Send that always failed. It is
+   required only when the hand-off checkbox is actually ticked.
+3. **Export field grouping lives server-side**, as a `group` on each field
+   definition plus `EXPORT_FIELD_GROUPS` in `helpers/export.js`, exposed on
+   `/export-fields`. A client-side group registry would have let a newly added
+   export field vanish from the dialog. `test/exportFields.test.js` fails if a
+   field is ungrouped, double-grouped, or grouped under a key that is not a field.
+4. **"What's on screen" is derived from the admin's actual visible columns**, via a
+   new `exportKey` on every `ADMIN_TABLE_COLUMNS` entry, rather than the mockup's
+   fixed 8 keys — and it reproduces the mockup's 8 exactly for the default view.
+   The export dialog's default selection is that same set; it was all 48 before,
+   which is a spreadsheet nobody asked for, and `Everything (48)` is one click.
+
+**Screenshots are in Add-a-ticket — a fifth departure, on the owner's call.** The
+mockup has no file picker; a first build followed it and left the capability to the
+detail modal one step later. The owner said no: it goes back in. It is the rep
+form's own `ScreenshotDropZone`, reused rather than rebuilt, so drag, browse and
+**paste** all work and the thumbnails/remove come for free — and it is offered on
+**every** branch, with the chip reading "strongly encouraged" for a defect and
+"optional" otherwise, mirroring the rep form.
+
+Reusing it also fixed a lie: the old cleanup dialog advertised
+`accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt"` for enhancements, but
+`middleware/upload.js`'s `imageFileFilter` accepts **images only** — a rep picking
+a PDF got a 400 after filling in the form. The drop zone mirrors the server's real
+allow-list and says so: "PNG, JPG, GIF, WEBP, BMP or HEIC · up to 10 MB each".
+
+Upload order matters and is deliberate: create → impact figures → **attachments** →
+hand-off. The hand-off reads the ticket's own attachments to decide which files
+travel with it, so uploading after it would hand off a ticket with nothing on it. An
+upload that fails does not fail the ticket — the ticket is already saved — so it is
+reported in the success notice ("The screenshot did not upload: …") rather than
+swallowed.
+
+Verified end to end against the hosted database, not just by the drop zone
+rendering: a defect filed through the dialog with one attached PNG came back with
+`attachments: 1` / `verify-evidence.png`, and the notice read "Ticket #84 created
+successfully. 1 screenshot attached." **That test left submission #84 behind** —
+attachment deleted, ticket retired and made non-public, summary "VERIFY screenshot
+upload — safe to delete". There is no submission DELETE endpoint, so removing the
+row is a manual job.
+
+**A latent bug found while building it, now fixed and pinned:**
+- **Two exported column headers had never round-tripped.** Import matches on
+  aliases, and "Reported Date" (`created_at`) and "Request Details" (`request`)
+  normalised to `reported_date` / `request_details`, neither of which was an alias
+  — so re-importing a sheet exported by this portal silently dropped both columns.
+  A third, `easyvista_submitted_by`, would have broken the same way as soon as its
+  header was relabelled. All three aliases added (and `submitted_to_ev_by`, so a
+  sheet exported before the rename still re-imports).
+
+  Two tests in `test/exportFields.test.js` keep it that way: one checks every
+  export field's normalised label against its target's aliases, and one builds a
+  header row out of the real export labels, runs it through the real
+  `suggestImportMappings`, and fails if any column comes back unmapped — so it
+  would catch a break in the matching itself, not only a missing alias.
+- The analyze endpoint gained `sampleRows` and `unknownStatusCounts` (additive) to
+  feed the pre-write preview and "appears in 6 rows". Cells are clipped to 200
+  chars and only 3 rows are echoed — a preview only has to be recognisable.
+
+## 3. Fixed in the second pass (2026-08-05)
+
+- **Hardcoded application lists — gone.** `ImportModal` reads `dynamicApplications`
+  for the "application for rows that don't name one" default, so an application
+  added on the Metadata page appears there. `CleanupTaskModal`'s duplicate
+  read-only "Application Name" died with the file.
+- **Redirect dialog padding — fixed, and it was not the sticky bar.**
+  `.dm-modal .bs-modal-body { padding: 0; display: grid }` is a **descendant**
+  selector, and the detail modal's footer renders two more modals *inside its own
+  DOM* (the redirect dialog and the EasyVista confirm, both in
+  `detail/DetailActions.jsx`). Both inherited the outer modal's zeroed padding and
+  its three-row grid. The fix is one character — `>` instead of a space — plus a
+  committed regression check, because "a nested modal inherits the outer one's
+  layout overrides" is a class of bug, not a one-off.
+- **Clipped-overflow sweep — done, and it found two.** The probe is now
+  `client/scripts/lib/overflow-probe.mjs`, used by all three verification scripts
+  at 1500/820/390px in both themes. It found:
+  - the **admin queue's phone cards** overflowing their container by 15px, because
+    the value side of each label/value row could not shrink below its widest
+    nowrap chip. Below 560px the label now sits above its value and takes the full
+    card width (and `align-items: flex-start`, not `stretch`, or a bare checkbox
+    inflates to the card's width).
+  - both **queue banners** (`NewSubmissionsAlert`, `WorkaroundRequestsAlert`)
+    overflowing on a phone: a never-shrinking, never-wrapping action button on a
+    row with no `flex-wrap`. Both wrap now.
+
+  Read the probe's header before changing it. Every exclusion in it — self-scrolling
+  form controls, screen-reader-only subtrees, deliberate negative-margin full-bleed
+  (which has to propagate up, or the finding just moves one level up the tree each
+  time it is excused) — is there because a false positive buried a real finding.
+- **Server-side strings** now route through `TRACKER_LABEL`:
+  `submissionService.js` (the two API errors and all three status-history writers),
+  `easyvista.js` (the two thrown errors that surface in the UI), `helpers/export.js`
+  (the two spreadsheet headers).
+- **Admin client strings** now route through `TRACKER_LABEL` / `TRACKER_LABEL_THE`
+  across all 12 files §3 listed. Comments that describe the *integration* keep the
+  vendor name on purpose — it is still EasyVista; only what a user reads changed.
+- **"Billing Center" as data — gone from the client.** `RepSubmitPage` derives the
+  application from the viewer (`homeApplicationId` → their AD-group application,
+  else most-filed, else the portal's first active one) and dropped
+  `application_name` from form state entirely, since the form has no picker. The h1
+  is `Report a {name} issue`, falling back to `Report an issue`. The confirmation
+  echoes the application actually filed against. `mappers.js` no longer invents a
+  fallback — a wrong guess there would retarget the ticket on the next save. The
+  server's own `'Billing Center'` fallback in `createAdminSubmission` remains, as
+  the last-resort default when a payload names no application.
+
+## 3b. Still open
+
+- **Status-history backfill — dry-run done, apply NOT run.** Needs one word from
+  the owner. `cd server && npm run backfill:tracker-history` prints every row it
+  would change and writes nothing; `-- --apply` performs the 7 UPDATEs in one
+  transaction. The dry run confirms exactly the 7 rows this file predicted (events
+  206, 207, 220, 221, 257, 258, 260), all `Resubmission: From (EasyVista EV-#####)
+  to (EasyVista EV-#####)…`. It rewrites the vendor NAME only — never the EV-#####
+  numbers, which are what the Service Desk issued, and never a column named for the
+  vendor. Every reader parses these by prefix (`utils/formatUtils.js`,
+  `helpers/timeline.js`, `routes/publicRoutes.js`), so nothing breaks either way.
+  Safe to re-run. Held because it rewrites historical audit rows in the hosted
+  database, and "approved in principle" is not sign-off on a specific diff.
 - **Five `401 Unauthorized` fetches** on the public routes when not signed in.
   Pre-existing, looks like the anonymous viewer probe, not traced.
+- **The screenshot harness still does not exist.** `client/scripts/` holds the
+  three *verification* scripts (which can write PNGs with `--shots`) but not the
+  manifest-driven capture the docs need — see §5 step 4.
 
 ## 4. NEW SCOPE — report requests for analysts (owner, 2026-08-05)
 
@@ -438,48 +623,85 @@ Artifact before product code.
 Owner has scoped this: build §2 and Phase 1 of §4 now; types 3–9 are recorded
 future scope, not current work.
 
-1. **Build §2's three approved artifacts** — 2c, then 2a, then 2b. They are
-   approved, self-contained, and they establish the idiom the report-request
-   forms must follow. Build 2c with a **fourth type** in mind (report request)
-   and 2a so a **10th metadata panel** (Level of Effort) is a one-line addition;
-   both are extension points Phase 1 needs.
-2. **Clear §3** — the two hardcoded application lists, the redirect-dialog
-   padding, the remaining EasyVista strings (client + server), the
-   "Billing Center" genericization, the 7-row status-history backfill.
-3. **Verify** — `cd client && npm run lint`, `cd server && npm test`, then
-   exercise every changed surface in a browser at 1500/820/390px in both themes,
-   plus the per-container `scrollWidth` vs `clientWidth` overflow check from §3.
-4. **Settle the remaining Phase 1 questions.** `Duration` and reassignment are
-   answered (see Phase 1). Still open: the authoritative per-type field map for
-   report requests, and whether analysts are a new role or admins with a per-type
-   grant. The portal name is settled (§0.2), so it no longer blocks step 6.
+~~1. Build §2's three approved artifacts.~~ **Done** — see §2. Both extension
+   points Phase 1 needs are in place: the Add-a-ticket dialog's type is one
+   segmented control plus a computed `data-branch`, so a fourth type is a segment
+   and a branch; and a 10th metadata panel is one `ADMIN_META_CATEGORIES` entry
+   plus its `LOOKUP_TABLES` row.
+
+~~2. Clear §3.~~ **Done except the backfill apply** — see §3 and §3b.
+
+~~3. Verify.~~ **Done for everything §2 and §3 touched.** Client lint and build
+   clean, 258 server tests (8 new in `test/exportFields.test.js`), and **119
+   browser checks** across the three committed scripts (76 + 25 + 18) at
+   1500/820/390px in both themes, with per-container overflow. Plus one end-to-end
+   write against the hosted database to prove the screenshot upload really lands
+   (see 2c) — which left submission #84 behind, retired.
+
+   What is NOT verified in a browser: the detail modal's other tabs, the public
+   board and the Access page — none were changed structurally, but the
+   EasyVista→Service Desk string pass touched the detail modal's labels, so those
+   are worth a look.
+
+4. **Next: the one held decision, then Phase 1.**
+   a. Say the word on the status-history backfill (§3b) and it applies.
+   b. **Settle the remaining Phase 1 questions.** `Duration` and reassignment are
+      answered (see Phase 1). Still open: the authoritative per-type field map for
+      report requests, and whether analysts are a new role or admins with a
+      per-type grant.
 5. **Build Phase 1** — mockups first (submit-form branch, detail-modal fields,
    throughput page), then the additive schema, then admin add/import/export
    parity.
 6. **Only then screenshots and docs.** The manifest
    (`docs/handoff/screenshot-manifest.json`) needs *extending*, not just
-   re-shooting: `18-admin-backdated-modal.png` becomes several (New vs Historical
-   × Defect/Enhancement/Cleanup, then × report request), the import modal gains
-   its steps and its result, the metadata page gains its dropdown/mobile states,
-   and report requests add whole sections to `docs/handoff/README.md` and
-   `README.md`. **Do not start this until the portal's final name is settled** —
-   it appears in every desktop screenshot.
+   re-shooting, and more of it than before: `18-admin-backdated-modal.png` becomes
+   several (New vs Historical × Defect/Enhancement/Cleanup, then × report request),
+   the import modal gains its three steps and its result, the export dialog is a
+   new shot, the metadata page gains its dropdown/mobile states, the submit form's
+   heights all changed, and report requests add whole sections to
+   `docs/handoff/README.md` and `README.md`. The portal name is settled (§0.2), so
+   this is no longer blocked. **Write the capture script this time** — the three
+   verification scripts in `client/scripts/` already take `--shots <dir>` and share
+   the login/viewport/theme scaffolding a manifest-driven capture needs.
 7. Reconcile this HANDOFF block into the dated record below and delete it.
 
 ## 6. Session notes worth keeping
 
-- **Verification harness.** `playwright` is now a `client` devDependency. The
-  throwaway checkers this session used lived in the session scratchpad and are
-  gone; the ones worth re-creating are (a) per-container overflow
-  (`scrollWidth` vs `clientWidth` — a document-level check cannot see overflow
-  that an `overflow:hidden` ancestor clips), (b) a field/input-count assertion
-  across a before/after pair to prove a layout change removed nothing, and
-  (c) a check that a mockup's grouped field list matches the server's real field
-  list exactly. All three caught real bugs.
-- **The screenshot harness was never committed.** The manifest documents
-  Playwright at 1500x950@2x desktop / 390x844@2x mobile, `reducedMotion: reduce`,
-  theme forced via `localStorage['bc-theme']`, but no script exists. Write it and
-  commit it this time — 43+ shots will need re-capturing again.
+- **Verification harness — now committed** (`client/scripts/`, see §0.3). All three
+  checks the previous session recommended re-creating are in it, and all three
+  earned their place again: (a) per-container overflow found two real defects on
+  the admin queue, (b) the field/control-count assertion caught the submit form's
+  counts changing for a reason that turned out to be legitimate (a known reporter
+  is stated, not asked) and forced that to be written down rather than guessed, and
+  (c) checking the export dialog against the server's own field list is what makes
+  the server-side grouping safe.
+- **A verification script that writes must prove it put things back.** The metadata
+  script's first version committed a rename and switched a status off in the hosted
+  database and did not undo either; both had to be repaired by hand. It now takes a
+  before/after fingerprint of every lookup value and fails if anything drifted, and
+  its rename checks deliberately never commit.
+- **A failing check is a claim about the product until proven otherwise — but a
+  probe can be wrong too.** Four of the overflow probe's exclusions exist because a
+  false positive was burying real findings: `<input>`s scroll their own value; a
+  `clip: rect(0 0 0 0)` screen-reader label holds content far wider than its 1px
+  box *and so do its children*; a deliberate `margin: 0 -24px` full-bleed makes
+  every ancestor up to the clipping element measure wide, so the allowance has to
+  propagate upward or the finding just walks one level up the tree each time it is
+  excused. Each one was diagnosed by measuring the specific element, never by
+  loosening the check until it passed.
+- **The screenshot harness still does not exist.** The manifest documents Playwright
+  at 1500x950@2x desktop / 390x844@2x mobile, `reducedMotion: reduce`, theme forced
+  via `localStorage['bc-theme']` — which is exactly what the three verification
+  scripts already set up. Build the capture on top of that scaffolding.
+- **Restart Vite if a page suddenly fails to mount.** After a long run of edits —
+  especially files rewritten by an external script rather than an editor — the dev
+  server's module graph can go stale and throw `does not provide an export named
+  'X'` for an export that is plainly there. `npm run build` passing while the dev
+  server does not is the tell. Restart it; do not debug the source.
+- **Watch for leaked processes.** Playwright runs that time out leave a browser
+  tree behind, and stacked `npm run dev` invocations add up: with three duplicate
+  dev servers and a leaked Chromium, ESLint died with `Zone Allocation failed —
+  process out of memory` on an 8 GB box. Not a code problem.
 - **Never slice a stylesheet by line number** to inline it. Doing so cut a rule in
   half, left an unclosed brace, and the CSS parser silently swallowed everything
   after it — two mockup panes rendered unstyled while still reporting plausible

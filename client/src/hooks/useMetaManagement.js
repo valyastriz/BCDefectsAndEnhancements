@@ -23,6 +23,16 @@ function normalizeMetaResponse(meta) {
 }
 
 /**
+ * The key an in-progress rename is held under.
+ *
+ * Scoped by category as well as id, because two lists can hold the same id: a
+ * draft typed into status 3 must not reappear in the box for application 3.
+ */
+export function metaDraftKey(categoryKey, itemId) {
+  return `${categoryKey}:${itemId}`;
+}
+
+/**
  * Shared admin-metadata CRUD core used by both the dashboard's useAdminMeta hook
  * and the standalone AdminMetadataPage. Holds the option lists, draft names,
  * load/save/add/reorder handlers, and category selection.
@@ -86,27 +96,61 @@ export function useMetaManagement({
     }
   }, []);
 
-  const saveMetaItem = useCallback(async (item) => {
-    if (!item || !activeMetaCategoryConfig) return;
-    const draftName = String(metaDraftNames[item.id] ?? item.name ?? '').trim();
+  /**
+   * Write one field of one value and reload.
+   *
+   * The PUT endpoint takes the whole row, so every unpatched field is sent as it
+   * currently stands — which is why `patch` is merged over the item rather than
+   * sent alone. Returns true on success so the caller can flash a confirmation
+   * without having to re-derive whether the write landed.
+   */
+  const persistMetaItem = useCallback(async (item, patch = {}) => {
+    if (!item || !activeMetaCategoryConfig) return false;
     try {
       setAdminMetaSaving(true);
       setAdminMetaError('');
       if (resetNoticeBeforeAction) notify('');
       await api.updateAdminMetaOption(activeMetaCategoryConfig.endpointCategory, item.id, {
-        name: draftName,
+        name: String(item.name || '').trim(),
         isActive: Boolean(item.isActive),
         isRetired: Boolean(item.isRetired),
         sortOrder: Number(item.sortOrder || 0),
+        ...patch,
       });
       await loadAdminMeta();
-      notify('Metadata value saved.');
+      return true;
     } catch (saveError) {
       setAdminMetaError(saveError.message || 'Failed to save metadata value.');
+      return false;
     } finally {
       setAdminMetaSaving(false);
     }
-  }, [activeMetaCategoryConfig, metaDraftNames, loadAdminMeta, notify, resetNoticeBeforeAction]);
+  }, [activeMetaCategoryConfig, loadAdminMeta, notify, resetNoticeBeforeAction]);
+
+  /**
+   * Commit a rename. No-ops on a blank or unchanged name — the page commits on
+   * blur as well as Enter, so this fires whenever focus leaves the field and most
+   * of those times nothing was typed.
+   */
+  const renameMetaItem = useCallback(async (item, nextName) => {
+    const trimmed = String(nextName ?? '').trim();
+    if (!item || !trimmed || trimmed === String(item.name || '').trim()) return false;
+    const ok = await persistMetaItem(item, { name: trimmed });
+    if (ok) {
+      setMetaDraftNames((prev) => {
+        const next = { ...prev };
+        delete next[metaDraftKey(activeMetaCategoryConfig.key, item.id)];
+        return next;
+      });
+    }
+    return ok;
+  }, [persistMetaItem, activeMetaCategoryConfig]);
+
+  /** Flip whether a value is offered on new tickets. Saves immediately. */
+  const setMetaItemActive = useCallback(
+    (item, isActive) => persistMetaItem(item, { isActive: Boolean(isActive) }),
+    [persistMetaItem],
+  );
 
   const addMetaItem = useCallback(async () => {
     const name = String(newMetaName || '').trim();
@@ -160,14 +204,30 @@ export function useMetaManagement({
     }
   }, [activeMetaCategoryConfig, activeMetaItems, loadAdminMeta, notify, resetNoticeBeforeAction]);
 
-  // Reset draft names whenever the active item set changes.
+  // `metaDraftNames` holds ONLY names the admin has actually typed, keyed by
+  // metaDraftKey(category, id). A row with no entry renders its saved name.
+  //
+  // It used to be reseeded from the item list on every change, which meant saving
+  // any row silently discarded an unsaved rename typed into another one — and with
+  // saves now firing on every switch flip, that would have fired constantly. There
+  // is nothing to reseed: an untouched row has no draft.
+  //
+  // Drafts for values that no longer exist are dropped, so a deleted-elsewhere or
+  // renamed-by-someone-else row cannot leave a ghost behind.
   useEffect(() => {
-    const nextDrafts = {};
-    activeMetaItems.forEach((item) => {
-      nextDrafts[item.id] = String(item.name || '');
+    const liveKeys = new Set(
+      activeMetaItems.map((item) => metaDraftKey(activeMetaCategoryConfig.key, item.id)),
+    );
+    setMetaDraftNames((prev) => {
+      const stale = Object.keys(prev).filter(
+        (key) => key.startsWith(`${activeMetaCategoryConfig.key}:`) && !liveKeys.has(key),
+      );
+      if (stale.length === 0) return prev;
+      const next = { ...prev };
+      for (const key of stale) delete next[key];
+      return next;
     });
-    setMetaDraftNames(nextDrafts);
-  }, [activeMetaItems]);
+  }, [activeMetaItems, activeMetaCategoryConfig]);
 
   // Load on mount.
   useEffect(() => {
@@ -189,7 +249,8 @@ export function useMetaManagement({
     activeMetaCategoryConfig,
     activeMetaItems,
     loadAdminMeta,
-    saveMetaItem,
+    renameMetaItem,
+    setMetaItemActive,
     addMetaItem,
     moveMetaItem,
   };

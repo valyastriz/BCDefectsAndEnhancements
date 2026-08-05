@@ -1,5 +1,6 @@
 import { DetailGroup } from './DetailPane';
 import { formatDateTime } from '../../../utils/formatUtils';
+import { TRACKER_LABEL, TRACKER_LABEL_THE } from '../../../constants/tracker';
 
 /**
  * Report — the form as it came in, read-only.
@@ -16,14 +17,14 @@ import { formatDateTime } from '../../../utils/formatUtils';
 function reportSource(detail) {
   if (detail.easyvista_ticket_id) {
     return {
-      label: 'Submitted to EasyVista',
+      label: `Submitted to ${TRACKER_LABEL}`,
       note: `Raised as ${detail.easyvista_ticket_id}. Showing the current saved values —`
         + ' this ticket predates the capture of what was originally reported.',
     };
   }
   return {
     label: 'As reported',
-    note: 'Not yet sent to EasyVista. Showing the current saved values.',
+    note: `Not yet sent to ${TRACKER_LABEL_THE}. Showing the current saved values.`,
   };
 }
 

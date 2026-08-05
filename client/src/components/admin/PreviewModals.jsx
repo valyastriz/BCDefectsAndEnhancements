@@ -23,26 +23,3 @@ export function AttachmentPreviewModal({ previewAttachment, setPreviewAttachment
     </Modal>
   );
 }
-
-/**
- * Full-screen preview modal for cleanup-task file attachments.
- */
-export function CleanupPreviewModal({ cleanupPreviewIndex, cleanupFilePreviews, setCleanupPreviewIndex }) {
-  const preview = cleanupPreviewIndex !== null ? cleanupFilePreviews[cleanupPreviewIndex] : null;
-
-  return (
-    <Modal
-      open={cleanupPreviewIndex !== null && Boolean(preview)}
-      onClose={() => setCleanupPreviewIndex(null)}
-      title={preview?.file?.name || 'Attachment Preview'}
-    >
-      {preview && (
-        <img
-          className="bs-preview-image"
-          src={preview.url}
-          alt={preview.file.name}
-        />
-      )}
-    </Modal>
-  );
-}

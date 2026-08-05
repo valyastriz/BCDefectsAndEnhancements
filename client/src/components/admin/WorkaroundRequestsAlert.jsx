@@ -12,6 +12,9 @@ export function WorkaroundRequestsAlert({ count, onViewWorkaroundRequests }) {
     <div style={{
       display: 'flex',
       alignItems: 'center',
+      // See NewSubmissionsAlert: the action never shrinks, so on a phone it has to
+      // be allowed its own line rather than overflowing the banner.
+      flexWrap: 'wrap',
       gap: 12,
       padding: '12px 18px',
       borderRadius: 8,

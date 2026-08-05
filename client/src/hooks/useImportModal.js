@@ -28,8 +28,15 @@ export function useImportModal({ loadRows }) {
   const [importRequiresApplicationDefault, setImportRequiresApplicationDefault] = useState(false);
   const [importDefaultApplicationName, setImportDefaultApplicationName] = useState('');
   const [importUnknownStatuses, setImportUnknownStatuses] = useState([]);
+  const [importUnknownStatusCounts, setImportUnknownStatusCounts] = useState({});
   const [importAllowedStatuses, setImportAllowedStatuses] = useState([]);
   const [importStatusValueMappings, setImportStatusValueMappings] = useState({});
+  const [importSampleRows, setImportSampleRows] = useState([]);
+  const [importTotalRows, setImportTotalRows] = useState(0);
+  // Which headers the server matched to a field BY NAME. Captured once, at analyze
+  // time, and never recomputed: it is the record of what the admin did not have to
+  // decide, so it must not shift as they make their decisions.
+  const [importMatchedHeaders, setImportMatchedHeaders] = useState([]);
 
   // ── Memos ──────────────────────────────────────────────────────────────────
 
@@ -86,6 +93,56 @@ export function useImportModal({ loadRows }) {
     [importAvailableHeaders],
   );
 
+  // ── The sequence ───────────────────────────────────────────────────────────
+  // Three steps, derived rather than stored: a second copy of "where am I" is a
+  // second thing that can disagree with the data. A result outranks everything
+  // (the write already happened); otherwise an analysed file means step 2.
+  const importStep = useMemo(() => {
+    if (importSummary) return 3;
+    if (pendingImportFile && importAvailableHeaders.length > 0) return 2;
+    return 1;
+  }, [importSummary, pendingImportFile, importAvailableHeaders.length]);
+
+  const importMatchedHeaderSet = useMemo(
+    () => new Set((importMatchedHeaders || []).map((header) => String(header || '').trim()).filter(Boolean)),
+    [importMatchedHeaders],
+  );
+
+  /**
+   * The columns the admin actually has to look at: the ones no field claimed by
+   * name. They stay in this list once mapped — the list is the set of decisions,
+   * and a decision does not stop being one because it was made.
+   */
+  const importDecisionHeaders = useMemo(
+    () => (importAvailableHeaders || []).filter((header) => !importMatchedHeaderSet.has(String(header || '').trim())),
+    [importAvailableHeaders, importMatchedHeaderSet],
+  );
+
+  const importUndecidedHeaderCount = useMemo(
+    () => importDecisionHeaders.filter((header) => !importTargetByHeader[header]).length,
+    [importDecisionHeaders, importTargetByHeader],
+  );
+
+  const importUnmappedStatusCount = useMemo(
+    () => (importUnknownStatuses || [])
+      .filter((statusValue) => !String(importStatusValueMappings[statusValue] || '').trim()).length,
+    [importUnknownStatuses, importStatusValueMappings],
+  );
+
+  /**
+   * The preview table: the first rows of the sheet, shown through the mappings as
+   * they stand right now. Columns are the mapped targets in registry order, so the
+   * preview reads in the same order as the mapping list above it.
+   */
+  const importPreview = useMemo(() => {
+    if (importSampleRows.length === 0) return { columns: [], rows: [] };
+    const columns = (importMappingTargets || [])
+      .map((target) => ({ key: target.key, label: target.label, header: importColumnMappings?.[target.key] || '' }))
+      .filter((column) => Boolean(column.header));
+    const rows = importSampleRows.map((sample) => columns.map((column) => sample?.[column.header] ?? ''));
+    return { columns, rows };
+  }, [importSampleRows, importMappingTargets, importColumnMappings]);
+
   // ── Callbacks ──────────────────────────────────────────────────────────────
 
   const loadImportHistory = useCallback(async () => {
@@ -129,15 +186,26 @@ export function useImportModal({ loadRows }) {
       formData.append('file', file);
       const analysis = await api.analyzeAdminSubmissionsXlsx(formData);
 
+      const suggested = analysis?.suggestedMappings && typeof analysis.suggestedMappings === 'object'
+        ? analysis.suggestedMappings
+        : {};
+
       setPendingImportFile(file);
       setImportAvailableHeaders(Array.isArray(analysis?.headers) ? analysis.headers : []);
       setImportMappingTargets(Array.isArray(analysis?.mappingTargets) ? analysis.mappingTargets : []);
-      setImportColumnMappings(analysis?.suggestedMappings && typeof analysis.suggestedMappings === 'object'
-        ? analysis.suggestedMappings
-        : {});
+      setImportColumnMappings(suggested);
+      setImportMatchedHeaders(
+        Array.from(new Set(Object.values(suggested).map((header) => String(header || '').trim()).filter(Boolean))),
+      );
+      setImportSampleRows(Array.isArray(analysis?.sampleRows) ? analysis.sampleRows : []);
       setImportRequiresApplicationDefault(Boolean(analysis?.requiresApplicationDefault));
       setImportAllowedStatuses(Array.isArray(analysis?.allowedStatuses) ? analysis.allowedStatuses : []);
       setImportUnknownStatuses(Array.isArray(analysis?.unknownStatuses) ? analysis.unknownStatuses : []);
+      setImportUnknownStatusCounts(
+        analysis?.unknownStatusCounts && typeof analysis.unknownStatusCounts === 'object'
+          ? analysis.unknownStatusCounts
+          : {},
+      );
       setImportStatusValueMappings((prev) => {
         const next = { ...(prev || {}) };
         const unknowns = Array.isArray(analysis?.unknownStatuses) ? analysis.unknownStatuses : [];
@@ -153,8 +221,11 @@ export function useImportModal({ loadRows }) {
         });
         return next;
       });
-      setImportStatusText(`Detected ${Number(analysis?.totalRows || 0)} row(s). Review mappings and click Import File.`);
-      setImportStatusKind('success');
+      setImportTotalRows(Number(analysis?.totalRows || 0));
+      // Step 2 says everything this line used to. A banner repeating it would be a
+      // second, staler copy of the same fact.
+      setImportStatusText('');
+      setImportStatusKind('');
     } catch (analysisError) {
       setImportStatusText(analysisError.message || 'Failed to analyze file.');
       setImportStatusKind('error');
@@ -162,9 +233,13 @@ export function useImportModal({ loadRows }) {
       setImportAvailableHeaders([]);
       setImportMappingTargets([]);
       setImportColumnMappings({});
+      setImportMatchedHeaders([]);
+      setImportSampleRows([]);
+      setImportTotalRows(0);
       setImportRequiresApplicationDefault(false);
       setImportDefaultApplicationName('');
       setImportUnknownStatuses([]);
+      setImportUnknownStatusCounts({});
       setImportAllowedStatuses([]);
       setImportStatusValueMappings({});
     } finally {
@@ -225,10 +300,13 @@ export function useImportModal({ loadRows }) {
       setImportAvailableHeaders([]);
       setImportMappingTargets([]);
       setImportColumnMappings({});
+      setImportMatchedHeaders([]);
+      setImportSampleRows([]);
       setPendingImportFile(null);
       setImportRequiresApplicationDefault(false);
       setImportDefaultApplicationName('');
       setImportUnknownStatuses([]);
+      setImportUnknownStatusCounts({});
       setImportStatusValueMappings({});
     } catch (importError) {
       const failureMessage = importError.message || 'Import failed.';
@@ -273,6 +351,9 @@ export function useImportModal({ loadRows }) {
     setImportAvailableHeaders([]);
     setImportMappingTargets([]);
     setImportColumnMappings({});
+    setImportMatchedHeaders([]);
+    setImportSampleRows([]);
+    setImportTotalRows(0);
     setPendingImportFile(null);
     setImportStatusText('');
     setImportStatusKind('');
@@ -282,8 +363,19 @@ export function useImportModal({ loadRows }) {
     setImportRequiresApplicationDefault(false);
     setImportDefaultApplicationName('');
     setImportUnknownStatuses([]);
+    setImportUnknownStatusCounts({});
     setImportAllowedStatuses([]);
     setImportStatusValueMappings({});
+  }
+
+  /**
+   * Back to step 1 with the same modal open — "Import another file" after a
+   * result. The chosen row type is deliberately kept: an admin importing a second
+   * sheet of defects should not have to say "defects" again.
+   */
+  function startAnotherImport() {
+    resetImportModal();
+    importFileInputRef.current?.click();
   }
 
   function openImportModal() {
@@ -324,6 +416,7 @@ export function useImportModal({ loadRows }) {
     importDefaultApplicationName,
     setImportDefaultApplicationName,
     importUnknownStatuses,
+    importUnknownStatusCounts,
     importAllowedStatuses,
     importStatusValueMappings,
     setImportStatusValueMappings,
@@ -331,9 +424,18 @@ export function useImportModal({ loadRows }) {
     sortedImportMappingTargets,
     visibleImportMappingTargets,
     sortedImportAvailableHeaders,
+    // The sequence
+    importStep,
+    importTotalRows,
+    importDecisionHeaders,
+    importUndecidedHeaderCount,
+    importUnmappedStatusCount,
+    importMatchedHeaderSet,
+    importPreview,
     analyzeImportFile,
     importBackdatedExcel,
     resetImportModal,
+    startAnotherImport,
     openImportModal,
     closeImportModal,
   };

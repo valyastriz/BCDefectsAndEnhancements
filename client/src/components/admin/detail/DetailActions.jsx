@@ -3,6 +3,7 @@ import { Button, Modal, Notice } from '../../bite-size/BitsizeUI';
 import { AdminMenu, AdminMenuItem } from '../AdminHeader';
 import { SaveWithTooltip } from './SaveWithTooltip';
 import { buildRespondToUserMailto } from '../../../utils/formatUtils';
+import { TRACKER_LABEL, TRACKER_LABEL_THE } from '../../../constants/tracker';
 
 /**
  * The pinned action bar.
@@ -82,7 +83,7 @@ export function DetailActions({
           onSave={() => saveEdits('footer')}
         />
         {/* Sends outright when there is nothing left to decide, and routes to
-            the EasyVista tab when there is — a resubmit to confirm the fork, a
+            the hand-off tab when there is — a resubmit to confirm the fork, a
             blocked send to fill the fields in, a Cleanup Only task to pick a
             type. The ellipsis tracks that: it is there only when the click
             opens something rather than sending. */}
@@ -92,8 +93,8 @@ export function DetailActions({
           disabled={working || locked}
         >
           {detail.easyvista_ticket_id
-            ? 'Re-submit to EasyVista…'
-            : `Submit to EasyVista${sendsDirectly ? '' : '…'}`}
+            ? `Re-submit to ${TRACKER_LABEL_THE}…`
+            : `Submit to ${TRACKER_LABEL_THE}${sendsDirectly ? '' : '…'}`}
         </Button>
         <AdminMenu
           label="More actions"

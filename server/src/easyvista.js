@@ -1,4 +1,8 @@
 const { buildEasyVistaPayload } = require('./helpers/easyVistaPayload');
+// Errors thrown here surface in the admin UI, so they use the display name. The
+// module, its env vars and its function names keep the vendor's — see
+// src/constants.js.
+const { TRACKER_LABEL } = require('./constants');
 
 /**
  * Whether a send actually leaves this app.
@@ -67,7 +71,7 @@ async function submitToEasyVista(submission, { submitter = null } = {}) {
 
   if (!response.ok) {
     const message = await response.text();
-    throw new Error(`EasyVista API request failed: ${response.status} ${message}`);
+    throw new Error(`${TRACKER_LABEL} request failed: ${response.status} ${message}`);
   }
 
   const data = await response.json();
@@ -82,7 +86,7 @@ async function submitToEasyVista(submission, { submitter = null } = {}) {
     || first?.REQUEST_ID;
 
   if (!ticketId) {
-    throw new Error('EasyVista API response did not include a ticket identifier');
+    throw new Error(`The ${TRACKER_LABEL} response did not include a ticket identifier`);
   }
 
   return {

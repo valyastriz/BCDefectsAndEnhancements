@@ -12,7 +12,9 @@ export function editableFromDetail(detail) {
     is_cleanup: Boolean(detail.is_cleanup),
     cleanup_status: detail.cleanup_status || STATUS_TO_CLEANUP[detail.status] || 'Not Started',
     cleanup_tag_type: cleanupTagType,
-    application_name: detail.application_name || 'Billing Center',
+    // No invented fallback: every ticket has an application, and a wrong guess
+    // here would silently retarget the ticket on the next save.
+    application_name: detail.application_name || '',
     policy_num: detail.policy_num || '',
     account_num: detail.account_num || '',
     transaction_num: detail.transaction_num || '',

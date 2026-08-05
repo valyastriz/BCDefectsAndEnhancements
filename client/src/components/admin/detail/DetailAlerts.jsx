@@ -1,5 +1,6 @@
 import { Button } from '../../bite-size/BitsizeUI';
 import { formatTimeAgo } from '../../../utils/formatUtils';
+import { TRACKER_LABEL, TRACKER_LABEL_THE } from '../../../constants/tracker';
 
 /** One alert row. `body` may be text or nodes. */
 function Alert({ tone = 'neutral', glyph = '!', title, children }) {
@@ -190,7 +191,7 @@ export function DetailAlerts({
       )}
 
       {showRequirements && (
-        <Alert tone="warn" title="Complete before EasyVista submission">
+        <Alert tone="warn" title={`Complete before the ${TRACKER_LABEL} hand-off`}>
           <p>
             {easyVistaMissingRequirements.length === 1
               ? 'One required field is empty. The section holding it has been opened below and the field is flagged.'
@@ -205,7 +206,7 @@ export function DetailAlerts({
       )}
 
       {showResubmitted && (
-        <Alert tone="info" title="Resubmitted to EasyVista as a new ticket">
+        <Alert tone="info" title={`Resubmitted to ${TRACKER_LABEL_THE} as a new ticket`}>
           <p>
             {`Continue on EasyVista ticket ${detail.latest_resubmission_easyvista_ticket_id}${detail.latest_resubmission_submission_id ? ` (Submission #${detail.latest_resubmission_submission_id})` : ''}. Changes here do not reach that ticket.`}
           </p>

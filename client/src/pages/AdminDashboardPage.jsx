@@ -32,8 +32,7 @@ import { useAdminViewPreferences } from '../hooks/useAdminViewPreferences';
 import { useAdminNotifications } from '../hooks/useAdminNotifications';
 import { useDetailModal } from '../hooks/useDetailModal';
 import { useTicketPresence } from '../hooks/useTicketPresence';
-import { useBackdatedModal } from '../hooks/useBackdatedModal';
-import { useCleanupModal } from '../hooks/useCleanupModal';
+import { useAddTicketModal } from '../hooks/useAddTicketModal';
 import { useImportModal } from '../hooks/useImportModal';
 import { useExportModal } from '../hooks/useExportModal';
 
@@ -46,14 +45,12 @@ import {
   FilteredViewBand,
   CommandBar,
   SubmissionsTable,
-  CleanupTaskModal,
+  AddTicketModal,
   ExportModal,
   ImportModal,
-  BackdatedTicketModal,
   DetailModal,
   ToastOverlay,
   AttachmentPreviewModal,
-  CleanupPreviewModal,
   CustomizeViewModal,
 } from '../components/admin';
 
@@ -322,10 +319,7 @@ export function AdminDashboardPage({ user, onLogout }) {
   const meta = useAdminMeta({ setFilters, setNotice });
   const detailModal = useDetailModal({ loadRows, setRows, setNotice, setError, currentUsername: user?.username });
   const ticketPresence = useTicketPresence({ openId: detailModal.openId, currentUsername: user?.username });
-  const backdated = useBackdatedModal({ user, loadRows, setNotice });
-  const cleanup = useCleanupModal({ user, loadRows, setNotice });
   const importModal = useImportModal({ loadRows, setNotice });
-  const exportModal = useExportModal({ filtersRef, setNotice });
 
   // Only the values used directly in the page body are destructured; the
   // DetailModal receives its full hook object via spread (see the modal JSX below).
@@ -346,14 +340,30 @@ export function AdminDashboardPage({ user, onLogout }) {
   // Keep the baseline-totals fetch in sync with the current selectable statuses.
   statusFilterOptionsRef.current = runtimeStatusFilterOptions;
 
+  // These two need values destructured from meta / viewPrefs above, so they are
+  // created here rather than beside the other hooks: the application list decides
+  // which application a new ticket is preselected for, and the visible columns are
+  // what makes the export dialog's "what's on screen" a claim about this screen.
+  const addTicket = useAddTicketModal({
+    user,
+    applications: dynamicApplications,
+    loadRows,
+    setNotice,
+  });
+  const exportModal = useExportModal({
+    filtersRef,
+    // `rows` is the whole filtered result — `pagedRows` is the page — so this is
+    // the honest count of what an export would contain.
+    matchingRowCount: rows.length,
+    // `columns` is the key array; `orderedVisibleColumns` is the same list as
+    // column OBJECTS, which would silently match nothing here.
+    visibleColumnKeys: viewPrefs.columns,
+    setNotice,
+  });
+
   // Only the values used directly in the page body are destructured; each modal
   // receives its full hook object via spread (see the modal JSX below).
-  const { backdatedOpen, openBackdatedModal } = backdated;
-
-  const {
-    cleanupOpen, openCleanupModal,
-    cleanupPreviewIndex, setCleanupPreviewIndex, cleanupFilePreviews,
-  } = cleanup;
+  const { addTicketOpen, openAddTicketModal } = addTicket;
 
   const {
     importFileInputRef, importModalOpen, importWorking,
@@ -364,7 +374,7 @@ export function AdminDashboardPage({ user, onLogout }) {
 
   // ── Composite flags ───────────────────────────────────────────────────────
   const bulkConfirmOpen = bulkConfirm !== null;
-  const isAnyAdminModalOpen = isDetailModalOpen || backdatedOpen || cleanupOpen || importModalOpen || exportModalOpen || customizeOpen || bulkConfirmOpen;
+  const isAnyAdminModalOpen = isDetailModalOpen || addTicketOpen || importModalOpen || exportModalOpen || customizeOpen || bulkConfirmOpen;
 
   // ── Notifications (depends on isAnyAdminModalOpen) ────────────────────────
   const { submissionToasts, setSubmissionToasts } = useAdminNotifications({
@@ -703,8 +713,7 @@ export function AdminDashboardPage({ user, onLogout }) {
         exportWorking={exportWorking}
         onOpenImport={openImportModal}
         onOpenExport={openExportModal}
-        onOpenBackdated={openBackdatedModal}
-        onOpenCleanup={openCleanupModal}
+        onOpenAddTicket={openAddTicketModal}
         onNavigateMetadata={() => navigate('/admin/metadata')}
         onNavigateAccess={() => navigate('/admin/access')}
         canManageAccess={viewer.isSuperUser}
@@ -870,10 +879,10 @@ export function AdminDashboardPage({ user, onLogout }) {
         />
       )}
 
-      <CleanupTaskModal
-        {...cleanup}
+      <AddTicketModal
+        {...addTicket}
+        dynamicStatuses={dynamicStatuses}
         dynamicCleanupStatuses={dynamicCleanupStatuses}
-        dynamicCleanupTagTypes={dynamicCleanupTagTypes}
         dynamicApplications={dynamicApplications}
         dynamicEnhancementRequestTypes={dynamicEnhancementRequestTypes}
         dynamicPriorityLevels={dynamicPriorityLevels}
@@ -885,13 +894,7 @@ export function AdminDashboardPage({ user, onLogout }) {
       <ImportModal
         {...importModal}
         dynamicStatuses={dynamicStatuses}
-      />
-
-      <BackdatedTicketModal
-        {...backdated}
-        dynamicStatuses={dynamicStatuses}
         dynamicApplications={dynamicApplications}
-        runtimeCreatedViaOptions={runtimeCreatedViaOptions}
       />
 
       <DetailModal
@@ -912,12 +915,6 @@ export function AdminDashboardPage({ user, onLogout }) {
       <AttachmentPreviewModal
         previewAttachment={previewAttachment}
         setPreviewAttachment={setPreviewAttachment}
-      />
-
-      <CleanupPreviewModal
-        cleanupPreviewIndex={cleanupPreviewIndex}
-        cleanupFilePreviews={cleanupFilePreviews}
-        setCleanupPreviewIndex={setCleanupPreviewIndex}
       />
 
       <ToastOverlay
