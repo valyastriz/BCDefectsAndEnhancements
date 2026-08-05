@@ -1,7 +1,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert');
 
-const { mapSubmission, mapPublicSubmission } = require('../src/helpers/mappers');
+const { mapSubmission, mapPublicSubmission, toMoneyNumber } = require('../src/helpers/mappers');
 
 // Fields that must NEVER appear on the public status board.
 const SENSITIVE_FIELDS = [
@@ -90,4 +90,67 @@ test('mapSubmission falls back to "Not Started" for an unmapped cleanup status',
 test('mapSubmission gates cleanup display off when not a cleanup item', () => {
   const row = mapSubmission({ id: 3, model_status_name: 'New', is_cleanup: 0 });
   assert.strictEqual(row.cleanup_status_display, 'No Cleanup');
+});
+
+// ── Money columns ────────────────────────────────────────────────────────────
+// The impact figures are DECIMAL, which `pg` returns as a STRING while SQLite
+// returns a number. mapSubmission is the one boundary that reconciles the two, so
+// the JSON contract does not depend on which database is behind it.
+
+test('toMoneyNumber converts the Postgres DECIMAL string to a number', () => {
+  assert.strictEqual(toMoneyNumber('1250.00'), 1250);
+  assert.strictEqual(toMoneyNumber('0.07'), 0.07);
+});
+
+test('toMoneyNumber passes a SQLite number through unchanged', () => {
+  assert.strictEqual(toMoneyNumber(1250), 1250);
+  assert.strictEqual(toMoneyNumber(0.07), 0.07);
+});
+
+test('toMoneyNumber keeps "no figure given" as null rather than 0', () => {
+  // These are different answers: a ticket nobody costed must not be summed into
+  // the queue's impact totals as a zero-dollar impact.
+  assert.strictEqual(toMoneyNumber(null), null);
+  assert.strictEqual(toMoneyNumber(undefined), null);
+  assert.strictEqual(toMoneyNumber(''), null);
+});
+
+test('toMoneyNumber refuses a non-numeric value rather than yielding NaN', () => {
+  assert.strictEqual(toMoneyNumber('not money'), null);
+  assert.strictEqual(toMoneyNumber({}), null);
+});
+
+test('toMoneyNumber preserves a value float4 would have mangled', () => {
+  // The defect this replaced: REAL is single-precision on Postgres, so this
+  // figure was stored as ~1234568. DECIMAL round-trips it exactly.
+  assert.strictEqual(toMoneyNumber('1234567.89'), 1234567.89);
+});
+
+test('mapSubmission exposes money as numbers whichever dialect supplied them', () => {
+  const fromPostgres = mapSubmission(fullInternalRow({
+    policy_premium_impact: '1234.50',
+    direct_dollar_impact: '999.00',
+  }));
+  assert.strictEqual(typeof fromPostgres.policy_premium_impact, 'number');
+  assert.strictEqual(fromPostgres.policy_premium_impact, 1234.5);
+  assert.strictEqual(fromPostgres.direct_dollar_impact, 999);
+
+  const fromSqlite = mapSubmission(fullInternalRow({
+    policy_premium_impact: 1234.5,
+    direct_dollar_impact: 999,
+  }));
+  assert.deepStrictEqual(
+    [fromSqlite.policy_premium_impact, fromSqlite.direct_dollar_impact],
+    [fromPostgres.policy_premium_impact, fromPostgres.direct_dollar_impact],
+    'the two dialects must produce an identical payload',
+  );
+});
+
+test('mapSubmission reports an uncosted ticket as null, not 0', () => {
+  const row = mapSubmission(fullInternalRow({
+    policy_premium_impact: null,
+    direct_dollar_impact: null,
+  }));
+  assert.strictEqual(row.policy_premium_impact, null);
+  assert.strictEqual(row.direct_dollar_impact, null);
 });

@@ -437,16 +437,39 @@ export function AdminDashboardPage({ user, onLogout }) {
   const isTotalScopeSelected = filters.statuses.length === 0
     || areAllStatusesSelected(filters.statuses, runtimeStatusFilterOptions);
 
+  // Impact totals for the filtered view.
+  //
+  // The two money figures are summed in whole CENTS and converted back once at
+  // the end, so the total is exact rather than exact-looking. To be clear about
+  // what this does and does not buy: float64 accumulation over this many rows
+  // stays far below half a cent, so formatCurrency's 2dp rounding already hid it
+  // — measured, the displayed total was identical even at 50,000 rows. This is
+  // defensive, not a visible bug fixed.
+  //
+  // It is here because the totals are read as authoritative and there is no
+  // reason to leave them relying on rounding to come out right. Integer cents are
+  // exact to Number.MAX_SAFE_INTEGER, i.e. ~$90 trillion.
+  //
+  // The storage-side defect was the real one — see the DECIMAL comment on
+  // policy_premium_impact in server/db/models/index.js.
+  //
+  // policiesAffectedCount is already an integer count and needs no such care.
   const impactTotals = useMemo(() => {
-    return rows.reduce(
+    const cents = rows.reduce(
       (acc, row) => {
-        acc.policyPremiumImpact += toNumeric(row.policy_premium_impact);
-        acc.directDollarImpact += toNumeric(row.direct_dollar_impact);
+        acc.policyPremium += Math.round(toNumeric(row.policy_premium_impact) * 100);
+        acc.directDollar += Math.round(toNumeric(row.direct_dollar_impact) * 100);
         acc.policiesAffectedCount += toNumeric(row.policies_affected_count);
         return acc;
       },
-      { policyPremiumImpact: 0, directDollarImpact: 0, policiesAffectedCount: 0 },
+      { policyPremium: 0, directDollar: 0, policiesAffectedCount: 0 },
     );
+
+    return {
+      policyPremiumImpact: cents.policyPremium / 100,
+      directDollarImpact: cents.directDollar / 100,
+      policiesAffectedCount: cents.policiesAffectedCount,
+    };
   }, [rows]);
 
   useEffect(() => { setPage(1); }, [rows]);

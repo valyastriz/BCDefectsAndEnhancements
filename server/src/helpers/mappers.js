@@ -1,6 +1,25 @@
 const { SUBMISSION_TO_CLEANUP_STATUS } = require('../constants');
 const { parseErrorsJson } = require('./db');
 
+/**
+ * A money column as JSON should see it: a number, or null.
+ *
+ * The DECIMAL columns (policy_premium_impact, direct_dollar_impact) come back as
+ * STRINGS on Postgres — `pg` returns `numeric` as text and Sequelize's Postgres
+ * DECIMAL.parse passes it through to preserve precision — while SQLite hands back
+ * a number. Coercing here is what keeps one JSON contract across both dialects,
+ * so no client has to know which database it is talking to.
+ *
+ * Null and blank stay null rather than becoming 0: "no figure given" and "zero
+ * dollars" are different answers, and the queue's impact totals must not count
+ * the first as the second.
+ */
+function toMoneyNumber(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 function mapSubmission(row) {
   if (!row) return null;
   const resolvedStatus = row.model_status_name || row.status || 'New';
@@ -48,6 +67,11 @@ function mapSubmission(row) {
     occurrence_timeframe_count: row.occurrence_timeframe_count ?? null,
     occurrence_timeframe: row.model_occurrence_timeframe_name || row.occurrence_timeframe || null,
     occurrence_rate: row.occurrence_rate ?? null,
+    // DECIMAL arrives as a string on Postgres and a number on SQLite — see
+    // toMoneyNumber. Neither field is on PUBLIC_SUBMISSION_FIELDS, so this only
+    // ever shapes admin payloads.
+    policy_premium_impact: toMoneyNumber(row.policy_premium_impact),
+    direct_dollar_impact: toMoneyNumber(row.direct_dollar_impact),
   };
 }
 
@@ -123,4 +147,5 @@ module.exports = {
   mapPublicSubmission,
   mapExcelImportRun,
   toExportCellValue,
+  toMoneyNumber,
 };

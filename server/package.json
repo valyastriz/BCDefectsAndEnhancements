@@ -11,6 +11,7 @@
     "seed:sample": "node src/seedSampleData.js",
     "backfill:embeddings": "node scripts/backfillEmbeddings.js",
     "backfill:public-visibility": "node scripts/backfillPublicVisibility.js",
+    "migrate:money-columns": "node scripts/migrateMoneyColumns.js",
     "grant:super-user": "node scripts/grantSuperUser.js"
   },
   "keywords": [],

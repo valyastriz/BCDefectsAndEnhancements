@@ -3,6 +3,55 @@
 Living record of notable features/changes. See `CLAUDE.md` for architecture and
 per-app details.
 
+## Money columns were single-precision floats (2026-08-05)
+
+`policy_premium_impact` and `direct_dollar_impact` were `DataTypes.REAL`, which
+Sequelize maps to **`float4`** on Postgres — about seven significant digits. The stored
+value was therefore wrong, not just the arithmetic on it:
+
+```
+1234567.89  ->  1234567.875          (displays as $1,234,567.88 — a cent adrift)
+  99999.99  ->  99999.9921875
+      0.07  ->  0.07000000029802322
+```
+
+**Invisible locally, real in production.** SQLite's `REAL` is a double, so nothing
+reproduced on the sqljs path — this only ever damaged the hosted Supabase data. The Excel
+export writes these values out raw, so it showed in spreadsheets as well as on screen.
+Worth remembering as a class of bug for as long as two dialects are supported.
+
+Now `DECIMAL(14,2)`. The cost of that is a type change on the wire: `pg` returns `numeric`
+as a **string** and Sequelize's Postgres `DECIMAL.parse` passes it through to preserve
+precision, so a naive change would have turned `1250` into `"1250.00"` in every admin
+response. `mapSubmission` coerces both back with a new `toMoneyNumber`, which is the one
+boundary every submission payload and socket emit already passes through — so the JSON
+contract is identical on both dialects. Null stays **null, not 0**: "nobody costed this
+ticket" and "zero dollars" are different answers and the impact totals must not conflate
+them.
+
+**Migration is explicit, not a boot-sync side effect.** `npm run migrate:money-columns`
+(dry-run by default) performs the `ALTER` in one transaction and reports how many rows
+carry the float4 damage signature. Production boots with `sync({ alter: true })`, which
+would have done this silently on the next deploy; a column-type change on live data should
+be an act someone reads the output of. It **cannot** recover precision already lost —
+those figures need re-entering from source.
+
+**One thing corrected in the doing.** The initial diagnosis claimed the queue's impact
+totals accumulated visible float error. Measured, that was wrong: float64 summation stays
+under half a cent even at 50,000 rows, so `formatCurrency`'s 2dp rounding already hid it.
+The totals now sum in integer cents anyway — exact rather than exact-after-rounding — but
+it is defensive, and the docs no longer claim otherwise. The storage defect was the real one.
+
+Not fixed, and deliberately: the ISO-strings-in-`TEXT` timestamp columns. `updated_at`
+doubles as the optimistic-concurrency token and is compared as a **string** (read-time
+check plus the `UPDATE ... WHERE`), so a native-timestamp conversion would fail the JSON
+round-trip on precision and 409 every save. Specified for the rebuild instead, in
+`docs/handoff/README.md`.
+
+250 server tests (7 new), client lint green. Verified end to end against a local instance:
+`1234567.89` and `0.07` round-trip exactly as JSON numbers, an uncosted ticket reads
+`null`, and the public endpoint still withholds both fields entirely.
+
 ## Pinned queue scope — and the scope filter that never filtered (2026-08-03)
 
 A super user who owns one product had no way to make that their default queue: the

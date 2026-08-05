@@ -121,8 +121,27 @@ function defineModels(sequelize) {
     desired_completion_date: { type: DataTypes.TEXT },
     impact_details: { type: DataTypes.TEXT },
     impact_notes: { type: DataTypes.TEXT },
-    policy_premium_impact: { type: DataTypes.REAL },
-    direct_dollar_impact: { type: DataTypes.REAL },
+    // Money. DECIMAL, deliberately, not REAL — and the distinction is not
+    // academic: Sequelize's REAL is single-precision (float4) on Postgres, about
+    // seven significant digits, so the STORED value was wrong:
+    //
+    //     1234567.89  ->  1234567.875          (displays as $1,234,567.88)
+    //       99999.99  ->  99999.9921875
+    //           0.07  ->  0.07000000029802322
+    //
+    // SQLite's REAL is a double, which is why this never reproduced locally and
+    // only ever damaged the hosted data. The export writes these values straight
+    // into a spreadsheet, so the damage was visible there as well as a cent adrift
+    // on screen.
+    //
+    // Cost of the change: `pg` returns `numeric` as a STRING, and Sequelize's
+    // Postgres DECIMAL.parse passes it through unchanged. `mapSubmission`
+    // (helpers/mappers.js) coerces both back to numbers so the JSON contract
+    // stays numeric on every dialect — every submission response and socket
+    // payload goes through that one mapper, so that is the only place it is
+    // needed. Do not read these columns around it.
+    policy_premium_impact: { type: DataTypes.DECIMAL(14, 2) },
+    direct_dollar_impact: { type: DataTypes.DECIMAL(14, 2) },
     policies_affected_count: { type: DataTypes.INTEGER },
     logged_defect: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
     // Raised by the rep on the submit form: they are blocked now and need a
