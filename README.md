@@ -5,7 +5,7 @@ requests. Field representatives file reports; Product Owners triage them; approv
 items are escalated to Tier 2 GTS in EasyVista. Everything is visible to the
 person who reported it on a live public status board.
 
-**Status: working prototype.** It runs, it holds real data, and it is the
+**Status: working prototype.** It runs, it holds (test) data, and it is the
 reference for a rebuild on the organisation's own stack — not the thing that
 ships long-term.
 
