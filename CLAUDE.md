@@ -113,9 +113,10 @@ code. Map:
 ## Workflow expectations
 
 - Commit/push only when asked. Branch work happens on `dev`; `main` is the
-  release branch. **As of 2026-08-05 `origin/dev` is 15 commits behind
-  `origin/main`** — they no longer track together, and `main` is where the work has
-  been landing. Check before assuming either.
+  release branch. **They no longer track together** — as of 2026-08-05 `origin/dev`
+  is well behind `origin/main`, and `main` is where the work has been landing. Check
+  with `git rev-list --left-right --count origin/main...origin/dev` before assuming
+  either.
 - Keep `npm run lint` (client) and `npm test` (server) passing.
 - Skills live in `.claude/skills/`, committed as plain files so Claude Code
   discovers them on every OS (Windows included). `.claude/settings.local.json`

@@ -29,9 +29,11 @@ across three committed scripts in `client/scripts/` (§0.3).
    with a per-type grant. Both block §4 Phase 1.
 4. Then §5 step 5 (build Phase 1, mockups first) and step 6 (screenshots + docs).
 
-**Branch note:** `origin/dev` is **15 commits behind `origin/main`**. The claim
-further down that they "currently track together" is out of date — `main` is where
-the work is. Decide whether `dev` gets fast-forwarded or retired.
+**Branch note:** `origin/dev` is **19 commits behind `origin/main`** as of this
+commit — check with `git rev-list --left-right --count origin/main...origin/dev`.
+The claim further down that they "currently track together" is out of date; `main`
+is where the work has been landing. Decide whether `dev` gets fast-forwarded or
+retired.
 
 ## 0. Read this first
 
