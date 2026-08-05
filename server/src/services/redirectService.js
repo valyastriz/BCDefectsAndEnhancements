@@ -90,7 +90,14 @@ async function redirectSubmission(db, {
     return { error: 'That ticket is already in this application', status: 400 };
   }
 
-  const target = await Application.findOne({ where: { id: targetId, is_active: 1 }, raw: true });
+  // Named attributes — see the note in viewerService.listActiveApplications. Only
+  // the id and the name are used, and an implicit SELECT of every model column
+  // breaks against a database missing one.
+  const target = await Application.findOne({
+    where: { id: targetId, is_active: 1 },
+    attributes: ['id', 'name'],
+    raw: true,
+  });
   if (!target) {
     return { error: 'Unknown or inactive application', status: 400 };
   }
@@ -102,7 +109,7 @@ async function redirectSubmission(db, {
 
   const fromApplicationId = Number(submission.application_id) || null;
   const from = fromApplicationId
-    ? await Application.findByPk(fromApplicationId, { raw: true })
+    ? await Application.findByPk(fromApplicationId, { attributes: ['id', 'name'], raw: true })
     : null;
 
   // What it was when it left. The move resets the live status, so without this

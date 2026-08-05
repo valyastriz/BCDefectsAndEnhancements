@@ -203,6 +203,59 @@ function resolveLookupModel(category) {
   return dbModels[category.modelName] || null;
 }
 
+// ── Application rows, on a database that may predate the catalog columns ──────
+//
+// `applications.easyvista_catalog_guid` / `_code` arrived with the
+// per-application EasyVista catalog. A database that has not had `npm run
+// migrate` run against it does not have them, and Sequelize names every model
+// column in its SELECT — so an unmigrated database turned the Access page and the
+// EasyVista preview into 500s.
+//
+// Naming the columns and retrying without them degrades to exactly one lost
+// feature (the catalog card reads "not configured") instead of losing the page
+// that says who may see what. Same reasoning, and the same shape, as
+// admin_view_preferences.pinned_application (services/adminViewPreferenceService.js:74).
+//
+// Fail-closed is preserved: with no columns to read, no application reports a
+// catalog, so a live send is refused rather than misrouted.
+const APPLICATION_BASE_COLUMNS = ['id', 'name', 'sort_order', 'is_active'];
+const APPLICATION_CATALOG_COLUMNS = ['easyvista_catalog_guid', 'easyvista_catalog_code'];
+
+let warnedAboutMissingCatalogColumns = false;
+
+async function loadApplicationRows(Application, { where = {}, order = null } = {}) {
+  if (!Application) return [];
+  const run = (attributes) => Application.findAll({
+    where,
+    attributes,
+    ...(order ? { order } : {}),
+    raw: true,
+  });
+
+  try {
+    return await run([...APPLICATION_BASE_COLUMNS, ...APPLICATION_CATALOG_COLUMNS]);
+  } catch (error) {
+    if (!/easyvista_catalog/i.test(String(error?.message || ''))) throw error;
+    if (!warnedAboutMissingCatalogColumns) {
+      warnedAboutMissingCatalogColumns = true;
+      console.warn(
+        'applications.easyvista_catalog_guid/_code are missing, so every application reads as '
+        + 'having no catalog (a real send is refused rather than misrouted). '
+        + 'Run `npm run migrate:easyvista-catalog-columns -- --apply` to add them.',
+      );
+    }
+    return run(APPLICATION_BASE_COLUMNS);
+  }
+}
+
+/** One application row, or null. Tolerates the missing catalog columns. */
+async function loadApplicationRowById(Application, id) {
+  const applicationId = Number(id);
+  if (!Number.isFinite(applicationId) || applicationId <= 0) return null;
+  const rows = await loadApplicationRows(Application, { where: { id: applicationId } });
+  return rows[0] || null;
+}
+
 /**
  * How many submissions hold each value of one lookup list.
  *
@@ -345,6 +398,8 @@ module.exports = {
   resolveLookupCategory,
   resolveLookupModel,
   countSubmissionsByLookup,
+  loadApplicationRows,
+  loadApplicationRowById,
   getDefectEnhancementStatuses,
   getSubmissionTypes,
   getCleanupStatuses,

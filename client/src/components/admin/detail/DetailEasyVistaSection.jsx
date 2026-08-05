@@ -392,6 +392,11 @@ function EasyVistaFiles({
       : [...selected, id]);
   };
 
+  // The ticket would be created for real while its files stay behind. Said here,
+  // before Send, so going ahead without them is a choice — the confirmation
+  // afterwards repeats it, but by then the ticket exists.
+  const undeliverable = preview.attachmentsDeliverable === false && selected.length > 0;
+
   return (
     <div className="dm-evfiles">
       <div className="dm-payload-head">
@@ -402,6 +407,13 @@ function EasyVistaFiles({
             : `${selected.length} of ${all.length} selected · ${TRACKER_LABEL_THE} accepts ${max}`}
         </span>
       </div>
+
+      {undeliverable && (
+        <p className="bs-notice" style={{ marginTop: 0 }}>
+          These files will <strong>not</strong> reach {TRACKER_LABEL_THE} — the upload API is
+          not wired up yet. The ticket still goes; send the files another way.
+        </p>
+      )}
 
       {all.length > 0 && (
         <div className="thumb-grid dm-evgrid">

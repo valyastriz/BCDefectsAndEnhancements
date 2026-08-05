@@ -48,6 +48,11 @@ function resolveSessionIdentity(req) {
 async function listActiveApplications(models) {
   const rows = await models.Application.findAll({
     where: { is_active: 1 },
+    // Named, not implicit. Sequelize otherwise selects every column the MODEL
+    // declares, so adding a column to `applications` broke this query against any
+    // database that had not been migrated yet — and this one runs inside
+    // `attachViewer`, which guards most of the admin API. Ask for what is used.
+    attributes: ['id', 'name', 'sort_order'],
     order: [['sort_order', 'ASC'], ['id', 'ASC']],
     raw: true,
   });

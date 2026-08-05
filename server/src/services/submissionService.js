@@ -20,6 +20,7 @@ const {
   getCleanupStatuses,
   getCleanupTagTypes,
   getEnhancementRequestTypes,
+  loadApplicationRowById,
 } = require('../helpers/lookups');
 const {
   toBooleanSql,
@@ -36,6 +37,7 @@ const { scheduleEmbeddingRefresh } = require('./embeddingIndexService');
 const {
   submitToEasyVista,
   sendEasyVistaAttachments,
+  easyVistaAttachmentsSupported,
   easyVistaIsLive,
   easyVistaDemoMode,
   EASYVISTA_MAX_ATTACHMENTS,
@@ -43,6 +45,7 @@ const {
 const {
   buildDescriptionRows,
   buildDescriptionHtml,
+  easyVistaCatalogStatus,
   resolveEasyVistaEffectiveType,
   defaultSendAsType,
   normalizeSendAsType,
@@ -1328,6 +1331,21 @@ async function submitSubmissionToEasyVista(db, { id, body, username, viewer, dry
   }
   const submission = mapSubmission(rawSubmission);
 
+  // Which application's catalog this ticket goes into. Resolved ONCE here, by
+  // `application_id` — the same column the ownership check above uses — and shared
+  // by the preview and the send so they cannot disagree.
+  //
+  // By id and not by name on purpose. A name lookup returns null the moment
+  // somebody renames an application on the Metadata page, and null used to mean
+  // "read the environment's catalog", which is exactly the misroute the
+  // per-application catalog exists to prevent. `mapSubmission` also substitutes a
+  // default application NAME when a ticket has none, so the name is not even a
+  // reliable key for a ticket that was never assigned one.
+  const outgoingApplication = await loadApplicationRowById(
+    dbModels.Application,
+    rawSubmission.application_id,
+  );
+
   const isResubmissionRequest = !isBlank(submission.easyvista_ticket_id);
   const draftPayload =
     body && typeof body.draft === 'object' && body.draft !== null ? body.draft : null;
@@ -1565,10 +1583,23 @@ async function submitSubmissionToEasyVista(db, { id, body, username, viewer, dry
         raw: buildDescriptionHtml(outgoing),
         // False means a send records a placeholder id and transmits nothing.
         live: easyVistaIsLive(),
+        // Whether THIS application has a catalog of its own. Reported even while
+        // EasyVista is off, so the gap is visible in a walkthrough rather than
+        // surfacing for the first time on the day the integration is switched on.
+        catalog: (() => {
+          const status = easyVistaCatalogStatus(outgoingApplication);
+          return { configured: status.configured, reason: status.reason };
+        })(),
         // ...and `demo` says whether that placeholder send is meant to be shown
         // as if it were real, which is how the pre-go-live walkthrough works.
         demo: easyVistaDemoMode(),
         maxAttachments: EASYVISTA_MAX_ATTACHMENTS,
+        // Whether the files picked below would actually reach EasyVista on a
+        // real send. False only when the integration is live and the upload
+        // contract is still unwritten — the one case where a ticket is created
+        // for real and its evidence is not. Said BEFORE the send, so the choice
+        // to go ahead without the files is a decision rather than a surprise.
+        attachmentsDeliverable: !easyVistaIsLive() || easyVistaAttachmentsSupported(),
         attachments: submissionAttachments.map((att) => ({
           id: att.id,
           filename: att.filename,
@@ -1618,11 +1649,38 @@ async function submitSubmissionToEasyVista(db, { id, body, username, viewer, dry
     cleanupRetagIds = { type_id: retagTypeId, cleanup_tag_type_id: retagTagTypeId };
   }
 
+  // Refuse a REAL send into a catalog that was never configured for this
+  // application — it would land in whichever application owns the environment's
+  // catalog, silently and under the wrong field names.
+  //
+  // Only on the live path. With EasyVista off, nothing is transmitted, so there
+  // is no catalog to land in and nothing to protect: an unconfigured application
+  // demonstrates end to end exactly like a configured one, which is what the
+  // pre-go-live walkthrough depends on.
+  if (easyVistaIsLive()) {
+    // No application row at all is refused before the catalog is even considered.
+    // `easyVistaConfig(null)` reads the environment on purpose, so that a preview
+    // built before an application is known still renders — but on a live send that
+    // would mean an unassigned or unresolvable ticket inheriting somebody else's
+    // catalog, which is the very thing being guarded against. Fail closed.
+    if (!outgoingApplication) {
+      return {
+        error: `This ticket has no application on record, so there is no ${TRACKER_LABEL} `
+          + 'catalog to raise it in. Set its application first.',
+        status: 400,
+      };
+    }
+    const catalog = easyVistaCatalogStatus(outgoingApplication);
+    if (!catalog.configured) {
+      return { error: catalog.reason, status: 400 };
+    }
+  }
+
   // EasyVista's requestor/recipient is the admin who pressed send, not the
   // person who reported the ticket.
   const result = await submitToEasyVista(
     { ...source, type: effectiveType },
-    { submitter: username },
+    { submitter: username, application: outgoingApplication },
   );
 
   // After the ticket exists, never before — and never fatal, because the ticket

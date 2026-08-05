@@ -81,7 +81,7 @@ router.get('/api/dev/impersonate/users', async (_req, res, next) => {
 
     const users = await User.findAll({ order: [['id', 'ASC']], raw: true });
     const roles = await UserApplicationRole.findAll({ raw: true });
-    const applications = await Application.findAll({ raw: true });
+    const applications = await Application.findAll({ attributes: ['id', 'name'], raw: true });
     const applicationName = new Map(applications.map((a) => [Number(a.id), String(a.name)]));
 
     return res.json({

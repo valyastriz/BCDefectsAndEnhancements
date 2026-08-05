@@ -15,9 +15,12 @@ sections after it are the historical record and unchanged.
 
 **Done and on `main`:** the portal rename and the `TRACKER_LABEL` pass (§1), all
 three approved artifacts — Add-a-ticket/Import/Export, the Metadata page, the
-compacted Submit form (§2) — and the whole §3 found-not-fixed list except one
-held item (§3b). Client lint and build clean, 258 server tests, 119 browser checks
-across three committed scripts in `client/scripts/` (§0.3).
+compacted Submit form (§2) — the whole §3 found-not-fixed list except one held
+item (§3b), and **PR #10**, which had sat open since 2026-08-03 on a `plan.md`
+conflict and closes both of the EasyVista gaps this file used to record as OPEN
+(per-application catalog; attachments that admit failure). Client lint and build
+clean, 274 server tests, 119 browser checks across three committed scripts in
+`client/scripts/` (§0.3).
 
 **Do these next, in this order:**
 1. **Delete submission #84** — a retired test ticket the screenshot verification had
@@ -28,6 +31,14 @@ across three committed scripts in `client/scripts/` (§0.3).
    field map for report requests, and whether analysts are a new role or admins
    with a per-type grant. Both block §4 Phase 1.
 4. Then §5 step 5 (build Phase 1, mockups first) and step 6 (screenshots + docs).
+
+**One schema change is staged but not applied.** The hosted database has no
+`applications.easyvista_catalog_guid` / `_code` columns. Everything works without
+them — the merge made sure of that, the hard way (see §"EasyVista catalog is per
+application", defect 0) — but the Access page's catalog card reads every application
+as unconfigured until they exist. `cd server && npm run migrate:easyvista-catalog-columns`
+prints the two `ALTER`s and writes nothing; `-- --apply` adds them in one
+transaction. Two nullable columns, nothing back-filled, safe to re-run.
 
 **Branch note:** `origin/dev` is **19 commits behind `origin/main`** as of this
 commit — check with `git rev-list --left-right --count origin/main...origin/dev`.
@@ -798,126 +809,134 @@ application (3 rows, not 6), switching is a look, the star pins, a reload honour
 pin, looking elsewhere does not move it, and the pin is confirmed in the database. 235
 tests, lint and build green.
 
-## OPEN — the EasyVista call is Billing Center's, not the portal's (2026-08-03)
+## EasyVista catalog is per application (2026-08-03, merged 2026-08-05)
 
-**Not built. This is the blocker standing between "the portal supports many
-applications" and "the portal can actually file their tickets."** Everything else about
-multi-application — per-application access, scoped queues, redirect between queues, the
-board — landed this week. The outbound EasyVista call did not move with it: it is still
-the single Billing Center integration it was written as.
+Closes the first of the two gaps recorded in `docs(plan): record the two open EasyVista
+gaps`, which used to sit here as an OPEN section. Both claims in that note were verified
+against the code before acting on them, and both were accurate.
 
-**What is Billing Center-specific today.**
+**Merged late.** This shipped as PR #10, opened 2026-08-03 and merged 2026-08-05. It sat
+open for two days on a `plan.md` conflict — every source file auto-merged — with no
+review and no comment but the Vercel bot. Nothing was wrong with it; a newer PR overtook
+it. Worth remembering: a doc-only conflict is the easiest kind of stall to not notice.
 
-- **The catalog.** `easyVistaConfig()` (`server/src/helpers/easyVistaPayload.js:134`)
-  reads one `EASYVISTA_CATALOG_GUID` / `EASYVISTA_CATALOG_CODE` from the environment,
-  plus one `Origin`, `Severity_ID` and default `Urgency_ID`. There is one catalog and
-  the process has no way to hold a second.
-- **The repurposed field names.** `EASYVISTA_FIELD_MAP`
-  (`easyVistaPayload.js:60`) is a hardcoded array whose EV-side names —
-  `E_KCL_CHECK_VOID_REASON` carrying the summary, `E_KCL_MKT_AUDIENCE` carrying what
-  happened, `E_KCL_CHECK_TYPE`, `E_KCL_CHECK_PAYEE`, `E_KCL_CHECK_REISSUED`,
-  `E_PRB_CENTURYLINK_DCI1`, `E_LEGAL_POLICY_NUMBER`, `E_PRB_LAST_UPDATE_UT` — are fields
-  that exist in **Billing Center's** EV catalog and were repurposed because it had
-  nothing better. Policy Center and Claim Center have their own catalogs, their own
-  fields, and no reason to have repurposed the same ones the same way.
-- **The required-fields gate.** The send is refused unless a fixed list is filled
-  (`server/src/services/submissionService.js:1506-1528`, mirrored client-side by
-  `EASYVISTA_REQUIREMENT_SECTION` / `_FIELD` / `_LABEL` in
-  `client/src/constants/detailModalConstants.js:22-49`). "Summary of Issue, Screen Title,
-  Description" for a defect is a Billing Center rule.
-- **The ticket data itself.** `Policy#/Submission#`, `Account#`, `Transaction#` are
-  Billing Center's vocabulary. Claim Center wants a claim number; the submit form and
-  the description table both assume otherwise.
-- **The mailbox.** `EASYVISTA_ADMIN_MAILS` / `EASYVISTA_FALLBACK_MAIL` are one flat
-  username→mail list with no notion of which team's queue the ticket came from.
+**The gap.** One global `EASYVISTA_CATALOG_GUID`/`_CODE` from the environment, and a
+field map whose repurposed names (`E_KCL_CHECK_VOID_REASON` carries the summary, and so
+on) belong to Billing Center's catalog. `application_name` maps to `evField: null`, so
+the application was not even transmitted. Adding an application through Manage Metadata
+gave it a queue, access and a board lane while its tickets would have posted into
+Billing Center's catalog — silently, under a clean "Submitted" confirmation.
 
-**Why adding an application does not currently work.** `applications` is a bare lookup
-table — `id, name, sort_order, is_active` (`server/db/models/index.js:271`). Inserting a
-row through Manage Metadata immediately gives that application a queue, access grants, a
-board lane and a redirect target. It gives it **no EasyVista identity at all**, and
-nothing refuses the send: a Policy Center ticket would be posted, silently, into Billing
-Center's catalog under Billing Center's field codes.
+**The fix.** `applications.easyvista_catalog_guid` / `_code`. The application's own
+catalog wins; the environment is a fallback for exactly ONE application, named by
+`EASYVISTA_DEFAULT_APPLICATION`, so the catalog configured before applications had their
+own keeps working and no other application inherits it. A real send into an unconfigured
+application is refused with a message naming it, rather than misrouted.
 
-**What has to become per-application.** Catalog GUID + code; `Origin`, `Severity_ID`,
-default `Urgency_ID`; the our-key → EV-field map including which fields are table-only;
-the description table's row order and labels (the order is wire format — see the note at
-the top of `easyVistaPayload.js`); the required-before-send list on both sides; the
-requestor/recipient mailbox. Likely also the request path, if the applications sit behind
-different EV endpoints.
+**Deliberately not blocking application creation.** Requiring a catalog to add an
+application would make it impossible to add any today — EasyVista is switched off, and
+Policy Center already exists without one. The harm is in the send, so that is what is
+guarded.
 
-**Two constraints that shape the design.**
+**The guard is live-only, because this deployment is a demonstration.** With EasyVista
+off, `submitToEasyVista` returns a fabricated id before it ever builds a payload —
+nothing is transmitted, so there is no catalog to land in and no misroute to prevent. An
+unconfigured application demonstrates end to end exactly like a configured one. The
+refusal exists for whoever implements the real integration later.
 
-1. **A ticket's application can change after it is filed.** Redirect between queues
-   (see below, 2026-08-03) moves `submissions.application_id`. The payload must be built
-   from the ticket's application **at send time**, not at creation.
-2. **Field codes are wire format.** Getting one wrong produces a ticket that EV accepts
-   and a human then cannot read. Whatever holds them wants review and a test, the way
-   `server/test/easyVistaPayload.test.js` pins the current map.
+The Access page grew an **EasyVista catalogs** card: which applications are configured,
+which are not, and a super user can set the catalog identifiers. Configured state is
+reported even while EasyVista is off, so the gap is visible in a walkthrough rather than
+on the day it is switched on. The EasyVista preview carries the same status.
 
-**Proposed shape (not decided).** A per-application EV config record for the catalog and
-the ids — that part is data, an admin can hold it, and it changes without a deploy —
-paired with a code-side field map keyed by application, kept where the current one lives
-and covered by the same tests. Splitting it that way keeps the risky half reviewable.
+**Three defects found reviewing it before the merge, and fixed in the merge commit.**
+The first is the one that mattered:
 
-**Fail closed first, and it is small.** Before any of the above: an application with no
-EasyVista mapping should refuse the send with a plain message ("EasyVista is not
-configured for Policy Center") instead of falling back to Billing Center's catalog. That
-is a guard worth having the moment a second application is real, independent of how the
-per-application config eventually lands.
+0. **It broke most of the admin API against any database missing the new columns —
+   which is every database, including the hosted one.** Sequelize selects every
+   column the MODEL declares, so adding `easyvista_catalog_guid` / `_code` to the
+   \`Application\` model made \`SELECT id, name, sort_order, is_active,
+   easyvista_catalog_guid, easyvista_catalog_code FROM applications\` the query
+   behind \`viewerService.listActiveApplications\` — which runs inside
+   \`attachViewer\`, the middleware on most of the admin API. Against the hosted
+   database that is \`column "easyvista_catalog_guid" does not exist\`, a 500, and
+   the Access page, the detail modal and the EasyVista preview all stop working.
 
-**Open questions for the EV owners.** One EV instance with several catalogs, or several
-instances? Does every application split the same defect/enhancement way, or do some have
-a third request type the "Send as" control has no room for? Does each team have its own
-requestor mailbox? Is the 4-attachment cap (`server/src/easyvista.js:95`) per catalog?
+   It was invisible on the branch because the branch author had run \`npm run
+   migrate\` locally. It surfaced within a minute of pointing the merged code at the
+   real database.
 
-## OPEN — images never reach EasyVista, and the admin is not told (2026-08-03)
+   Fixed two ways, deliberately both:
+   - **Four queries now name the attributes they use** (\`viewerService\`,
+     \`redirectService\` ×2, \`devRoutes\`). None of them ever wanted a catalog —
+     they use \`id\` and \`name\` — and an implicit select of every model column is
+     what made a new column a breaking change. This is the real fix.
+   - **The two places that DO want the catalog degrade** —
+     \`loadApplicationRows\` / \`loadApplicationRowById\` in \`helpers/lookups.js\`
+     retry without those columns and warn once, so an unmigrated database loses the
+     catalog card and nothing else. Same shape as
+     \`admin_view_preferences.pinned_application\`. Fail-closed is preserved: with
+     no columns to read, no application reports a catalog, so a live send is
+     refused rather than misrouted.
 
-**Not built, and unlike the item above this one blocks Billing Center go-live on its
-own.** Screenshots are the substance of most defect reports here — the submit form is
-image-only for exactly that reason — and right now none of them would arrive.
+   \`npm run migrate:easyvista-catalog-columns\` adds the two columns explicitly —
+   dry-run by default, one transaction, skips a column that already exists. Narrow
+   on purpose: \`npm run migrate\` would reconcile every table with
+   \`sync({ alter: true })\`, which on live data is a much broader act than adding
+   two nullable columns. **It has NOT been applied to the hosted database** — the
+   app works without it, so this is a decision rather than an emergency.
 
-**Where it stops.** `sendEasyVistaAttachments` (`server/src/easyvista.js:118`) is an
-honest stub: it caps the list, warns to the server console, and returns
-`{ sent: 0, skipped, source: 'not-implemented' }`. Everything *around* it is finished
-and tested — the picker, the 4-file cap, the check that each id belongs to this
-submission (`server/src/services/submissionService.js:1466-1477`), the confirm dialog.
-The upload request itself is the only hole.
+1. **The application was resolved by NAME, not by id** — `Application.findOne({ where: {
+   name: source.application_name } })`, in both the preview and the send, while
+   `rawSubmission.application_id` sits two lines above and is already used for the
+   ownership check. That is the STOP-list rule against joining on a name where an id
+   exists, and here it had teeth: rename an application on the Metadata page (which the
+   rebuilt page makes easy) and the lookup returns null.
+2. **And null failed OPEN.** `easyVistaConfig(null)` deliberately reads the environment
+   so a preview built before an application is known still renders — but the live guard
+   called `easyVistaCatalogStatus` with that same null, got `configured: true` from the
+   environment's catalog, and let the send through. So the exact misroute this PR exists
+   to prevent was reachable: rename an application, send a ticket, and it posts into the
+   environment's catalog under the wrong field names. Now the lookup is by id, done once,
+   and a live send with no resolvable application row is refused.
 
-**The part that is a defect today, not a missing feature.** The client builds its
-confirmation from `result.source` alone and never reads `result.attachments`
-(`client/src/hooks/useDetailModal.js:586-598`). The moment `EASYVISTA_ENABLED` is turned
-on, an admin selects three screenshots, presses Send, and reads **"Submitted. Ticket:
-EV-12345"** — with the images silently not sent and the only trace in a server log
-nobody is watching. The ticket then reaches a developer who has no screenshots and no
-reason to think any were meant to exist. **Surfacing `attachments.source` in that
-confirmation should land before go-live regardless of when the upload contract arrives**
-— it is small, and it converts a silent data loss into a visible one.
+Verified: 274 server tests (2 new for those two paths), client lint, build.
 
-**What we need from the EasyVista owners.**
+## EasyVista attachments: loud instead of silent (2026-08-03, merged 2026-08-05)
 
-- Endpoint: part of the same create call, or a follow-up POST against the new ticket id?
-- Transport: `multipart/form-data`, or base64 inside JSON?
-- The field name for the file, and whether several files go per request or one each.
-- Per-file size cap, and which content types are accepted.
-- Can files be added to an **existing** ticket? Re-submission creates a new card against
-  a ticket that already exists, so the answer decides whether a re-send can carry images.
-- Is the 4-file cap real? `EASYVISTA_MAX_ATTACHMENTS` (`server/src/easyvista.js:95`) is
-  currently an assumption the UI enforces on admins.
+The second gap, from the same PR.
 
-**What our side already fixes for them.** Uploads are images only —
-`.png .jpg .jpeg .gif .webp .bmp .heic .heif` with a matching `image/*` mime — 10 MB per
-file, 10 files per request (`server/src/middleware/upload.js:6-38`).
+**The upload is genuinely blocked** on EasyVista's contract — endpoint, multipart vs
+base64, the file field name, whether several go per request, the per-file cap. Nobody
+can write that without the spec, so it stays a documented stub. `sendEasyVistaAttachments`
+still never throws: the ticket exists by the time it runs, and turning a created ticket
+into an error response would be a worse lie than the one being fixed.
 
-**One implementation wrinkle worth knowing before estimating.** `attachments.file_path`
-is dual-mode: a repo-relative path on disk, **or** a Supabase Storage public URL when
-`SUPABASE_STORAGE_ENABLED` (`server/src/helpers/storage.js:116-139`). The uploader cannot
-just `readFileSync` — it has to resolve bytes from either source.
+**The silence was ours, and is fixed.** The server always returned the attachment
+outcome (`attachments: attachmentResult`), and nothing read it — the client checked
+`result.source`, which describes the TICKET, not the files. So a live send created a real
+ticket, uploaded nothing, logged a warning into a server log nobody reads, and confirmed
+"Submitted. Ticket: I240412" with no caveat. On a defect where the screenshot IS the
+evidence.
 
-**If EV has no usable attachment API,** the fallback is a link in the Description table.
-`/uploads` is `express.static` with no session check (`server/src/index.js:49`), so a URL
-would in principle resolve for an EV reader — but only if the server is reachable from
-their network, and it means screenshots that can contain policy data sit behind an
-unauthenticated, guessable path. Raise it as a decision, not a default.
+Now:
+
+- `easyVistaAttachmentsSupported()` is the single source of truth, so the warning shown
+  before Send and what actually happens afterwards cannot drift. Whoever writes the
+  upload flips one constant and both follow.
+- The result carries `attempted`, so the message can say "3 files could not be attached"
+  instead of inferring a count it was never given.
+- The **preview warns before the send** — going ahead without the files becomes a choice
+  rather than a discovery. By the time the confirmation speaks, the ticket exists.
+- The **confirmation reports the real outcome**, including files dropped by the
+  per-ticket cap, which was equally unread.
+
+None of this changes the demonstration: with EasyVista off nothing is transmitted,
+`sent` equals what was picked, and the confirmation stays clean.
+
+The user-facing strings this added were written before the tracker rename, so the merge
+routed them through `TRACKER_LABEL` like the rest — they said "EasyVista" to an admin.
+
 
 ## Browser verification — five defects the tests could not see (2026-08-03)
 
