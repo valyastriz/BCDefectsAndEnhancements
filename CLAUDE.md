@@ -112,11 +112,16 @@ code. Map:
 
 ## Workflow expectations
 
-- Commit/push only when asked. Branch work happens on `dev`; `main` is the
-  release branch. **They no longer track together** — as of 2026-08-05 `origin/dev`
-  is well behind `origin/main`, and `main` is where the work has been landing. Check
-  with `git rev-list --left-right --count origin/main...origin/dev` before assuming
-  either.
+- Commit/push only when asked. **`main` is the only working branch** — `dev` was
+  retired on 2026-08-05 (it was 24 commits behind and 0 ahead). Feature branches are
+  cut from `main` and merged back; GitHub deletes the head branch on merge.
+- **Pushing to `main` deploys, and the deploy migrates the shared database.**
+  Production boots with `sync({ alter: true })` (`server/src/index.js:93`) against
+  the same hosted Supabase a local `npm run dev` uses, so a model change lands on
+  live data on push. Local runs cannot do this — the sync is production-guarded and
+  `NODE_ENV` is unset locally. Write the explicit migration script anyway (see
+  `scripts/migrateEasyVistaCatalogColumns.js`) so the change is reviewable and
+  re-runnable elsewhere.
 - Keep `npm run lint` (client) and `npm test` (server) passing.
 - Skills live in `.claude/skills/`, committed as plain files so Claude Code
   discovers them on every OS (Windows included). `.claude/settings.local.json`

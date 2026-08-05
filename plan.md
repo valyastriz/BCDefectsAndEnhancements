@@ -23,14 +23,17 @@ clean, 274 server tests, 119 browser checks across three committed scripts in
 `client/scripts/` (§0.3).
 
 **Do these next, in this order:**
-1. **Answer the two Phase 1 questions** (§5 step 4b): the authoritative per-type
-   field map for report requests, and whether analysts are a new role or admins
-   with a per-type grant. Both block §4 Phase 1. **This is the only thing blocking
-   work.**
+1. **Confirm the report-request field list** (§4, "Open questions", item 1) — the
+   ONE thing still blocking Phase 1. Everything else is answered. What is needed is
+   not the whole 67-field map: only which fields a *report/dashboard* request asks
+   for, who fills each, and whether the two conditional rules are right. The
+   inferred list is in §4 under "The field split falls out…" — correcting that table
+   is the whole task, and the source spreadsheet (or one real example) settles it in
+   minutes.
 2. Then §5 step 5 (build Phase 1, mockups first) and step 6 (screenshots + docs).
 3. Optional housekeeping: set a catalog for Billing Center on the Access page (the
-   card works now), and decide what happens to `dev` and
-   `feat/admin-detail-modal-redesign` (see the branch note below).
+   card works now), and decide what happens to `feat/admin-detail-modal-redesign`
+   (see the branch note below).
 
 **Data housekeeping, all done 2026-08-05:** the status-history backfill applied (7
 rows, idempotent, re-run reports 0); the verification's test ticket #84 deleted with
@@ -52,10 +55,11 @@ had the columns applied.
 and GitHub had already removed their remotes (the repo auto-deletes a merged head
 branch). Two remain, both needing a decision:
 
-- **`dev`** is far behind `origin/main` — check with
-  `git rev-list --left-right --count origin/main...origin/dev`. The claim further
-  down that they "currently track together" is out of date; `main` is where the
-  work lands. Fast-forward it or retire it.
+- ~~`dev`~~ **retired 2026-08-05** (owner's call). It was 24 commits behind `main`
+  and **0 ahead** — zero dev-only commits, so nothing was lost. Its last tip was
+  `e0b32ae`, recorded here in case anyone ever wants it back. `main` is the only
+  working branch now; the note further down about work happening on `dev` is
+  history.
 - **`feat/admin-detail-modal-redesign`** is kept ON PURPOSE. Its *content* is on
   `main` (it merged as PR #3, which rewrote the SHAs), but the two commits
   themselves are not reachable from `main`, so deleting it needs `git branch -D`
@@ -634,10 +638,26 @@ Artifact before product code.
    explicitly. There are likely types whose fields did not make the list.
 3. **What are `Claims or CCC?`, and what is `Send to Trevor`?** The latter is a
    person's name doing a workflow's job and must become a role or a queue.
-4. **Are analysts a new role** alongside viewer/admin/super user, or admins with a
-   per-type grant? Note reimbursement and business-card requests are probably not
-   handled by the same people who build dashboards, so "assignable" is likely
-   per-type, not global.
+4. ~~Are analysts a new role?~~ **ANSWERED (owner, 2026-08-05): no.** "Analysts are
+   basically admins, they would just be configured to certain types of requests."
+   So the role ladder stays `viewer` → `admin` (+ the super-user flag) and gains a
+   **type dimension on the grant**, not a fourth role.
+
+   **The shape that follows.** `user_application_roles` is today
+   `(user_id, application_id, role)`. It gains a nullable type column, where NULL
+   means "every type" — so every grant that exists now keeps working untouched, and
+   an analyst is simply an admin grant narrowed to one type. One table, additive,
+   no migration of existing rows. A separate `user_request_type_roles` table was
+   the alternative and is worse: two places to ask the same question.
+
+   **And this is the expensive part of Phase 1, not the schema.** Every check that
+   today asks *"may this person administer this application?"* becomes *"…for this
+   type?"* — `canMutateApplication` and each of its call sites: the queue scope, the
+   detail modal, redirect, the Service Desk send, bulk actions, and the create path.
+   That is the work to estimate. The column is an afternoon; the authorisation
+   sweep is not, and it is the half where a miss means someone editing a ticket
+   they should not see. It also wants its own tests — the existing per-application
+   ones (`test/access.test.js`, `test/adminReadScope.test.js`) are the template.
 5. ~~What is the portal called?~~ **Answered** — "Service Requests Portal", see
    §0.2. No longer blocks the docs pass.
 6. **Does §2 still ship first?** Recommended **yes** — those three are approved,
