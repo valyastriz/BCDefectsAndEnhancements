@@ -3,6 +3,494 @@
 Living record of notable features/changes. See `CLAUDE.md` for architecture and
 per-app details.
 
+---
+
+# HANDOFF — pick this up cold (2026-08-05)
+
+Everything below this line up to the `---` is the live work queue. It is written to
+be read by someone with no memory of the session that produced it. The dated
+sections after it are the historical record and unchanged.
+
+## 0. Read this first — two corrections to stale facts
+
+1. **`CLAUDE.md:30` is wrong.** It says `server/.env` is `sqljs` / `DB_MODE=local`
+   with an empty `DATABASE_URL`. It is now `DB_MODE=hosted`,
+   `DB_PROVIDER=postgres`, `DATABASE_URL=…@aws-0-us-west-2.pooler.supabase.com`.
+   So a local `npm run dev` talks to **hosted Supabase**. The owner has confirmed
+   that data is entirely test data, the whole app is a prototype to be rebuilt by
+   developers, and it is fine to read *and write* for verification and
+   screenshots. Fix that CLAUDE.md line when convenient.
+2. **The portal is called "Service Requests Portal"** / "Submit · Track ·
+   Resolve" (`client/src/components/bite-size/Layout.jsx:112`,
+   `client/index.html:6`). It was briefly "Defects & Enhancements Portal" earlier
+   the same day; that was replaced once §4 widened the scope, because a portal
+   that also orders business cards and handles hotel reimbursements is not a
+   defects portal. **Named for the destination deliberately** — the alternative
+   was re-shooting 43+ desktop screenshots a second time when the other request
+   types land. Do not narrow it again.
+
+## 1. Landed and verified (2026-08-05)
+
+- **Site rename** — brand + `<title>`. The title had been the Vite default
+  `client` since scaffolding.
+- **One display label for the downstream ticketing system.**
+  `TRACKER_LABEL = 'Service Desk'` in **two** places that must change together:
+  `client/src/constants/tracker.js` and `server/src/constants.js:13`.
+  Deliberately a **display name only** — `easyvista_ticket_id`, the
+  `easyvista-preview` route, `EASYVISTA_*` env vars and `server/src/easyvista.js`
+  keep the vendor name, because renaming them is a migration with no user-facing
+  gain.
+- **Public-facing strings converted** — board lane + stage tile now
+  "With Service Desk" (`constants/publicConstants.js:33`,
+  `components/public/StatusBoardRow.jsx:15`); readiness rail says "get a ticket
+  number you can track", was "an EV number"; "The BC team reviews it" → "The
+  triage team" (`components/public/SubmitReadinessRail.jsx`).
+- **Admin registries converted** — queue column, sort field and both filter
+  labels in `constants/adminConstants.js`.
+- **Excel import round-trip checked, not assumed.** Relabelling the export header
+  is safe because `server/src/helpers/importUtils.js:38` matches on `aliases`,
+  never on `label`. Added `service_desk_number` / `service_desk_ticket` /
+  `service_desk_submitted_by` aliases so a sheet exported with the new header
+  re-imports; confirmed `normalizeImportHeader("Service Desk Number")` →
+  `service_desk_number`.
+- `cd client && npm run lint` clean. Both public routes render with 0
+  "EasyVista" and 2 "Service Desk" in visible text.
+- **`playwright` added to `client/devDependencies`** for verification and the
+  screenshot harness. Browsers already cached in `%LOCALAPPDATA%\ms-playwright`.
+
+## 2. Approved by the owner, NOT yet built
+
+Three artifacts, all approved. Build to match them; they are the contract.
+
+### 2a. Metadata page redesign — v5
+`https://claude.ai/code/artifact/d54d37c6-97ac-4913-b387-0a179fb13892`
+
+Target: `client/src/pages/AdminMetadataPage.jsx` (rewrite),
+`client/src/index.css` (+ `md-` namespace, transplanted from the artifact),
+`client/src/constants/adminConstants.js`, `client/src/hooks/useMetaManagement.js`.
+
+- **Usage counts are the spine of it.** Each value shows how many tickets hold
+  it; switching off a value that is in use states the consequence inline
+  ("25 tickets use Submitted. They keep it — switching off only stops it being
+  offered on new tickets"). Needs an **additive `usageCount`** on
+  `GET /api/admin/meta/options` (`server/src/routes/metaRoutes.js:46`), computed
+  as **one GROUP BY per category** over `LOOKUP_TABLES[].submissionIdColumn`
+  (`server/src/constants.js`) — not a per-row subquery, or it is 45 queries.
+- One switch replaces the Enabled **and** Disabled checkbox pair.
+- **No per-row Save.** A rename commits on Enter/blur, a switch saves
+  immediately — the Access page's contract.
+- **Fix while there (real bug):** `useMetaManagement.js:164-170` resets
+  `metaDraftNames` whenever `activeMetaItems` changes, so saving any row
+  **discards an unsaved rename typed into another row**. Immediate-save makes it
+  fire far more often, so this must be fixed as part of the build.
+- **Add a 9th panel: Occurrence Timeframes.** It feeds the Impact tab's Time
+  Frame dropdown (`components/admin/detail/DetailImpactSection.jsx:97`,
+  `hooks/useAdminMeta.js:63`) and has a full `LOOKUP_TABLES` entry, but is absent
+  from `ADMIN_META_CATEGORIES` — so nobody can manage it.
+- Skeleton / error / empty states, which the page has none of.
+- Mobile: rail becomes a **dropdown** (not a horizontal scroller — explicitly
+  requested); each value becomes an 81px card, count + switch + order on one line.
+- Out of scope, named: clicking a usage count through to a filtered queue (the
+  queue hydrates filters from localStorage only, `utils/filterUtils.js:87`);
+  deleting lookup values (no DELETE endpoint exists); a socket event for lookup
+  changes; cleaning the junk `orm_source_1772230352163_u` value in the read-only
+  Submission Sources list.
+
+### 2b. Submit form compaction
+`https://claude.ai/code/artifact/58f88812-d2db-4eaf-92c4-b1e527a4575c`
+
+Measured **1626px → 1209px desktop (−26%)**, 11% on a phone, with field and
+input counts identical in both panes (10 fields, 12 inputs) — nothing removed.
+
+Cause, verified against git: the pre-rebuild form was **one card with a
+two-column grid** (`.bs-grid two`); the rebuild made it **six stacked cards,
+mostly one field per row**. Same fields, far more page.
+
+Changes: six cards → four (type picker joins "Your request"; workaround joins
+"What happened"); drop zone laid out as a row (169px → 86px); `.rs-sub`
+reference-numbers box flattened, heading kept; reporter paired with the one-line
+summary via `.rs-row--who`; card padding 16/18 → 14/16.
+**Textareas deliberately untouched** — they carry the actual report and their
+height comes from `rows` in the JSX anyway.
+
+### 2c. Admin data entry — Add a ticket, Import, Export
+`https://claude.ai/code/artifact/d5f3f12b-f9d0-47e8-8466-39672584afce`
+
+**Add a ticket** replaces both `BackdatedTicketModal` and `CleanupTaskModal`, so
+the `New ticket ▾` menu (`components/admin/AdminHeader.jsx:118`) collapses from
+two entries to one `Add a ticket…`.
+- Mode: **New ticket (default)** / Historical ticket. Fields are *absent* in the
+  wrong mode, not disabled.
+- Type: **Defect / Enhancement / Cleanup**. Cleanup carries its own
+  `Tag it as` → Internal only / Defect / Enhancement, because a cleanup task is a
+  flag plus a tag in the data, not a peer of the other two. Gating is one
+  computed `data-branch` attribute.
+- Internal-only cleanup: Summary + Description, **hand-off never offered**.
+  Tagged cleanup: that branch's fields + "Send it to the Service Desk once it's
+  created", which makes the branch's required fields mandatory
+  (`cleanupRequiresEasyVistaFields` in `hooks/useCleanupModal.js`).
+- The hand-off checkbox is **New-mode only** — a historical ticket already
+  records its Service Desk number, and offering to send it again could raise a
+  duplicate downstream.
+- `created_via`: New → **`admin_manual`** (an existing lookup with 0 uses that
+  fits exactly). Historical → **`admin_backdated`**.
+- Owner confirmed: an admin-added New ticket behaves **exactly** like a
+  rep-submitted one — status New, on the board under the usual visibility rules,
+  sendable to the Service Desk normally.
+- New mode mirrors the rep form, which means genuinely **adding** four fields the
+  backdated modal never had: screen title, when it happened, what happened,
+  steps to reproduce, plus the reference numbers.
+
+**Import**: three real steps. "18 of 20 columns matched by name", with only the
+columns needing a decision surfaced and the rest behind "Review all 20 mappings";
+same for unknown status values; a **preview of the first rows before anything is
+written**; recent imports demoted to a footer. Result step: 47 imported / 3
+skipped with the reason per row.
+
+**Export**: leads with **"83 tickets match your current filters"** — the fact the
+old dialog never stated. All **48** fields (verified programmatically against
+`server/src/helpers/export.js` — every field grouped exactly once) in 7 groups,
+with presets, and a button stating the shape: "Download 83 rows × 10 columns",
+disabled at zero columns.
+
+## 3. Found, not yet fixed
+
+- **Hardcoded application list, two places.** Every other application dropdown
+  reads `dynamicApplications` from the lookups, but
+  `components/admin/ImportModal.jsx:116-117` hardcodes `Billing Center` /
+  `Policy Center` — so **an application added on the Metadata page never appears
+  as the import default**. And `components/admin/CleanupTaskModal.jsx:173`
+  renders a read-only `Application Name = "Billing Center"` that *duplicates* the
+  editable Application select 60 lines above it. Both die with 2c.
+- **Redirect dialog has no horizontal padding** (owner-reported): open a ticket →
+  More → redirect to another queue, and the text sits flush against the modal
+  edges. Not yet traced. Note `.rs-stickybar` full-bleeds with `margin: 0 -24px`
+  to match `.app-main`'s 24px padding (`index.css:3234`) — that class of
+  container/gutter coupling is a likely suspect.
+- **Clipped-overflow bug class, worth sweeping for.** The metadata mockup had
+  mobile cards at `width: 100%` **plus** a 12px horizontal margin, so every card
+  was 12px wider than its container and `overflow: hidden` on the card silently
+  clipped it — the right-hand gutter vanished instead of scrolling. A
+  document-level "does the page scroll sideways" check **cannot see this**. Use
+  `scrollWidth` vs `clientWidth` per container.
+  `scratchpad/check-overflow.mjs` in the session temp dir did this; re-create it
+  and run it against the real pages.
+- **Status-history backfill, approved and not run.** 7 rows in
+  `submission_status_events` contain "EasyVista", all one shape:
+  `Resubmission: From (EasyVista EV-#####) to (EasyVista EV-#####)…`. Written by
+  `services/submissionService.js:1656,1831,1838`. Parsing is prefix-based
+  (`utils/formatUtils.js:189`, `helpers/timeline.js:18-45`,
+  `routes/publicRoutes.js:21`) so nothing breaks either way. Dry-run then apply.
+- **Server-side strings still say EasyVista** — `submissionService.js:1474,1501`
+  (API errors), `helpers/export.js:38-39` (spreadsheet headers),
+  `easyvista.js:70,85,134` (thrown errors surfaced in the UI). Route through
+  `TRACKER_LABEL`.
+- **Admin client strings still say EasyVista** — detail modal tab label
+  (`DetailModal.jsx:153`), `DetailActions.jsx:95-96`, `DetailAlerts.jsx:193,208`,
+  `DetailReferenceSection.jsx:39-46`, `DetailSubmissionSection.jsx:19,26`,
+  `DetailAttachmentsSection.jsx:44`, the whole `DetailEasyVistaSection.jsx` body,
+  `FilterPanel.jsx:90`, `submissionColumns.jsx:199`, `hooks/useDetailModal.js:548,588-595`,
+  `hooks/useCleanupModal.js:92`, `AdminAccessPage.jsx:469`,
+  `utils/formatUtils.js:35,156`.
+- **Hardcoded "Billing Center" as application data** (owner asked for full
+  genericization): `pages/RepSubmitPage.jsx:13,163,244,272` (incl. the h1
+  "Report a Billing Center issue"), `utils/formDefaults.js:15,53`,
+  `utils/mappers.js:15`, `hooks/useBackdatedModal.js:71`,
+  `hooks/useCleanupModal.js:145-146`. Should derive from the viewer's
+  pinned/granted application with a fallback when they have none.
+- **Five `401 Unauthorized` fetches** on the public routes when not signed in.
+  Pre-existing, looks like the anonymous viewer probe, not traced.
+
+## 4. NEW SCOPE — report requests for analysts (owner, 2026-08-05)
+
+### What was asked for
+Extend the portal past defects/enhancements/cleanups to **report requests**: a rep
+requests a report, it lands in a queue for that application's **analysts**, who
+set status, estimated completion, and level of effort. Admins can add report
+requests from the admin side too — **new and historical, plus import and export**.
+Requests can be **assigned** to an admin/analyst, and the portal should
+**report on throughput** — how many reports a given analyst completed, by
+timeframe.
+
+### This is not one request type — it is a service catalogue
+
+The owner supplied **67 fields** across two messages. They do not describe a
+report request. They describe what is almost certainly an existing shared-services
+intake **spreadsheet**, covering many unrelated request types in one flat sheet.
+The give-aways are unmistakable: `Business Card Count`, `Designations`,
+`Brand Logo`, `Numbers (Work,Cell,Fax)`, `Toner Link`,
+`Type of Sharepoint request`, `Check-In Date` / `Check-Out-Date`, `Recipient(s)`.
+Those cannot live on the same form as `List of Measures & Data Sources`.
+
+Best reading — **at least nine candidate request types**:
+
+| Candidate type | Fields that belong to it |
+|---|---|
+| **Report / dashboard** | Request Type · List Needed Data · New Dashboard Request? · List of Measures & Data Sources · How often will this be used · Primary Contact for dashboard · List Changes Requested · Report/Dashboard Approval · What's not working, missing, or needed to change? |
+| **Project / change** | Initiative/Project Name · Project Lead · Project Sponsor · Team Leading Project · Team Impacted · Strategic Alignment · Strategic Focus · Enterprise Scorecard Alignment · Type of Change · Training Needed? · EPPMC Needed? · Ops Support Needed? · Added To Project Board? · Risks · Assumptions · Ops Liason/Project Owner |
+| **Business cards / print** | Mailing Address · Designations · Numbers (Work,Cell,Fax) · Cell Phone · Brand Logo · Business Card Count |
+| **SharePoint** | Type of Sharepoint request · SharePoint Site URL · SharePoint Approval |
+| **Live Letters** | Letter Number · Live Letters Approval |
+| **RPA** | RPA Approval |
+| **LiveWire** | LiveWire Approval |
+| **Card sent to a customer** (owner: "in claims, adjusters can request to have a card sent to a customer") | Congrats Card · Gift Card Information · Recipient(s) · Mailing Address · Amount |
+| **Business cards order** | Business Card Count · Designations · Numbers (Work,Cell,Fax) · Cell Phone · Brand Logo · Mailing Address |
+| **Travel / expense reimbursement** (owner: "employee needs to request reimbursement for a hotel") | Check-In Date · Check-Out-Date · Amount · Mailing Address |
+| **Supplies** | Toner Link |
+| **Unplaced** | Claims or CCC? — probably which area the requester belongs to, so likely a shared field rather than a type's own |
+
+Genuinely shared across every type: Request Created Date · Requestor · Email
+address · Department · Title · Description · Status · Priority · Assigned To ·
+Jira Item Number · Requested Implementation Date · Complete Date · Level Of
+Effort · Duration.
+
+**Confirmed by the owner (2026-08-05):** "this is just ALL available fields from
+different types of reports… some show up in certain cases and others do not." So
+the flat list is the *union* of every type's fields, exactly as the table above
+reads it. That settles the premise — the work is to recover the per-type subsets,
+not to build one form.
+
+Note that `Mailing Address`, `Amount` and `Recipient(s)` each appear in **more
+than one** type. So this is not "each type owns private fields": it is a **shared
+field library** from which each type selects a subset. That is a materially
+different (and simpler) model than one schema per type, and it explains how the
+spreadsheet grew — a new column was added whenever a new request type needed a
+field, and every other type inherited a blank.
+
+### Problems in the list to settle before modelling anything
+
+- **Three fields for one fact:** `Complete`, `Completed`, and `Complete Date`.
+  Completion should be **one timestamp**, with the boolean *derived*.
+- **`Created Month` is derived** from Request Created Date. Storing it invites
+  the two to disagree; compute it when reporting.
+- **`Level Of Effort` vs `Complexity` vs `Successful Effort Indication`** — three
+  effort-ish fields. Which drives the throughput reporting?
+- **`What Dept is this for` vs `Department`** — same field twice.
+- **`Send to Trevor` hardcodes a person into the workflow.** Whatever this
+  routing step is, it must be a role or a queue; a colleague's name in a schema
+  breaks the day they change teams. (Same class as the STOP rule against joining
+  on names instead of ids.)
+- **`Duration`** — analyst hours logged, or elapsed calendar time? It is the basis
+  of the throughput reporting, so this changes the data model.
+- **Five separate `* Approval` fields** are a per-type **checklist**, not five
+  booleans on every row of every type.
+
+### Architectural recommendation
+
+Do **not** add 67 columns to `submissions`, and do not model this as "defects,
+enhancements, cleanups, and report requests". The honest shape is a
+**request-type registry with per-type field schemas** — an internal service
+catalogue where each type declares its own fields, required-before-submit rules,
+approvals, queue and assignees. Defect/enhancement/cleanup become three types
+among many rather than the hardcoded spine of the app.
+
+That is a **larger change than everything in §2 combined** and it invalidates
+parts of the current model. It should be planned as its own project, with its own
+mockups, not bolted on. Load-bearing pieces that already exist and should be
+reused: per-application roles (`user_application_roles`,
+`db/models/index.js:354`), `submission_routings` for queue hand-off, and the
+lookup registry the Metadata page manages (new per-type lookups — Level of
+Effort, Request Type, Department — are just new panels there).
+
+New data the asks require that does not exist yet:
+- **`assigned_to` as a user id**, never a name string, so a rename cannot
+  silently unlink work.
+- **`completed_at`**, plus assignee history if reassignment must be attributable.
+  Throughput cannot be computed retroactively — add it before it is needed.
+- An **analyst throughput surface** (completions per assignee per timeframe) is a
+  new page, not a field.
+- Any money figure (`Amount`) is **`DECIMAL`, never float** — see the float bug
+  recorded below, which silently corrupted hosted data.
+
+### PHASE 1 — report / dashboard requests only (owner's chosen starting point)
+
+Owner's direction (2026-08-05): *"maybe we don't build all of it right now, but
+put it into plans for the future… whatever we do need to do or can already build,
+we can have a start on it, maybe start with analytics/data report requests."*
+
+So: build **one** new request type now — report/dashboard requests — and leave the
+other eight in §4 as recorded future scope. The rest of this section is Phase 1.
+
+**Why this type first, and why it fits.** A report request has the same shape the
+portal already models: a reporter fills in what they need, a triager takes it,
+works it, and closes it. It needs **no registry** and **no new table** — it is a
+third `type` alongside defect and enhancement, reusing statuses, applications,
+per-application access, routing, the public board, import/export and the detail
+modal. Business cards and hotel reimbursements do *not* fit that shape, which is
+the other reason to start here.
+
+**The field split falls out of the existing reporter/triager divide:**
+
+| Filled by the requester (submit form) | Filled by the analyst (detail modal) |
+|---|---|
+| Title · Description · What's not working, missing, or needed to change? · List Needed Data · New Dashboard Request? · List of Measures & Data Sources · How often will this be used · Primary Contact for dashboard · List Changes Requested · Requested Implementation Date · Department · Requestor · Email address | Status · Assigned To · Level Of Effort · Duration · Complete Date · Priority · Report/Dashboard Approval · Jira Item Number |
+
+`List Changes Requested` is only asked when it is a change to an existing report;
+`List of Measures & Data Sources` and `Primary Contact for dashboard` only when
+`New Dashboard Request?` is yes. That is the same conditional-branch pattern the
+Defect/Enhancement toggle already uses on the submit form and in §2c's
+Add-a-ticket dialog — follow it rather than inventing a second mechanism.
+
+**Additive schema, all nullable, all useful even if the registry never happens:**
+- `assigned_to` — **user id**, FK to `users`, never a name string.
+- `completed_at` — timestamp. `Complete` / `Completed` booleans are **derived**
+  from it, never stored (the source list had three fields for this one fact).
+- `level_of_effort_id` — a **new lookup table**, so it becomes a new panel on the
+  Metadata page. Build §2a so a 10th panel is a one-line addition.
+- **`Duration` is analyst hours logged** (owner, 2026-08-05) — **not** a column.
+  Hours accumulate across sittings and across people, so a single number cannot
+  record them without being overwritten. It needs a child table:
+
+  ```
+  request_time_entries
+    submission_id  FK -> submissions
+    user_id        FK -> users        who logged it
+    hours          DECIMAL(6,2)      never float (see the float bug below)
+    worked_on      DATE              the day worked, not the day entered
+    note           TEXT NULL
+  ```
+
+  `Duration` on the request is then `SUM(hours)` — derived, never stored, so it
+  cannot drift from its entries. This also makes "how long did this take" and
+  "who actually did the work" answerable separately, which matters below.
+- Report-request-only text fields. Since only one new type is arriving, plain
+  nullable columns are honest and simpler than a JSON blob or an EAV table. If
+  and when types 3–9 arrive, *that* is the moment to generalise — and the
+  §4 registry note is the plan for it.
+
+**Assignment and throughput.**
+- Assignable people come from `user_application_roles`
+  (`db/models/index.js:354`) — whoever holds a grant on that application. Do not
+  invent a parallel analyst list.
+- **Reassignment is required** (owner, 2026-08-05), so the current assignee cannot
+  be the only record of who worked a request. Assignment gets its own history:
+
+  ```
+  request_assignments
+    submission_id  FK -> submissions
+    assigned_to    FK -> users
+    assigned_by    FK -> users
+    assigned_at    TIMESTAMP
+  ```
+
+  `assigned_to` on the request stays as the *current* holder (cheap to query and
+  to index for "my queue"); the table is the audit trail. This cannot be
+  reconstructed after the fact — add it with the feature, not later.
+
+- **Throughput credit: use the time log, not the assignee.** The obvious
+  implementation of "how many reports has this analyst completed" counts
+  `completed_at` grouped by `assigned_to` — but with reassignment that credits
+  whoever happened to hold the ticket when it closed, and silently erases the
+  person who did most of the work. Because `Duration` is already a per-person time
+  log, the honest metrics fall out of it directly:
+  - **hours per analyst per timeframe** — sum `request_time_entries.hours`
+  - **requests completed per analyst** — distinct requests they logged hours on
+    that reached `completed_at` in the window
+  - **requests closed per analyst** — grouped by `assigned_to` at completion, kept
+    as a *separate* number, since "closed it" and "did it" are different facts and
+    conflating them is how throughput reporting becomes untrustworthy.
+- The throughput view is a **new page**, and it is chart-shaped: load the
+  `dataviz` skill before drawing anything, and follow the existing `access-tile`
+  / `md-tile` idiom for the summary numbers.
+- Emit live updates on assignment and on time entries the same way every other
+  mutation does — a queue showing "assigned to me" that needs a refresh is a stub.
+
+**Also required for parity with the other types** (the owner asked for all of it):
+admin-side add (new *and* historical) via §2c's dialog — a fourth Type in that
+segmented control — plus Excel import and export coverage, which means new
+`IMPORT_COLUMN_TARGETS` entries and new `ADMIN_EXPORT_FIELDS` entries. §2c should
+be built with a fourth type in mind so this is an extension, not a rewrite.
+
+**Mockup first.** Per `.claude/skills/artifact-mockup-first`, the new submit-form
+branch, the detail-modal fields and the throughput page each need an approved
+Artifact before product code.
+
+### Open questions for the owner — these block §4 entirely
+
+1. **The authoritative per-type field map.** The table above is inferred. The
+   fastest way to settle it is the source spreadsheet itself, or one example
+   request per type. Guessing which of 67 fields a business-card order needs will
+   produce forms that ask the wrong questions.
+2. **The full list of request types.** Nine were inferred from the field names;
+   the owner named claims cards, hotel reimbursement and business cards
+   explicitly. There are likely types whose fields did not make the list.
+3. **What are `Claims or CCC?`, and what is `Send to Trevor`?** The latter is a
+   person's name doing a workflow's job and must become a role or a queue.
+4. **Are analysts a new role** alongside viewer/admin/super user, or admins with a
+   per-type grant? Note reimbursement and business-card requests are probably not
+   handled by the same people who build dashboards, so "assignable" is likely
+   per-type, not global.
+5. ~~What is the portal called?~~ **Answered** — "Service Requests Portal", see
+   §0.2. No longer blocks the docs pass.
+6. **Does §2 still ship first?** Recommended **yes** — those three are approved,
+   self-contained, and they establish the design idiom every new request form
+   should follow. Building §4 first would mean designing forms with no settled
+   idiom and re-doing them.
+7. **Scale check.** Nine-plus request types, each with its own form, queue,
+   approvals and assignees, plus throughput reporting, is a bigger build than
+   everything this repo currently contains. Worth deciding explicitly whether the
+   prototype should grow into it, or whether this is the point where the
+   "developers rebuild it properly" plan takes over — the owner has said a rebuild
+   is expected.
+
+## 5. Build order
+
+Owner has scoped this: build §2 and Phase 1 of §4 now; types 3–9 are recorded
+future scope, not current work.
+
+1. **Build §2's three approved artifacts** — 2c, then 2a, then 2b. They are
+   approved, self-contained, and they establish the idiom the report-request
+   forms must follow. Build 2c with a **fourth type** in mind (report request)
+   and 2a so a **10th metadata panel** (Level of Effort) is a one-line addition;
+   both are extension points Phase 1 needs.
+2. **Clear §3** — the two hardcoded application lists, the redirect-dialog
+   padding, the remaining EasyVista strings (client + server), the
+   "Billing Center" genericization, the 7-row status-history backfill.
+3. **Verify** — `cd client && npm run lint`, `cd server && npm test`, then
+   exercise every changed surface in a browser at 1500/820/390px in both themes,
+   plus the per-container `scrollWidth` vs `clientWidth` overflow check from §3.
+4. **Settle the remaining Phase 1 questions.** `Duration` and reassignment are
+   answered (see Phase 1). Still open: the authoritative per-type field map for
+   report requests, and whether analysts are a new role or admins with a per-type
+   grant. The portal name is settled (§0.2), so it no longer blocks step 6.
+5. **Build Phase 1** — mockups first (submit-form branch, detail-modal fields,
+   throughput page), then the additive schema, then admin add/import/export
+   parity.
+6. **Only then screenshots and docs.** The manifest
+   (`docs/handoff/screenshot-manifest.json`) needs *extending*, not just
+   re-shooting: `18-admin-backdated-modal.png` becomes several (New vs Historical
+   × Defect/Enhancement/Cleanup, then × report request), the import modal gains
+   its steps and its result, the metadata page gains its dropdown/mobile states,
+   and report requests add whole sections to `docs/handoff/README.md` and
+   `README.md`. **Do not start this until the portal's final name is settled** —
+   it appears in every desktop screenshot.
+7. Reconcile this HANDOFF block into the dated record below and delete it.
+
+## 6. Session notes worth keeping
+
+- **Verification harness.** `playwright` is now a `client` devDependency. The
+  throwaway checkers this session used lived in the session scratchpad and are
+  gone; the ones worth re-creating are (a) per-container overflow
+  (`scrollWidth` vs `clientWidth` — a document-level check cannot see overflow
+  that an `overflow:hidden` ancestor clips), (b) a field/input-count assertion
+  across a before/after pair to prove a layout change removed nothing, and
+  (c) a check that a mockup's grouped field list matches the server's real field
+  list exactly. All three caught real bugs.
+- **The screenshot harness was never committed.** The manifest documents
+  Playwright at 1500x950@2x desktop / 390x844@2x mobile, `reducedMotion: reduce`,
+  theme forced via `localStorage['bc-theme']`, but no script exists. Write it and
+  commit it this time — 43+ shots will need re-capturing again.
+- **Never slice a stylesheet by line number** to inline it. Doing so cut a rule in
+  half, left an unclosed brace, and the CSS parser silently swallowed everything
+  after it — two mockup panes rendered unstyled while still reporting plausible
+  heights. Inline the whole file.
+- **Watch specificity when overriding by class.** `.rs-drop > span` (two classes +
+  a type) outranks `.rs-drop-icon` (two classes) and stole its `order`. And a rule
+  written for `.rs-refbox` did nothing because the real class is `.rs-sub` — a
+  silent no-op that looked like a design decision that hadn't landed.
+
+---
+
 ## Money columns were single-precision floats (2026-08-05)
 
 `policy_premium_impact` and `direct_dollar_impact` were `DataTypes.REAL`, which

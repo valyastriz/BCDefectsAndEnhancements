@@ -1,5 +1,7 @@
 // ── Admin dashboard constants ───────────────────────────────────────────────
 
+import { TRACKER_LABEL } from './tracker';
+
 export const RETIRED_STATUS = 'Retired';
 export const CLEANUP_ONLY_STATUS = 'Cleanup Only';
 export const CLEANUP_MARKED_STATUS = 'Cleanup Marked';
@@ -48,7 +50,7 @@ export const ADMIN_TABLE_COLUMNS = [
   { key: 'status', label: 'Defect/Enhancement Status', sortKey: 'status' },
   { key: 'cleanupStatus', label: 'Cleanup Status', sortKey: null },
   { key: 'isPublic', label: 'Public', sortKey: 'isPublic' },
-  { key: 'easyvista', label: 'EasyVista', sortKey: 'easyvista' },
+  { key: 'easyvista', label: `${TRACKER_LABEL} #`, sortKey: 'easyvista' },
   { key: 'jiraCard', label: 'JIRA Card #', sortKey: 'jiraCard' },
   { key: 'policyPremium', label: 'Policy Premium ($)', sortKey: 'policyPremium' },
   { key: 'directImpact', label: 'Direct Impact ($)', sortKey: 'directImpact' },
@@ -72,12 +74,12 @@ export const ADMIN_FILTER_FIELDS = [
   { key: 'cleanupStatuses', label: 'Cleanup Status' },
   { key: 'search', label: 'Search' },
   { key: 'requester', label: 'Requester' },
-  { key: 'submittedBy', label: 'Submitted by (EasyVista)' },
+  { key: 'submittedBy', label: `Submitted by (${TRACKER_LABEL})` },
   { key: 'createdVia', label: 'Created Via' },
   { key: 'year', label: 'Year' },
   { key: 'inJira', label: 'In JIRA' },
   { key: 'workaround', label: 'Workaround' },
-  { key: 'easyvistaNumber', label: 'EASYVISTA #' },
+  { key: 'easyvistaNumber', label: `${TRACKER_LABEL} #` },
   { key: 'jiraNumber', label: 'JIRA #' },
   { key: 'releaseNumber', label: 'Release #' },
 ];
@@ -173,11 +175,11 @@ export const SORT_FIELDS = [
   { key: 'summary', label: 'Summary', type: 'text' },
   { key: 'status', label: 'Defect/Enhancement Status', type: 'text' },
   { key: 'isPublic', label: 'Public', type: 'bool' },
-  { key: 'easyvista', label: 'EasyVista', type: 'text' },
+  { key: 'easyvista', label: `${TRACKER_LABEL} #`, type: 'text' },
   { key: 'jiraCard', label: 'JIRA Card #', type: 'text' },
   { key: 'releaseNum', label: 'Release #', type: 'text' },
   { key: 'requester', label: 'Requester', type: 'text' },
-  { key: 'submittedBy', label: 'Submitted by (EasyVista)', type: 'text' },
+  { key: 'submittedBy', label: `Submitted by (${TRACKER_LABEL})`, type: 'text' },
   { key: 'inJira', label: 'In JIRA', type: 'bool' },
   { key: 'policyPremium', label: 'Policy Premium ($)', type: 'number' },
   { key: 'directImpact', label: 'Direct Impact ($)', type: 'number' },

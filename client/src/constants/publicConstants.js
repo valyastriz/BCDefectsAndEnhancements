@@ -2,6 +2,8 @@
  * Public status board constants.
  */
 
+import { TRACKER_LABEL } from './tracker';
+
 export const PUBLIC_STATUSES = [
   'New',
   'Approved',
@@ -30,7 +32,7 @@ export const ALL_APPLICATIONS = '__all__';
 export const PUBLIC_STAGES = [
   { key: 'reported', label: 'Reported', statuses: ['New'], modifier: 'pb-tile--reported' },
   { key: 'approved', label: 'Approved', statuses: ['Approved'], modifier: 'pb-tile--approved' },
-  { key: 'submitted', label: 'In EasyVista', statuses: ['Submitted'], modifier: 'pb-tile--submitted' },
+  { key: 'submitted', label: `With ${TRACKER_LABEL}`, statuses: ['Submitted'], modifier: 'pb-tile--submitted' },
   { key: 'deployed', label: 'Deployed', statuses: ['Deployed'], modifier: 'pb-tile--deployed' },
 ];
 

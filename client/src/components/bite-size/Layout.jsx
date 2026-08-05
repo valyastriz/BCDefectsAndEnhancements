@@ -108,9 +108,15 @@ export function AppShell({ children }) {
             <span className="brand-icon">
               <TicketIcon />
             </span>
+            {/* Named for what the portal is becoming, not only what it does
+                today: defects, enhancements and cleanups are three request types
+                among several (see plan.md §4), so a name listing any of them
+                would date immediately. "Report" was dropped from the sub-line for
+                the same reason — it read as "report a defect", which is now one
+                of many things you can submit. */}
             <span className="brand-text">
-              <strong>Billing Center Defect and Enhancement Submission Portal</strong>
-              <span>Defects &amp; Enhancements</span>
+              <strong>Service Requests Portal</strong>
+              <span>Submit · Track · Resolve</span>
             </span>
           </Link>
 

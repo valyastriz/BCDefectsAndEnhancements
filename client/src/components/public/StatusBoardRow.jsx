@@ -1,4 +1,5 @@
 import { useId, useState } from 'react';
+import { TRACKER_LABEL } from '../../constants/tracker';
 
 // The four stops every ticket travels, in order. Status became POSITION on this
 // board: a reporter reads "where is this" off the track rather than decoding a
@@ -12,7 +13,7 @@ import { useId, useState } from 'react';
 const TRACK = [
   { key: 'reported', label: 'Reported', at: (item) => item.created_at },
   { key: 'approved', label: 'Approved', at: (item) => item.approved_status_at },
-  { key: 'submitted', label: 'In EasyVista', at: (item) => item.submitted_status_at },
+  { key: 'submitted', label: `With ${TRACKER_LABEL}`, at: (item) => item.submitted_status_at },
   { key: 'deployed', label: 'Deployed', at: (item) => item.deployed_status_at },
 ];
 

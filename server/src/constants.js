@@ -1,3 +1,17 @@
+// ── The downstream ticketing system, as users see it ────────────────────────
+//
+// Every user-visible mention of the system approved tickets are handed off to —
+// API error messages, spreadsheet column headers, status-history entries — goes
+// through this label. The portal integrates with EasyVista today, but the UI
+// deliberately does not say so: the tool is expected to be replaced, and when it
+// is, this line is the change.
+//
+// DISPLAY name only. The integration's own identifiers keep the vendor name on
+// purpose: the `easyvista_ticket_id` column, the `easyvista-preview` route, the
+// `EASYVISTA_*` environment variables and `src/easyvista.js` all stay.
+// The client has its own copy (client/src/constants/tracker.js) — change both.
+const TRACKER_LABEL = 'Service Desk';
+
 const ENHANCEMENT_REQUEST_TYPES = [
   'Build-PPM Funded Project',
   'Build-Small Enhancement',
@@ -74,13 +88,15 @@ const IMPORT_COLUMN_TARGETS = [
   { key: 'jira_number', label: 'JIRA Number', aliases: ['jira_number', 'jira'] },
   { key: 'release_number', label: 'Release Number', aliases: ['release_number', 'release'] },
   { key: 'release_notes', label: 'Release Notes', aliases: ['release_notes'] },
-  { key: 'easyvista_ticket_id', label: 'EASYVISTA Number', aliases: ['easyvista_ticket_id', 'easyvista_ticket', 'easyvista_number', 'easyvista_id', 'ticket_id'] },
+  // Labels are display-only; the aliases are what an imported spreadsheet column
+  // is matched against, so they keep the old spellings and gain the new ones.
+  { key: 'easyvista_ticket_id', label: `${TRACKER_LABEL} Number`, aliases: ['easyvista_ticket_id', 'easyvista_ticket', 'easyvista_number', 'easyvista_id', 'ticket_id', 'service_desk_number', 'service_desk_ticket'] },
   { key: 'reviewer', label: 'Reviewer', aliases: ['reviewer'] },
   { key: 'decision_notes', label: 'Decision Notes', aliases: ['decision_notes'] },
   { key: 'enhancement_request_type', label: 'Enhancement Request Type', aliases: ['enhancement_request_type', 'request_type'] },
   { key: 'priority_level', label: 'Priority', aliases: ['priority_level', 'priority'] },
   { key: 'application_name', label: 'Application', aliases: ['application_name', 'application'] },
-  { key: 'easyvista_submitted_by', label: 'EasyVista Submitted By', aliases: ['easyvista_submitted_by', 'submitted_by_easyvista'] },
+  { key: 'easyvista_submitted_by', label: `${TRACKER_LABEL} Submitted By`, aliases: ['easyvista_submitted_by', 'submitted_by_easyvista', 'service_desk_submitted_by'] },
   { key: 'is_public', label: 'Public', aliases: ['is_public', 'public'] },
   { key: 'is_retired', label: 'Retired', aliases: ['is_retired', 'retired'] },
   { key: 'is_cleanup', label: 'Cleanup', aliases: ['is_cleanup', 'cleanup'] },
@@ -253,6 +269,7 @@ const LOOKUP_TABLES = {
 };
 
 module.exports = {
+  TRACKER_LABEL,
   ENHANCEMENT_REQUEST_TYPES,
   DEFAULT_DEFECT_ENHANCEMENT_STATUSES,
   RETIRED_STATUS,

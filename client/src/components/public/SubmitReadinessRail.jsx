@@ -6,6 +6,8 @@
  * the button that needs it, and owns the primary action. On narrow screens the
  * page hides this copy of the button and shows the sticky bar instead.
  */
+import { TRACKER_LABEL, TRACKER_LABEL_THE } from '../../constants/tracker';
+
 export function SubmitReadinessRail({
   requiredFields,
   values,
@@ -71,11 +73,11 @@ export function SubmitReadinessRail({
           </li>
           <li>
             <b>Triaged</b>
-            <span>The BC team reviews it and either approves it, links it to an existing ticket, or explains why not.</span>
+            <span>The triage team reviews it and either approves it, links it to an existing ticket, or explains why not.</span>
           </li>
           <li>
-            <b>Submitted to EasyVista</b>
-            <span>Approved items go to EasyVista and get an EV number you can track.</span>
+            <b>Submitted to {TRACKER_LABEL}</b>
+            <span>Approved items go to {TRACKER_LABEL_THE} and get a ticket number you can track.</span>
           </li>
         </ol>
       </div>
