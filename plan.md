@@ -454,6 +454,14 @@ timeframe.
 The owner supplied **67 fields** across two messages. They do not describe a
 report request. They describe what is almost certainly an existing shared-services
 intake **spreadsheet**, covering many unrelated request types in one flat sheet.
+
+> **Correction (2026-08-05): there is no spreadsheet to go and read.** The owner has
+> only **a sample of the column names** — not the file, and not example rows. Every
+> earlier suggestion in this file to "settle it from the source spreadsheet" was
+> chasing something that does not exist; those have been struck. What follows about
+> the SHAPE still holds, because it is inferred from the field names themselves. What
+> does not hold is any assumption that the list is **complete**. See the note under
+> "Open questions" item 1 for what to do instead.
 The give-aways are unmistakable: `Business Card Count`, `Designations`,
 `Brand Logo`, `Numbers (Work,Cell,Fax)`, `Toner Link`,
 `Type of Sharepoint request`, `Check-In Date` / `Check-Out-Date`, `Recipient(s)`.
@@ -663,12 +671,30 @@ types 3–9 and do not block the report-request build.
      not justify it. When types 3–9 actually arrive, that is the moment — and the
      registry note in §4 is the plan for it.
 
-   Still worth getting eventually: the source spreadsheet, to confirm nothing was
-   dropped. Not a blocker.
+   **There is no document that can confirm this, now or later.** The owner has only
+   a sample of the column names — not the source file, not example rows. So the
+   "for now" above is not a temporary state waiting on paperwork: it is the
+   permanent condition of this spec. Two things follow.
+
+   - **Completeness is unknown and unknowable up front.** A sample means fields may
+     be missing outright, not just mis-assigned. Do not build anything that assumes
+     the list is closed — in particular, do not make a missing field a data-loss
+     event. `Description` is the catch-all a requester can put anything into, and it
+     should stay generously sized for exactly that reason.
+   - **The list gets settled by USE, not by review.** Ship the form to one or two
+     analysts, watch what they actually receive, and add what is missing. That loop
+     is only cheap if adding a field stays a one-line migration plus a form control
+     — which is the real argument for plain nullable columns, stronger than the
+     "for now" alone.
+
+   The same applies to open question 2 (the full list of request types): it cannot
+   be answered from a document either, so types 3–9 will be discovered the same way.
 2. **The full list of request types.** Nine were inferred from the field names;
    the owner named claims cards, hotel reimbursement and business cards
-   explicitly. There are likely types whose fields did not make the list. Blocks
-   types 3–9, not Phase 1.
+   explicitly. There are likely types whose fields did not make the list — and
+   since the 67 names are a SAMPLE, likely types whose fields are not in it at all.
+   No document settles this; ask the people who run the intake today. Blocks types
+   3–9, not Phase 1.
 3. **What are `Claims or CCC?`, and what is `Send to Trevor`?** The latter is a
    person's name doing a workflow's job and must become a role or a queue.
 4. ~~Are analysts a new role?~~ **ANSWERED (owner, 2026-08-05): no.** "Analysts are
