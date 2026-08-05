@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../../lib/api';
-import { PublicItemCard } from './PublicItemCard';
+import { StatusBoardRow } from './StatusBoardRow';
 
 // Below this the summary is not a searchable description — "invoice wrong"
 // would come back with half the queue, so the check stays disabled until the
@@ -182,7 +182,11 @@ export function DuplicateCheck({ query }) {
 
           {matches.length > 0 && (
             <div className="rs-dupe-list">
-              {matches.map((item) => <PublicItemCard key={item.id} item={item} />)}
+              <div className="sb-panel">
+                <div className="sb-rows">
+                  {matches.map((item) => <StatusBoardRow key={item.id} item={item} />)}
+                </div>
+              </div>
             </div>
           )}
 
@@ -199,7 +203,11 @@ export function DuplicateCheck({ query }) {
                 </span>
               </p>
               <div className="rs-dupe-list">
-                {keywordMatches.map((item) => <PublicItemCard key={item.id} item={item} />)}
+                <div className="sb-panel">
+                  <div className="sb-rows">
+                    {keywordMatches.map((item) => <StatusBoardRow key={item.id} item={item} />)}
+                  </div>
+                </div>
               </div>
             </div>
           )}

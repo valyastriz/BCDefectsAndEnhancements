@@ -172,30 +172,59 @@ async function redirectSubmission(db, {
  * resolved. `forPublic` strips it down to what the reporter may see.
  */
 async function listRoutings(models, submissionId, { forPublic = false } = {}) {
-  if (!models?.SubmissionRouting) return [];
+  const bySubmission = await listRoutingsBySubmissionIds(models, [submissionId], { forPublic });
+  return bySubmission.get(Number(submissionId)) || [];
+}
+
+/**
+ * The same custody chains, for many tickets at once.
+ *
+ * Two queries total, whatever the ticket count. The status board asks for the
+ * whole public list in one request, so the per-ticket `listRoutings` would have
+ * been two queries PER ROW there — the routing read plus a full Application
+ * scan each time.
+ *
+ * Returns a Map keyed by submission id; a ticket that never moved is absent
+ * rather than mapped to an empty array, so callers can skip attaching anything.
+ */
+async function listRoutingsBySubmissionIds(models, submissionIds, { forPublic = false } = {}) {
+  const byId = new Map();
+  if (!models?.SubmissionRouting) return byId;
+
+  // Positive integers only. `Number(null)` is 0, which is finite — a looser
+  // guard would send an id of 0 to the database on every null in the list.
+  const ids = [...new Set((submissionIds || []).map(Number))]
+    .filter((id) => Number.isInteger(id) && id > 0);
+  if (ids.length === 0) return byId;
 
   const rows = await models.SubmissionRouting.findAll({
-    where: { submission_id: Number(submissionId) },
+    where: { submission_id: ids },
     order: [['routed_at', 'ASC'], ['id', 'ASC']],
     raw: true,
   });
-  if (rows.length === 0) return [];
+  if (rows.length === 0) return byId;
 
   const applications = await models.Application.findAll({ attributes: ['id', 'name'], raw: true });
   const nameById = new Map(applications.map((row) => [Number(row.id), String(row.name)]));
 
-  const named = rows.map((row) => ({
-    ...row,
-    from_application_name: nameById.get(Number(row.from_application_id)) || null,
-    to_application_name: nameById.get(Number(row.to_application_id)) || null,
-  }));
+  for (const row of rows) {
+    const named = {
+      ...row,
+      from_application_name: nameById.get(Number(row.from_application_id)) || null,
+      to_application_name: nameById.get(Number(row.to_application_id)) || null,
+    };
+    const submissionId = Number(row.submission_id);
+    if (!byId.has(submissionId)) byId.set(submissionId, []);
+    byId.get(submissionId).push(forPublic ? mapPublicRouting(named) : named);
+  }
 
-  return forPublic ? named.map(mapPublicRouting) : named;
+  return byId;
 }
 
 module.exports = {
   redirectSubmission,
   listRoutings,
+  listRoutingsBySubmissionIds,
   mapPublicRouting,
   HANDOFF_STATUS,
   NOTE_MAX_LENGTH,

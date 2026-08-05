@@ -4,7 +4,7 @@ const { withDb } = require('../helpers/db');
 const { buildAllLookupMaps, hydrateRowFromMaps } = require('../helpers/lookups');
 const { mapPublicSubmission } = require('../helpers/mappers');
 const { getSubmissionByIdWithLookups } = require('../services/submissionService');
-const { listRoutings } = require('../services/redirectService');
+const { listRoutings, listRoutingsBySubmissionIds } = require('../services/redirectService');
 
 const router = express.Router();
 
@@ -78,6 +78,12 @@ router.get('/api/public/submissions', async (req, res) => {
       bySubmissionId.get(submissionId).push(event);
     }
 
+    // The hand-off trail, for the whole page in two queries. The board has
+    // always had the markup for it but never the data — only the by-id endpoint
+    // sent routings, so "Moved between teams" could not render on the list.
+    // `forPublic` is what strips the internal note (mapPublicRouting).
+    const routingsBySubmissionId = await listRoutingsBySubmissionIds(dbModels, ids, { forPublic: true });
+
     const enrichedRows = rows.map((row) => {
       const submissionEvents = bySubmissionId.get(Number(row.id)) || [];
       const sortedEvents = [...submissionEvents].sort((a, b) => new Date(b.changed_at) - new Date(a.changed_at));
@@ -104,7 +110,16 @@ router.get('/api/public/submissions', async (req, res) => {
     });
 
     enrichedRows.sort((a, b) => String(b.updated_at || '').localeCompare(String(a.updated_at || '')));
-    return res.json(enrichedRows.map(markOwnership(req)));
+
+    const withOwnership = markOwnership(req);
+    return res.json(enrichedRows.map((row) => {
+      const mapped = withOwnership(row);
+      // Attached after mapping for the same reason is_mine is: `routings` is not
+      // in the allow-list, and a ticket that never moved carries no key at all
+      // rather than an empty array.
+      const routings = routingsBySubmissionId.get(Number(row.id));
+      return routings ? { ...mapped, routings } : mapped;
+    }));
   });
 });
 

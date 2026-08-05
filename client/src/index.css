@@ -66,6 +66,14 @@
   --radius:    10px;
   --radius-lg: 14px;
   --radius-xl: 20px;
+
+  /* The height of the sticky app bar, INCLUDING its 1px bottom border. It is a
+     token rather than a number inside .app-header because anything else that
+     pins itself to the top of the page has to start below it — see .sb-head on
+     the status board. .app-header-top derives its height from this, so there is
+     one number to change. */
+  --app-header-h: 61px;
+
   color-scheme: light;
 
   font-family: var(--font);
@@ -160,7 +168,9 @@ h1, h2, h3, h4, h5, h6 {
   justify-content: space-between;
   gap: 16px;
   padding: 0 28px;
-  height: 60px;
+  /* Minus the 1px border-bottom on .app-header, so --app-header-h stays the
+     bar's true outer height. */
+  height: calc(var(--app-header-h) - 1px);
 }
 
 .brand {
@@ -3500,8 +3510,17 @@ select.dm-prow-input { cursor: pointer; }
 .pb-live b { color: var(--color-text); font-weight: 700; }
 .pb-live--fresh .pb-live-dot { animation: pb-pulse 1.4s ease-out 2; }
 @media (prefers-reduced-motion: reduce) { .pb-live--fresh .pb-live-dot { animation: none; } }
-.pb-find { display: flex; flex-direction: column; gap: 8px; }
-.pb-find-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+/* The command row — search, Filters, and the two scope switches. Same shape as
+   the admin queue's .admin-command, in the board's own vocabulary. */
+.pb-cmd { display: flex; flex-direction: column; gap: 9px; }
+.pb-cmd-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+/* `.bs-inline-select` is width:100% by default (it is normally a form field in
+   a column). In this row that made its flex basis the whole row, so it wrapped
+   onto a line of its own and stretched across it. */
+.pb-cmd-row .bs-inline-select { width: auto; min-width: 150px; max-width: 220px; }
+@media (max-width: 820px) {
+  .pb-cmd-row .bs-inline-select { width: 100%; max-width: none; }
+}
 .pb-search { flex: 1 1 260px; min-width: 0; position: relative; display: flex; align-items: center; }
 .pb-search-icon { position: absolute; left: 12px; font-size: 15px; color: var(--color-muted); pointer-events: none; }
 .pb-search input {
@@ -3519,18 +3538,27 @@ select.dm-prow-input { cursor: pointer; }
   background: var(--color-surface); border: 1px solid var(--color-border); color: var(--color-text);
 }
 .pb-filterbtn:hover { border-color: var(--color-primary); }
-.pb-ai {
-  display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
-  font: inherit; cursor: pointer; padding: 10px 13px; border-radius: var(--radius-sm);
-  background: color-mix(in srgb, var(--color-primary) 7%, var(--color-surface));
-  border: 1px solid color-mix(in srgb, var(--color-primary) 30%, transparent);
-  color: var(--color-text);
+
+/* The grouped filter panel, drawn closed. The public twin of .filter-panel. */
+.pb-filters {
+  background: var(--color-surface); border: 1px solid var(--color-border);
+  border-radius: var(--radius); box-shadow: var(--shadow-sm);
+  padding: 14px 16px; display: flex; flex-direction: column; gap: 14px;
 }
-.pb-ai:hover { border-color: var(--color-primary); }
-.pb-ai-glyph { color: var(--color-primary); font-size: 14px; }
-.pb-ai-text { flex: 1 1 auto; min-width: 0; font-size: 13.5px; }
-.pb-ai-text span { color: var(--color-muted); }
-.pb-ai-go { font-size: 12.5px; font-weight: 700; color: var(--color-primary); white-space: nowrap; }
+.pb-filters-head { display: flex; align-items: baseline; gap: 10px; }
+.pb-filters-head h4 { font-size: 14px; font-weight: 750; }
+.pb-filters-count { font-size: 12px; color: var(--color-muted); margin-left: auto; }
+.pb-filter-groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 16px; }
+.pb-filter-group { display: flex; flex-direction: column; gap: 9px; min-width: 0; }
+.pb-filter-group-label {
+  font-size: 10.5px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--color-muted);
+}
+.pb-filters-foot {
+  display: flex; align-items: center; gap: 10px;
+  border-top: 1px solid var(--color-border); padding-top: 12px;
+}
+.pb-filters-foot .bs-actions { margin-left: auto; }
 .pb-scope {
   background: var(--color-surface); border: 1px solid var(--color-border);
   border-radius: var(--radius); box-shadow: var(--shadow-sm);
@@ -3554,53 +3582,31 @@ select.dm-prow-input { cursor: pointer; }
 .pb-scope-title b { font-variant-numeric: tabular-nums; }
 .pb-scope-hint { font-size: 12.5px; color: var(--color-muted); flex: 1 1 auto; min-width: 150px; }
 .pb-apppick { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--color-muted); }
-.pb-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); gap: 9px; }
+/* The tiles read as one strip of numbers rather than six stacked cards: the
+   count and its label sit on one line, and the share meter is a hairline along
+   the bottom edge. Roughly half the height they were. */
+.pb-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(124px, 1fr)); gap: 8px; }
 .pb-tile {
-  font: inherit; text-align: left; cursor: pointer;
+  font: inherit; text-align: left; cursor: pointer; position: relative; overflow: hidden;
   background: var(--color-bg); border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm); padding: 10px 12px 11px;
-  display: flex; flex-direction: column; gap: 6px;
+  border-radius: var(--radius-sm); padding: 8px 11px;
+  display: flex; align-items: baseline; gap: 7px;
   transition: border-color .15s, box-shadow .15s;
 }
 .pb-tile:hover { border-color: var(--color-primary); }
 .pb-tile[aria-pressed='true'] {
-  background: color-mix(in srgb, var(--color-primary) 10%, var(--color-surface));
+  background: color-mix(in srgb, var(--color-primary) 8%, var(--color-surface));
   border-color: var(--color-primary); box-shadow: inset 0 0 0 1px var(--color-primary);
 }
-.pb-tile-num { font-size: clamp(17px, 2vw, 25px); font-weight: 800; line-height: 1.1; font-variant-numeric: tabular-nums; color: var(--color-text); }
-.pb-tile-meter { height: 3px; border-radius: 2px; background: var(--color-border); overflow: hidden; }
-.pb-tile-meter i { display: block; height: 100%; border-radius: 2px; background: currentColor; }
-.pb-tile-lbl { font-size: 12px; font-weight: 600; color: var(--color-muted); }
+.pb-tile-num { font-size: 17px; font-weight: 800; line-height: 1.1; font-variant-numeric: tabular-nums; color: var(--color-text); }
+.pb-tile-lbl { font-size: 12px; font-weight: 600; color: var(--color-muted); min-width: 0; }
+.pb-tile-meter { position: absolute; left: 0; bottom: 0; height: 2px; background: currentColor; opacity: .55; }
 .pb-tile--all       { color: var(--color-primary); }
 .pb-tile--reported  { color: var(--status-new-fg); }
 .pb-tile--approved  { color: var(--status-approved-fg); }
 .pb-tile--submitted { color: var(--status-submitted-fg); }
 .pb-tile--deployed  { color: var(--status-deployed-fg); }
 .pb-tile--closed    { color: var(--color-muted); }
-.pb-scope-other { display: flex; flex-wrap: wrap; gap: 7px; padding-top: 4px; }
-.pb-scope-other button {
-  font: inherit; font-size: 12.5px; cursor: pointer; padding: 5px 10px; border-radius: 999px;
-  background: var(--color-bg); border: 1px solid var(--color-border); color: var(--color-text);
-}
-.pb-scope-other button:hover { border-color: var(--color-primary); }
-.pb-scope-other b { font-variant-numeric: tabular-nums; }
-.pb-listwrap {
-  background: var(--color-surface); border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg); box-shadow: var(--shadow-sm); overflow: hidden;
-}
-.pb-band {
-  background: color-mix(in srgb, var(--color-primary) 7%, var(--color-surface));
-  border-bottom: 1px solid color-mix(in srgb, var(--color-primary) 25%, var(--color-border));
-  padding: 13px 16px; display: flex; flex-direction: column; gap: 10px;
-}
-.pb-band-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.pb-band-title { font-size: 13.5px; font-weight: 700; }
-.pb-band-title b { font-variant-numeric: tabular-nums; }
-.pb-band-hint { font-size: 12.5px; color: var(--color-muted); flex: 1 1 auto; min-width: 140px; }
-.pb-band-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.pb-band-sort { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--color-muted); }
-.pb-band-pager { display: flex; align-items: center; gap: 6px; margin-left: auto; font-size: 12.5px; white-space: nowrap; }
-.pb-band-pager > span:first-child { color: var(--color-muted); }
 .pb-chips { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
 .pb-chips-label { font-size: 10.5px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--color-muted); }
 .pb-chip {
@@ -3613,141 +3619,257 @@ select.dm-prow-input { cursor: pointer; }
 .pb-chip:hover { border-color: var(--color-primary); }
 .pb-chip-x { font-size: 10px; color: var(--color-muted); }
 .pb-linkbtn { border: 0; background: none; padding: 0; font: inherit; font-size: 12.5px; font-weight: 650; color: var(--color-primary); text-decoration: underline; cursor: pointer; }
-.pb-list { background: var(--color-bg); padding: 12px; display: flex; flex-direction: column; gap: 10px; }
-.pb-item {
+
+/* ══ The status board list ══════════════════════════════════════════════════
+   A ticket is a ROW, not a card. The four-stop track that made the old card
+   ~190px tall is four pips plus the name of the stop it is on; the dated track,
+   the description and the reference numbers moved into the expansion, drawn
+   closed. Roughly four times as many tickets per screenful.
+   ═════════════════════════════════════════════════════════════════════════ */
+
+/* No overflow:hidden here — it would trap the sticky column header in a
+   non-scrolling clip context and silently kill the stick. The corners are
+   rounded on the band and the row list instead. */
+.sb-panel {
   background: var(--color-surface); border: 1px solid var(--color-border);
-  border-radius: var(--radius); padding: 13px 15px 12px;
-  display: flex; flex-direction: column; gap: 10px; min-width: 0;
-  transition: border-color .15s, box-shadow .15s;
+  border-radius: var(--radius-lg); box-shadow: var(--shadow-sm);
 }
-.pb-item:hover { border-color: color-mix(in srgb, var(--color-primary) 45%, var(--color-border)); box-shadow: var(--shadow-sm); }
-/* Yours, on a list that also holds other people's */
-.pb-item--own { box-shadow: inset 3px 0 0 var(--color-primary); }
-.pb-item-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
-.pb-ref {
-  font-family: var(--mono); font-size: 12.5px; font-weight: 700; color: var(--color-primary);
-  white-space: nowrap; padding: 2px 7px; border-radius: var(--radius-sm);
-  background: color-mix(in srgb, var(--color-primary) 9%, var(--color-surface));
+.sb-band {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 14px;
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  background: color-mix(in srgb, var(--color-primary) 6%, var(--color-surface));
+  border-bottom: 1px solid color-mix(in srgb, var(--color-primary) 22%, var(--color-border));
 }
-.pb-yours {
-  font-size: 11px; font-weight: 750; letter-spacing: .02em; padding: 2px 8px; border-radius: 999px;
-  background: color-mix(in srgb, var(--color-primary) 14%, var(--color-surface));
-  color: var(--color-primary); border: 1px solid color-mix(in srgb, var(--color-primary) 34%, transparent);
+.sb-band-title { font-size: 13px; font-weight: 700; }
+.sb-band-title b { font-variant-numeric: tabular-nums; }
+.sb-band-hint { font-size: 12px; color: var(--color-muted); }
+.sb-band-right { margin-left: auto; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.sb-band-right .pagination-controls { margin-bottom: 0; }
+.sb-sort { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--color-muted); }
+/* Same reason as the command row: let the field size to its longest option
+   ("Last status update") rather than truncating inside a flex item. */
+.sb-sort .bs-inline-select { width: auto; max-width: 200px; }
+
+/* One grid definition, shared by the header and every row, so a column and its
+   header can never disagree about where they are — or, at a breakpoint that
+   drops one, about whether they exist. */
+.sb-head, .sb-row {
+  display: grid;
+  grid-template-columns: 104px 84px minmax(0, 1fr) 178px 104px 118px 78px 26px;
+  grid-template-areas: "ref type sum stage who app when exp";
+  align-items: center; gap: 10px;
 }
-.pb-when { margin-left: auto; font-size: 12px; color: var(--color-muted); white-space: nowrap; }
-.pb-sum { font-size: 15px; font-weight: 700; letter-spacing: -.004em; text-wrap: balance; overflow-wrap: anywhere; }
-/* Which application's queue this sits in — and, when they differ, which one it
-   went to EasyVista under. Same value: one tag. Different: both. */
-.pb-apptag {
-  display: inline-flex; align-items: center; gap: 5px; white-space: nowrap;
-  font-size: 11.5px; font-weight: 650; padding: 2px 9px; border-radius: var(--radius-sm);
-  background: var(--color-bg); color: color-mix(in srgb, var(--color-text) 78%, transparent);
-  border: 1px solid var(--color-border);
+/* Pinned BELOW the app bar, not at the viewport top: `.app-header` is itself
+   sticky at top: 0 with z-index 50, so a column header stuck at 0 would pin
+   underneath it and sit invisible. `--app-header-h` is what makes that offset a
+   declared relationship instead of a magic number.
+   `.sb-panel` must not carry overflow: hidden or this stops working — an
+   overflow ancestor becomes the sticky container. (body's overflow-x is `clip`,
+   which deliberately does not create one.) */
+.sb-head {
+  padding: 0 14px; height: 34px; border-bottom: 1px solid var(--color-border);
+  background: var(--color-bg);
+  position: sticky; top: var(--app-header-h); z-index: 2;
 }
-.pb-apptag::before {
-  content: ''; width: 5px; height: 5px; border-radius: 1px; background: var(--pb-app, var(--color-muted));
+.sb-th {
+  border: 0; background: none; padding: 0; cursor: pointer; text-align: left;
+  font-size: 10.5px; font-weight: 800; letter-spacing: .07em; text-transform: uppercase;
+  color: var(--color-muted); display: inline-flex; align-items: center; gap: 4px; min-width: 0;
 }
-.pb-apptag--ev {
-  background: color-mix(in srgb, var(--status-submitted-fg) 9%, var(--color-surface));
-  border-color: color-mix(in srgb, var(--status-submitted-fg) 28%, transparent);
-  color: var(--status-submitted-fg);
+.sb-th:hover { color: var(--color-text); }
+.sb-th .sb-caret { opacity: 0; font-size: 9px; }
+.sb-th .sb-caret::after { content: '\25be'; }
+.sb-th[aria-sort='ascending'] .sb-caret::after { content: '\25b4'; }
+.sb-th:hover .sb-caret { opacity: .5; }
+.sb-th[aria-sort]:not([aria-sort='none']) { color: var(--color-primary); }
+.sb-th[aria-sort]:not([aria-sort='none']) .sb-caret { opacity: 1; }
+.sb-th--plain { cursor: default; }
+.sb-th--plain:hover { color: var(--color-muted); }
+
+.sb-rows { display: flex; flex-direction: column; border-radius: 0 0 var(--radius-lg) var(--radius-lg); overflow: hidden; }
+.sb-item { border-bottom: 1px solid color-mix(in srgb, var(--color-border) 65%, transparent); min-width: 0; }
+.sb-item:last-child { border-bottom: 0; }
+.sb-row {
+  position: relative; width: 100%; border: 0; background: none; cursor: pointer; text-align: left;
+  font: inherit; color: inherit; padding: 0 14px; min-height: 46px;
+  transition: background .12s ease;
 }
-.pb-apptag--ev::before { background: currentColor; border-radius: 50%; }
-.pb-app--billing { --pb-app: var(--blue-500); }
-.pb-app--policy  { --pb-app: #a855f7; }
-.pb-app--claim   { --pb-app: #0d9488; }
-.pb-app--contact { --pb-app: #ea580c; }
-/* A hand-off, on the reporter's card */
-.pb-moved {
-  display: flex; align-items: center; gap: 9px; flex-wrap: wrap;
-  padding: 8px 11px; border-radius: var(--radius-sm);
-  background: color-mix(in srgb, var(--status-redirected-fg) 9%, var(--color-surface));
-  border: 1px solid color-mix(in srgb, var(--status-redirected-fg) 30%, transparent);
+.sb-row:hover { background: color-mix(in srgb, var(--color-primary) 5%, var(--color-surface)); }
+.sb-item.is-open > .sb-row { background: color-mix(in srgb, var(--color-primary) 7%, var(--color-surface)); }
+/* Yours — the same 3px rail the old card carried, kept because it is the one
+   thing a reporter scans a shared board for. */
+.sb-item.is-mine > .sb-row::before {
+  content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--color-primary);
 }
-.pb-moved-glyph {
-  width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center;
-  font-size: 11px; font-weight: 800; flex: 0 0 auto;
-  color: var(--status-redirected-fg);
-  background: color-mix(in srgb, var(--status-redirected-fg) 18%, var(--color-surface));
+/* Inert placeholder rows must not look clickable. */
+.sb-row--sk { cursor: default; }
+.sb-row--sk:hover { background: none; }
+
+.c-ref { grid-area: ref; display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.c-type { grid-area: type; min-width: 0; }
+.c-sum { grid-area: sum; min-width: 0; }
+.c-stage { grid-area: stage; min-width: 0; }
+.c-who { grid-area: who; min-width: 0; }
+.c-app { grid-area: app; min-width: 0; }
+.c-when { grid-area: when; }
+.c-exp { grid-area: exp; display: grid; place-items: center; color: var(--color-muted); font-size: 10px; }
+.is-open .c-exp { transform: rotate(180deg); }
+
+.sb-ref {
+  font-family: var(--mono); font-size: 12px; font-weight: 700; color: var(--color-primary);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.pb-moved b { font-size: 13px; font-weight: 700; color: var(--status-redirected-fg); }
-.pb-moved > span:last-child { font-size: 12.5px; color: color-mix(in srgb, var(--color-text) 74%, transparent); }
-.pb-handnote {
-  margin: 0; padding: 11px 13px; border-radius: var(--radius-sm);
+.sb-type {
+  font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: var(--radius-sm); white-space: nowrap;
+  background: var(--color-bg); color: var(--color-muted); border: 1px solid var(--color-border);
+}
+.sb-type--defect {
+  color: var(--status-rejected-fg); background: color-mix(in srgb, var(--status-rejected-fg) 9%, var(--color-surface));
+  border-color: color-mix(in srgb, var(--status-rejected-fg) 26%, transparent);
+}
+.sb-type--enhancement {
+  color: var(--status-approved-fg); background: color-mix(in srgb, var(--status-approved-fg) 9%, var(--color-surface));
+  border-color: color-mix(in srgb, var(--status-approved-fg) 26%, transparent);
+}
+.sb-sum { display: block; font-size: 13.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Reported by — scanning for a colleague's ticket is a real job on this board,
+   so it earns a column rather than living only in the expansion. */
+.sb-who { display: block; font-size: 12px; color: var(--color-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sb-who--you { color: var(--color-primary); font-weight: 650; }
+.sb-app {
+  display: inline-flex; align-items: center; gap: 5px; max-width: 100%;
+  font-size: 11.5px; font-weight: 600; color: var(--color-muted);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.sb-app::before { content: ''; width: 5px; height: 5px; border-radius: 1px; flex: 0 0 auto; background: var(--sb-app, var(--color-muted)); }
+.sb-app--billing { --sb-app: var(--blue-500); }
+.sb-app--policy  { --sb-app: #a855f7; }
+.sb-app--claim   { --sb-app: #0d9488; }
+.sb-app--contact { --sb-app: #ea580c; }
+.sb-when { font-size: 11.5px; color: var(--color-muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+/* Where it stands, at row scale: four pips and the name of the stop. */
+.sb-stage { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+.sb-pips { display: inline-flex; align-items: center; flex: 0 0 auto; }
+.sb-pips i { display: block; width: 7px; height: 7px; border-radius: 50%; background: var(--color-border); }
+.sb-pips b { display: block; width: 12px; height: 2px; background: var(--color-border); }
+.sb-pips i.on, .sb-pips b.on { background: var(--sb-stage, var(--color-primary)); }
+.sb-pips i.now { box-shadow: 0 0 0 3px color-mix(in srgb, var(--sb-stage, var(--color-primary)) 24%, transparent); }
+.sb-stage-lbl { font-size: 12px; font-weight: 650; color: var(--sb-stage, var(--color-text)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sb-stage--new       { --sb-stage: var(--status-new-fg); }
+.sb-stage--approved  { --sb-stage: var(--status-approved-fg); }
+.sb-stage--submitted { --sb-stage: var(--status-submitted-fg); }
+.sb-stage--deployed  { --sb-stage: var(--status-deployed-fg); }
+/* A ticket that ended somewhere other than Deployed, or is parked: the track
+   would be a lie, so it gets one pill instead. */
+.sb-out {
+  display: inline-flex; align-items: center; gap: 6px; max-width: 100%;
+  font-size: 12px; font-weight: 650; padding: 3px 9px; border-radius: 999px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  background: color-mix(in srgb, var(--sb-tone) 12%, var(--color-surface));
+  color: var(--sb-tone); border: 1px solid color-mix(in srgb, var(--sb-tone) 30%, transparent);
+}
+.sb-out b { font-weight: 800; }
+.sb-out--duplicate  { --sb-tone: var(--status-duplicate-fg); }
+.sb-out--rejected   { --sb-tone: var(--color-danger); }
+.sb-out--redirected { --sb-tone: var(--status-redirected-fg); }
+.sb-out--retired    { --sb-tone: var(--status-retired-fg); }
+.sb-out--holding    { --sb-tone: var(--color-muted); }
+
+/* ── The expansion: everything the tall card used to print inline ────────── */
+.sb-more { padding: 4px 14px 16px; background: color-mix(in srgb, var(--color-bg) 55%, var(--color-surface)); }
+.sb-more-grid { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); gap: 18px 26px; }
+.sb-block { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.sb-block--trail { margin-top: 6px; }
+.sb-block-label { font-size: 10.5px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--color-muted); }
+.sb-block-label--spaced { margin-top: 10px; }
+.sb-prose { font-size: 13.5px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
+.sb-prose--empty { color: var(--color-muted); font-style: italic; }
+.sb-meta { font-size: 12px; color: var(--color-muted); overflow-wrap: anywhere; }
+.sb-meta b { color: color-mix(in srgb, var(--color-text) 82%, transparent); font-weight: 650; }
+.sb-sep { color: color-mix(in srgb, var(--color-muted) 55%, transparent); }
+.sb-refs { display: grid; grid-template-columns: repeat(auto-fit, minmax(128px, 1fr)); gap: 8px 14px; }
+.sb-refitem { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.sb-refitem > span { font-size: 11px; font-weight: 650; color: var(--color-muted); }
+.sb-refitem > b { font-size: 12.5px; font-family: var(--mono); font-weight: 600; overflow-wrap: anywhere; }
+.sb-track { display: grid; grid-template-columns: repeat(4, 1fr); padding-top: 2px; }
+.sb-stop { position: relative; display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.sb-stop-rail { position: relative; height: 12px; display: flex; align-items: center; }
+.sb-stop-rail::before { content: ''; position: absolute; left: 5px; right: 0; height: 2px; background: var(--color-border); border-radius: 2px; }
+.sb-stop:last-child .sb-stop-rail::before { right: calc(100% - 6px); }
+.sb-stop-dot { position: relative; z-index: 1; width: 10px; height: 10px; border-radius: 50%; background: var(--color-surface); box-shadow: inset 0 0 0 2px var(--color-border); }
+.sb-stop-lbl { font-size: 11px; font-weight: 650; color: var(--color-muted); padding-right: 8px; overflow-wrap: anywhere; }
+.sb-stop-date { font-size: 10.5px; color: var(--color-muted); font-variant-numeric: tabular-nums; padding-right: 8px; }
+.sb-stop.is-done:not(.is-now) .sb-stop-rail::before { background: color-mix(in srgb, var(--sb-stage) 60%, var(--color-border)); }
+.sb-stop.is-done .sb-stop-dot { background: var(--sb-stage); box-shadow: inset 0 0 0 2px var(--sb-stage); }
+.sb-stop.is-done .sb-stop-lbl { color: color-mix(in srgb, var(--color-text) 80%, transparent); }
+.sb-stop.is-now .sb-stop-dot { box-shadow: 0 0 0 3px color-mix(in srgb, var(--sb-stage) 24%, transparent); }
+.sb-stop.is-now .sb-stop-lbl { color: var(--sb-stage); font-weight: 750; }
+/* The hand-off trail, newest first. */
+.sb-tl { display: flex; flex-direction: column; }
+.sb-tl li { display: grid; grid-template-columns: 9px 1fr; gap: 8px; padding: 4px 0; }
+.sb-tl-dot { width: 7px; height: 7px; border-radius: 50%; margin-top: 5px; background: var(--color-border); }
+.sb-tl li.is-latest .sb-tl-dot {
+  background: var(--status-redirected-fg);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--status-redirected-fg) 20%, transparent);
+}
+.sb-tl-txt { min-width: 0; }
+.sb-tl-txt b { display: block; font-size: 12.5px; font-weight: 650; }
+.sb-tl-txt > span { font-size: 11.5px; color: var(--color-muted); font-variant-numeric: tabular-nums; }
+
+/* ── The board's non-data surfaces ───────────────────────────────────────── */
+.sb-state { padding: 40px 22px; display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center; }
+.sb-state-icon {
+  width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; font-size: 18px;
   background: var(--color-bg); border: 1px solid var(--color-border);
-  border-left: 3px solid var(--status-redirected-fg);
-  font-size: 13.5px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere;
 }
-.pb-handnote cite {
-  display: block; margin-top: 8px; font-size: 11.5px; font-style: normal; color: var(--color-muted);
+.sb-state h4 { font-size: 15px; font-weight: 750; }
+.sb-state p { font-size: 13px; color: var(--color-muted); max-width: 50ch; }
+.sb-state-acts { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; margin-top: 4px; }
+.sb-state--error .sb-state-icon { background: var(--status-rejected-bg); color: var(--status-rejected-fg); border-color: transparent; }
+
+/* ── Responsive ──────────────────────────────────────────────────────────
+   Columns drop in the order of what a reporter can recover elsewhere: the
+   application is in the scope picker, reported-by is one line into the
+   expansion. Both stay in the expansion at every width. */
+@media (max-width: 1180px) {
+  .sb-head, .sb-row {
+    grid-template-columns: 102px 84px minmax(0, 1fr) 172px 100px 78px 26px;
+    grid-template-areas: "ref type sum stage who when exp";
+  }
+  .c-app { display: none; }
 }
-.pb-handnote--mine { border-left-color: var(--color-muted); }
-.pb-track { display: grid; grid-template-columns: repeat(4, 1fr); padding-top: 2px; }
-.pb-stop { position: relative; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
-.pb-stop-rail { position: relative; height: 13px; display: flex; align-items: center; }
-.pb-stop-rail::before { content: ''; position: absolute; left: 6px; right: 0; height: 2px; background: var(--color-border); border-radius: 2px; }
-.pb-stop:last-child .pb-stop-rail::before { right: calc(100% - 7px); }
-.pb-stop-dot { position: relative; z-index: 1; width: 11px; height: 11px; border-radius: 50%; background: var(--color-surface); box-shadow: inset 0 0 0 2px var(--color-border); }
-.pb-stop-lbl { font-size: 11.5px; font-weight: 650; color: var(--color-muted); padding-right: 8px; overflow-wrap: anywhere; }
-.pb-stop-date { font-size: 11px; padding-right: 8px; font-variant-numeric: tabular-nums; color: color-mix(in srgb, var(--color-muted) 85%, transparent); }
-.pb-stop.is-done:not(.is-now) .pb-stop-rail::before { background: color-mix(in srgb, var(--pb-stage) 60%, var(--color-border)); }
-.pb-stop.is-done .pb-stop-dot { background: var(--pb-stage); box-shadow: inset 0 0 0 2px var(--pb-stage); }
-.pb-stop.is-done .pb-stop-lbl { color: color-mix(in srgb, var(--color-text) 80%, transparent); }
-.pb-stop.is-now .pb-stop-dot { box-shadow: 0 0 0 3px color-mix(in srgb, var(--pb-stage) 24%, transparent); }
-.pb-stop.is-now .pb-stop-lbl { color: var(--pb-stage); font-weight: 750; }
-.pb-item--new       { --pb-stage: var(--status-new-fg); }
-.pb-item--approved  { --pb-stage: var(--status-approved-fg); }
-.pb-item--submitted { --pb-stage: var(--status-submitted-fg); }
-.pb-item--deployed  { --pb-stage: var(--status-deployed-fg); }
-.pb-outcome {
-  display: flex; align-items: center; gap: 9px; flex-wrap: wrap;
-  padding: 8px 11px; border-radius: var(--radius-sm);
-  background: color-mix(in srgb, var(--pb-tone) 10%, var(--color-surface));
-  border: 1px solid color-mix(in srgb, var(--pb-tone) 32%, transparent);
+@media (max-width: 1000px) {
+  .sb-head, .sb-row {
+    grid-template-columns: 98px 82px minmax(0, 1fr) 166px 76px 26px;
+    grid-template-areas: "ref type sum stage when exp";
+  }
+  .c-who { display: none; }
+  .sb-more-grid { grid-template-columns: minmax(0, 1fr); }
 }
-.pb-outcome-glyph {
-  width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center;
-  font-size: 11px; font-weight: 800; flex: 0 0 auto;
-  color: var(--pb-tone); background: color-mix(in srgb, var(--pb-tone) 18%, var(--color-surface));
+/* Below this the row folds to three lines rather than squeezing eight columns
+   into a phone. The header goes with it — there is nothing left to align. */
+@media (max-width: 820px) {
+  .sb-head { display: none; }
+  .sb-row {
+    grid-template-columns: auto auto 1fr auto;
+    grid-template-areas:
+      "ref   type  .     when"
+      "sum   sum   sum   exp"
+      "stage stage stage stage";
+    padding: 9px 12px; row-gap: 5px;
+  }
+  /* Wraps rather than ellipsing, but capped at two lines — a long summary would
+     otherwise push a phone row past 150px and undo the density this redesign is
+     for. The full text is one tap away in the expansion. */
+  .sb-sum {
+    white-space: normal; display: -webkit-box; -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden;
+  }
+  .c-exp { align-self: start; }
+  .sb-band-right { margin-left: 0; }
 }
-.pb-outcome b { font-size: 13px; font-weight: 700; color: var(--pb-tone); }
-.pb-outcome > span:last-child { font-size: 12.5px; color: color-mix(in srgb, var(--color-text) 74%, transparent); }
-.pb-item--duplicate  { --pb-tone: var(--status-duplicate-fg); }
-.pb-item--rejected   { --pb-tone: var(--color-danger); }
-.pb-item--redirected { --pb-tone: var(--status-redirected-fg); }
-.pb-item--holding    { --pb-tone: var(--color-muted); }
-.pb-meta { font-size: 12.5px; color: var(--color-muted); overflow-wrap: anywhere; }
-.pb-meta b { color: color-mix(in srgb, var(--color-text) 80%, transparent); font-weight: 650; }
-.pb-sep { color: color-mix(in srgb, var(--color-muted) 55%, transparent); }
-.pb-more { border-top: 1px dashed var(--color-border); margin-top: 1px; }
-.pb-more > summary {
-  list-style: none; cursor: pointer; display: flex; align-items: center; gap: 7px;
-  padding: 9px 0 0; font-size: 12.5px; font-weight: 650; color: var(--color-primary);
-}
-.pb-more > summary::-webkit-details-marker { display: none; }
-.pb-more > summary:hover { color: var(--color-primary-hover); }
-.pb-more-hide { display: none; }
-.pb-more[open] > summary .pb-more-show { display: none; }
-.pb-more[open] > summary .pb-more-hide { display: inline; }
-.pb-caret { font-size: 10px; line-height: 1; }
-.pb-caret::after { content: '\25be'; }
-.pb-more[open] > summary .pb-caret::after { content: '\25b4'; }
-.pb-more-body { display: flex; flex-direction: column; gap: 14px; padding: 12px 0 4px; }
-.pb-block { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
-.pb-block-label { font-size: 10.5px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--color-muted); }
-.pb-prose { font-size: 13.5px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
-.pb-refs { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px 16px; }
-.pb-refitem { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.pb-refitem > span { font-size: 11.5px; font-weight: 650; color: var(--color-muted); }
-.pb-refitem > b { font-size: 13px; font-weight: 600; font-family: var(--mono); overflow-wrap: anywhere; }
-.pb-refitem > b.is-empty { font-family: var(--font); font-weight: 400; color: var(--color-muted); font-style: italic; }
-.pb-tl { display: flex; flex-direction: column; }
-.pb-tl li { display: grid; grid-template-columns: 11px 1fr; gap: 9px; padding: 6px 0; }
-.pb-tl-dot { width: 7px; height: 7px; border-radius: 50%; margin-top: 6px; background: var(--color-border); }
-.pb-tl li.is-latest .pb-tl-dot { background: var(--pb-stage, var(--color-primary)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--pb-stage, var(--color-primary)) 20%, transparent); }
-.pb-tl-txt { min-width: 0; }
-.pb-tl-txt b { font-size: 13px; font-weight: 650; display: block; }
-.pb-tl-txt > span { font-size: 12px; color: var(--color-muted); font-variant-numeric: tabular-nums; }
+
 /* Application scope + its pin, in the admin command row. */
 .admin-scope { display: inline-flex; align-items: center; gap: 6px; }
 .admin-scope-pin {
@@ -3779,16 +3901,3 @@ select.dm-prow-input { cursor: pointer; }
 @keyframes sk-shimmer { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
 @media (prefers-reduced-motion: reduce) { .sk-bar::after { animation: none; } }
 
-.pb-state { padding: 46px 22px; display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center; }
-.pb-state-icon {
-  width: 42px; height: 42px; border-radius: 50%; display: grid; place-items: center; font-size: 19px;
-  background: var(--color-bg); border: 1px solid var(--color-border);
-}
-.pb-state h4 { font-size: 15.5px; font-weight: 750; }
-.pb-state p { font-size: 13.5px; color: var(--color-muted); max-width: 50ch; }
-.pb-state-acts { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
-.pb-state--error .pb-state-icon { background: var(--status-rejected-bg); color: var(--status-rejected-fg); border-color: transparent; }
-.pb-state--locked .pb-state-icon { background: var(--status-duplicate-bg); color: var(--status-duplicate-fg); border-color: transparent; }
-.pb-sk { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius); padding: 13px 15px; display: flex; flex-direction: column; gap: 11px; }
-.pb-sk-row { display: flex; gap: 8px; align-items: center; }
-.pb-sk-track { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }

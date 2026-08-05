@@ -185,11 +185,6 @@ export const SORT_FIELDS = [
   { key: 'frequency', label: 'Frequency', type: 'number' },
 ];
 
-// Direction wording per field type. First entry is that type's default, which
-// preserves the existing habit of numeric columns opening high→low.
-export const SORT_DIRECTIONS_BY_TYPE = {
-  date: [{ dir: 'desc', label: 'Newest first' }, { dir: 'asc', label: 'Oldest first' }],
-  number: [{ dir: 'desc', label: 'Highest first' }, { dir: 'asc', label: 'Lowest first' }],
-  text: [{ dir: 'asc', label: 'A → Z' }, { dir: 'desc', label: 'Z → A' }],
-  bool: [{ dir: 'desc', label: 'Yes first' }, { dir: 'asc', label: 'No first' }],
-};
+// Direction wording per field type lives in utils/sortShared.js — the public
+// status board sorts by the same rules, so the wording is shared rather than
+// duplicated per surface.

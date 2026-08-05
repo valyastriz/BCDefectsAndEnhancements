@@ -1,29 +1,30 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '../lib/api';
 import { getSocket } from '../lib/socket';
-import { Notice } from '../components/bite-size/BitsizeUI';
 
-import { PUBLIC_STATUSES, PUBLIC_FILTERS_STORAGE_KEY, PUBLIC_RETIRED_FILTER_STORAGE_KEY } from '../constants/publicConstants';
-import { areAllPublicStatusesSelected, readSavedPublicFilters } from '../utils/publicFilterUtils';
+import {
+  ALL_APPLICATIONS,
+  PUBLIC_STAGES,
+  PUBLIC_STATUSES,
+  PUBLIC_FILTERS_STORAGE_KEY,
+  PUBLIC_RETIRED_FILTER_STORAGE_KEY,
+  STAGED_STATUSES,
+} from '../constants/publicConstants';
+import {
+  areAllPublicStatusesSelected,
+  buildDefaultPublicFilters,
+  getActivePublicFilters,
+  matchesPublicFilters,
+  readSavedPublicFilters,
+  statusesForStage,
+} from '../utils/publicFilterUtils';
+import { sortPublicItems } from '../utils/publicSortUtils';
 import { useViewer } from '../hooks/useViewer';
-import { PublicFiltersBar } from '../components/public/PublicFiltersBar';
-import { PublicItemCard } from '../components/public/PublicItemCard';
-import { PaginationControls } from '../components/common/PaginationControls';
+import { PublicCommandBar } from '../components/public/PublicCommandBar';
+import { StatusBoardList } from '../components/public/StatusBoardList';
+import { StatusBoardRow } from '../components/public/StatusBoardRow';
+import { StatusBoardSkeleton, StatusBoardState } from '../components/public/StatusBoardStates';
 import { AiSearchPanel } from '../components/common/AiSearchPanel';
-
-// The scope tiles, in pipeline order. Each is a quick filter onto the statuses
-// it covers; everything not named here falls into the trailing "other outcomes"
-// tile, so the tile numbers always sum to the total rather than quietly losing
-// tickets the way a fixed four-tile row would.
-const SCOPE_TILES = [
-  { key: 'reported', label: 'Reported', statuses: ['New'], modifier: 'pb-tile--reported' },
-  { key: 'approved', label: 'Approved', statuses: ['Approved'], modifier: 'pb-tile--approved' },
-  { key: 'submitted', label: 'In EasyVista', statuses: ['Submitted'], modifier: 'pb-tile--submitted' },
-  { key: 'deployed', label: 'Deployed', statuses: ['Deployed'], modifier: 'pb-tile--deployed' },
-];
-const TILED_STATUSES = new Set(SCOPE_TILES.flatMap((tile) => tile.statuses));
-
-const ALL_APPLICATIONS = '__all__';
 
 export function PublicUpdatesPage() {
   const savedFilters = useMemo(() => readSavedPublicFilters(), []);
@@ -34,20 +35,17 @@ export function PublicUpdatesPage() {
   const [error, setError] = useState('');
   const [live, setLive] = useState(false);
   const [lastChangeAt, setLastChangeAt] = useState(null);
-  const [dynamicPublicStatuses, setDynamicPublicStatuses] = useState(PUBLIC_STATUSES);
-  const [dynamicPublicTypes, setDynamicPublicTypes] = useState(['defect', 'enhancement']);
-  const [search, setSearch] = useState(savedFilters.search);
-  const [typeFilter, setTypeFilter] = useState(savedFilters.typeFilter);
-  const [selectedStatuses, setSelectedStatuses] = useState(savedFilters.selectedStatuses);
-  const [retiredFilter, setRetiredFilter] = useState(savedFilters.retiredFilter);
-  const [sortBy, setSortBy] = useState(savedFilters.sortBy);
+  const [statusOptions, setStatusOptions] = useState(PUBLIC_STATUSES);
+  const [typeOptions, setTypeOptions] = useState(['defect', 'enhancement']);
+  const [filterPanelOpen, setFilterPanelOpen] = useState(false);
   const [pageSize, setPageSize] = useState(50);
   const [page, setPage] = useState(1);
-  const [filtersOpen, setFiltersOpen] = useState(false);
-  const [mineOnly, setMineOnly] = useState(false);
-  // '' until the viewer envelope answers, so the board never flashes one
-  // application's tickets before switching to another.
-  const [application, setApplication] = useState('');
+
+  // One object, the way the admin queue holds its filters: the chips, the
+  // Filters badge, the band's summary line and the no-matches state all have to
+  // describe the same thing. `application` starts '' — not "all" — so the board
+  // never flashes one application's tickets before the viewer envelope answers.
+  const [filters, setFilters] = useState(() => ({ ...savedFilters, application: '' }));
 
   // ── Data loading ──────────────────────────────────────────────────────────
   const load = useCallback(async () => {
@@ -90,16 +88,21 @@ export function PublicUpdatesPage() {
           : [];
 
         if (nextStatuses.length > 0) {
-          setDynamicPublicStatuses(nextStatuses);
-          setSelectedStatuses((prev) => (
-            areAllPublicStatusesSelected(prev, PUBLIC_STATUSES)
+          setStatusOptions(nextStatuses);
+          setFilters((prev) => ({
+            ...prev,
+            statuses: areAllPublicStatusesSelected(prev.statuses, PUBLIC_STATUSES)
               ? [...nextStatuses]
-              : prev.filter((value) => nextStatuses.includes(value))
-          ));
+              : prev.statuses.filter((value) => nextStatuses.includes(value)),
+          }));
         }
         if (nextTypes.length > 0) {
-          setDynamicPublicTypes(nextTypes);
-          setTypeFilter((prev) => (prev && !nextTypes.includes(prev) ? '' : prev));
+          setTypeOptions(nextTypes);
+          setFilters((prev) => (
+            prev.typeFilter && !nextTypes.includes(prev.typeFilter)
+              ? { ...prev, typeFilter: '' }
+              : prev
+          ));
         }
       })
       .catch(() => {});
@@ -118,40 +121,38 @@ export function PublicUpdatesPage() {
   // home application, and honouring it here silently hid half the board behind a
   // picker they had no reason to touch.
   useEffect(() => {
-    if (application !== '') return;
-    if (!viewer.isAuthenticated) {
-      setApplication(ALL_APPLICATIONS);
-      return;
-    }
-    if (!viewer.homeApplicationId) return;
-    const home = (viewer.applications || []).find((app) => app.id === viewer.homeApplicationId);
-    setApplication(home ? home.name : ALL_APPLICATIONS);
-  }, [application, viewer.isAuthenticated, viewer.applications, viewer.homeApplicationId]);
+    setFilters((prev) => {
+      if (prev.application !== '') return prev;
+      if (!viewer.isAuthenticated) return { ...prev, application: ALL_APPLICATIONS };
+      if (!viewer.homeApplicationId) return prev;
+      const home = (viewer.applications || []).find((app) => app.id === viewer.homeApplicationId);
+      return { ...prev, application: home ? home.name : ALL_APPLICATIONS };
+    });
+  }, [viewer.isAuthenticated, viewer.applications, viewer.homeApplicationId]);
 
   // ── Persist filters to localStorage ───────────────────────────────────────
+  // `application` is left out on purpose: it is resolved from the viewer
+  // envelope on every load, and a stale saved queue would fight that.
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    const statusSelectionMode = areAllPublicStatusesSelected(selectedStatuses, dynamicPublicStatuses)
-      ? 'all'
-      : 'custom';
+    const persisted = { ...filters };
+    delete persisted.application;
     window.localStorage.setItem(
       PUBLIC_FILTERS_STORAGE_KEY,
       JSON.stringify({
-        search,
-        typeFilter,
-        selectedStatuses,
-        retiredFilter,
-        sortBy,
-        statusSelectionMode,
+        ...persisted,
+        statusSelectionMode: areAllPublicStatusesSelected(filters.statuses, statusOptions)
+          ? 'all'
+          : 'custom',
       }),
     );
-    window.localStorage.setItem(PUBLIC_RETIRED_FILTER_STORAGE_KEY, retiredFilter || 'non_retired');
-  }, [search, typeFilter, selectedStatuses, retiredFilter, sortBy, dynamicPublicStatuses]);
+    window.localStorage.setItem(PUBLIC_RETIRED_FILTER_STORAGE_KEY, filters.retiredFilter || 'non_retired');
+  }, [filters, statusOptions]);
 
   // ── Derived values ────────────────────────────────────────────────────────
   const hasItems = items.length > 0;
 
-  const publicApplications = useMemo(
+  const applications = useMemo(
     () => [...new Set(items.map((item) => item.application_name).filter(Boolean))].sort(),
     [items],
   );
@@ -160,65 +161,39 @@ export function PublicUpdatesPage() {
   // tiles count — they are a picture of the whole board, so a filtered list must
   // not change them (the badge on the scope card says exactly that).
   const inScope = useMemo(() => {
-    if (!application || application === ALL_APPLICATIONS) return items;
-    return items.filter((item) => item.application_name === application);
-  }, [items, application]);
+    if (!filters.application || filters.application === ALL_APPLICATIONS) return items;
+    return items.filter((item) => item.application_name === filters.application);
+  }, [items, filters.application]);
 
   const mineCount = useMemo(() => inScope.filter(isMine).length, [inScope, isMine]);
 
   const tileCounts = useMemo(() => {
     const counts = { total: inScope.length, other: 0 };
-    for (const tile of SCOPE_TILES) counts[tile.key] = 0;
+    for (const stage of PUBLIC_STAGES) counts[stage.key] = 0;
     for (const item of inScope) {
-      const tile = SCOPE_TILES.find((candidate) => candidate.statuses.includes(item.status));
-      if (tile) counts[tile.key] += 1;
+      const stage = PUBLIC_STAGES.find((candidate) => candidate.statuses.includes(item.status));
+      if (stage) counts[stage.key] += 1;
       else counts.other += 1;
     }
     return counts;
   }, [inScope]);
 
   const otherStatuses = useMemo(
-    () => dynamicPublicStatuses.filter((status) => !TILED_STATUSES.has(status)),
-    [dynamicPublicStatuses],
+    () => statusOptions.filter((status) => !STAGED_STATUSES.has(status)),
+    [statusOptions],
   );
 
-  const allStatusesSelected = areAllPublicStatusesSelected(selectedStatuses, dynamicPublicStatuses);
+  const allStatusesSelected = areAllPublicStatusesSelected(filters.statuses, statusOptions);
+
+  const activeFilters = useMemo(
+    () => getActivePublicFilters(filters, statusOptions),
+    [filters, statusOptions],
+  );
 
   const visibleItems = useMemo(() => {
-    const query = search.trim().toLowerCase();
-
-    const filtered = inScope.filter((item) => {
-      const isRetired = Boolean(item.is_retired) || String(item.status || '') === 'Retired';
-      if (retiredFilter === 'retired_only' && !isRetired) return false;
-      if (retiredFilter === 'non_retired' && isRetired) return false;
-      if (mineOnly && !isMine(item)) return false;
-      if (typeFilter && item.type !== typeFilter) return false;
-      if (selectedStatuses.length > 0 && !selectedStatuses.includes(item.status)) return false;
-      if (!query) return true;
-
-      const haystack = [
-        item.id, item.created_by, item.policy_num, item.account_num,
-        item.summary_of_issue, item.what_happened_exact_details, item.request,
-        item.easyvista_ticket_id,
-      ].map((value) => String(value || '').toLowerCase()).join(' ');
-
-      return haystack.includes(query);
-    });
-
-    const toMillis = (value) => {
-      const parsed = new Date(value || '').getTime();
-      return Number.isNaN(parsed) ? 0 : parsed;
-    };
-
-    filtered.sort((left, right) => {
-      if (sortBy === 'updated_asc') return toMillis(left.updated_at) - toMillis(right.updated_at);
-      if (sortBy === 'created_desc') return toMillis(right.created_at) - toMillis(left.created_at);
-      if (sortBy === 'created_asc') return toMillis(left.created_at) - toMillis(right.created_at);
-      return toMillis(right.updated_at) - toMillis(left.updated_at);
-    });
-
-    return filtered;
-  }, [inScope, search, typeFilter, selectedStatuses, retiredFilter, sortBy, mineOnly, isMine]);
+    const matched = inScope.filter((item) => matchesPublicFilters(item, filters, isMine, statusOptions));
+    return sortPublicItems(matched, filters.sort);
+  }, [inScope, filters, isMine, statusOptions]);
 
   useEffect(() => { setPage(1); }, [visibleItems]);
 
@@ -228,30 +203,37 @@ export function PublicUpdatesPage() {
     [visibleItems, page, pageSize],
   );
 
-  const activeFilterCount = [
-    search.trim() !== '',
-    typeFilter !== '',
-    !allStatusesSelected,
-    retiredFilter !== 'non_retired',
-  ].filter(Boolean).length;
-
-  function selectTile(statuses) {
+  function selectStage(statuses) {
     // Clicking the tile you are already on clears back to everything, so a tile
     // is a toggle rather than a one-way trip that needs the filter panel to undo.
-    const alreadyOnlyThis = selectedStatuses.length === statuses.length
-      && statuses.every((status) => selectedStatuses.includes(status));
-    setSelectedStatuses(alreadyOnlyThis ? [...dynamicPublicStatuses] : [...statuses]);
+    setFilters((prev) => {
+      const alreadyOnlyThis = prev.statuses.length === statuses.length
+        && statuses.every((status) => prev.statuses.includes(status));
+      return { ...prev, statuses: alreadyOnlyThis ? [...statusOptions] : [...statuses] };
+    });
   }
 
-  const scopeLabel = !application || application === ALL_APPLICATIONS
+  // Clears every filter while keeping the two things that are scope rather than
+  // filter: which application you are looking at, and how you sorted it.
+  function clearAllFilters() {
+    setFilters((prev) => ({
+      ...buildDefaultPublicFilters(),
+      statuses: [...statusOptions],
+      application: prev.application,
+      sort: prev.sort,
+    }));
+  }
+
+  const scopeLabel = !filters.application || filters.application === ALL_APPLICATIONS
     ? 'All applications'
-    : application;
+    : filters.application;
 
   // ── States ────────────────────────────────────────────────────────────────
   const showSkeleton = isLoading;
   const showError = Boolean(error) && !isLoading;
   const showEmptyBoard = !isLoading && !error && !hasItems;
   const showNoMatches = !isLoading && !error && hasItems && visibleItems.length === 0;
+  const showList = !showSkeleton && !showError && hasItems && visibleItems.length > 0;
 
   return (
     <div className="pb-page">
@@ -262,6 +244,8 @@ export function PublicUpdatesPage() {
             Every issue the team has been told about, and where each one stands.
             Find yours by number, or check whether something has already been reported.
           </p>
+        </div>
+        <div className="pb-head-right">
           <p className={`pb-live${live ? ' pb-live--fresh' : ''}`}>
             <span className="pb-live-dot" aria-hidden="true" />
             <b>Live</b>
@@ -270,8 +254,6 @@ export function PublicUpdatesPage() {
               {lastChangeAt ? 'updated just now' : 'updates as the team makes changes'}
             </span>
           </p>
-        </div>
-        <div className="pb-head-right">
           {viewer.isAuthenticated && viewer.user && (
             <span className="pb-viewer">
               <span className="pb-viewer-av" aria-hidden="true">
@@ -287,108 +269,42 @@ export function PublicUpdatesPage() {
         </div>
       </div>
 
-      <div className="pb-find">
-        <div className="pb-find-row">
-          <span className="pb-search">
-            <span className="pb-search-icon" aria-hidden="true">⌕</span>
-            <input
-              type="search"
-              value={search}
-              placeholder="Ticket number, incident number, policy, account, reporter, or a keyword…"
-              aria-label="Search the status board"
-              onChange={(event) => setSearch(event.target.value)}
-            />
-          </span>
-          <span className="pb-find-inline">
-            <button
-              className="pb-filterbtn"
-              type="button"
-              aria-expanded={filtersOpen}
-              onClick={() => setFiltersOpen((prev) => !prev)}
-            >
-              Filters
-              {activeFilterCount > 0 && <span className="bs-count-pill">{activeFilterCount}</span>}
-              <span aria-hidden="true">{filtersOpen ? ' ▴' : ' ▾'}</span>
-            </button>
-            {/* Hidden with nothing to show: an anonymous browser that has never
-                filed anything has no "mine" to switch to, and a toggle that can
-                only ever return nothing is worse than no toggle. */}
-            {ownership !== 'none' && (
-              <span className="bs-seg" role="group" aria-label="Whose reports to show">
-                <button type="button" aria-pressed={!mineOnly} onClick={() => setMineOnly(false)}>
-                  All reports
-                </button>
-                <button type="button" aria-pressed={mineOnly} onClick={() => setMineOnly(true)}>
-                  My reports
-                  {mineCount > 0 && <span className="bs-count-pill">{mineCount}</span>}
-                </button>
-              </span>
-            )}
-          </span>
-        </div>
+      <PublicCommandBar
+        filters={filters}
+        setFilters={setFilters}
+        filterPanelOpen={filterPanelOpen}
+        setFilterPanelOpen={setFilterPanelOpen}
+        activeFilters={activeFilters}
+        statusOptions={statusOptions}
+        typeOptions={typeOptions}
+        applications={applications}
+        canFilterToMine={ownership !== 'none'}
+        mineCount={mineCount}
+        onClearAllFilters={clearAllFilters}
+      />
 
-        {filtersOpen && (
-          <PublicFiltersBar
-            search={search}
-            setSearch={setSearch}
-            typeFilter={typeFilter}
-            setTypeFilter={setTypeFilter}
-            dynamicPublicTypes={dynamicPublicTypes}
-            selectedStatuses={selectedStatuses}
-            setSelectedStatuses={setSelectedStatuses}
-            dynamicPublicStatuses={dynamicPublicStatuses}
-            retiredFilter={retiredFilter}
-            setRetiredFilter={setRetiredFilter}
-            sortBy={sortBy}
-            setSortBy={setSortBy}
-            onClear={() => {
-              setSearch('');
-              setTypeFilter('');
-              setSelectedStatuses([...dynamicPublicStatuses]);
-              setRetiredFilter('non_retired');
-              setSortBy('updated_desc');
-            }}
-          />
-        )}
-
-        <AiSearchPanel
-          scope="public"
-          applications={publicApplications}
-          defaultApplication="all"
-          collapsible
-          entryHint="describe the problem in plain language and let AI find near matches"
-          subtitle="Search the public status board in plain language to see if an issue has already been reported and what happened to it — or paste a ticket, incident, or policy number to look it up."
-          renderResults={(matches) => (
-            <div className="pb-list">
+      <AiSearchPanel
+        scope="public"
+        applications={applications}
+        defaultApplication="all"
+        collapsible
+        entryHint="describe the problem in plain language and let AI find near matches"
+        subtitle="Search the public status board in plain language to see if an issue has already been reported and what happened to it — or paste a ticket, incident, or policy number to look it up."
+        renderResults={(matches) => (
+          <div className="sb-panel">
+            <div className="sb-rows">
               {matches.map((match) => (
-                <PublicItemCard key={match.id} item={match} isMine={isMine(match)} />
+                <StatusBoardRow key={match.id} item={match} isMine={isMine(match)} />
               ))}
             </div>
-          )}
-        />
-      </div>
-
-      {showError && <Notice text={error} />}
+          </div>
+        )}
+      />
 
       {!showError && !showEmptyBoard && (
         <section className="pb-scope">
           <div className="pb-scope-head">
             <span className="pb-scopebadge">Whole board</span>
-            {publicApplications.length > 1 && (
-              <span className="pb-apppick">
-                <select
-                  className="bs-inline-select"
-                  value={application || ALL_APPLICATIONS}
-                  aria-label="Application"
-                  onChange={(event) => setApplication(event.target.value)}
-                >
-                  {publicApplications.map((name) => (
-                    <option key={name} value={name}>{name}</option>
-                  ))}
-                  <option value={ALL_APPLICATIONS}>All applications</option>
-                </select>
-              </span>
-            )}
             <span className="pb-scope-title"><b>{tileCounts.total}</b> tickets</span>
             <span className="pb-scope-hint">
               Your filters never change these numbers. Pick one to narrow the list.
@@ -399,29 +315,30 @@ export function PublicUpdatesPage() {
               className="pb-tile pb-tile--all"
               type="button"
               aria-pressed={allStatusesSelected}
-              onClick={() => setSelectedStatuses([...dynamicPublicStatuses])}
+              onClick={() => setFilters((prev) => ({ ...prev, statuses: [...statusOptions] }))}
             >
               <span className="pb-tile-num">{tileCounts.total}</span>
-              <span className="pb-tile-meter"><i style={{ width: '100%' }} /></span>
               <span className="pb-tile-lbl">Everything</span>
+              <span className="pb-tile-meter" style={{ width: '100%' }} />
             </button>
-            {SCOPE_TILES.map((tile) => {
-              const count = tileCounts[tile.key];
+            {PUBLIC_STAGES.map((stage) => {
+              const count = tileCounts[stage.key];
               const share = tileCounts.total > 0 ? Math.round((count / tileCounts.total) * 100) : 0;
+              const stageStatuses = statusesForStage(stage.key, statusOptions);
               const selected = !allStatusesSelected
-                && selectedStatuses.length === tile.statuses.length
-                && tile.statuses.every((status) => selectedStatuses.includes(status));
+                && filters.statuses.length === stageStatuses.length
+                && stageStatuses.every((status) => filters.statuses.includes(status));
               return (
                 <button
-                  key={tile.key}
-                  className={`pb-tile ${tile.modifier}`}
+                  key={stage.key}
+                  className={`pb-tile ${stage.modifier}`}
                   type="button"
                   aria-pressed={selected}
-                  onClick={() => selectTile(tile.statuses)}
+                  onClick={() => selectStage(stageStatuses)}
                 >
                   <span className="pb-tile-num">{count}</span>
-                  <span className="pb-tile-meter"><i style={{ width: `${share}%` }} /></span>
-                  <span className="pb-tile-lbl">{tile.label}</span>
+                  <span className="pb-tile-lbl">{stage.label}</span>
+                  <span className="pb-tile-meter" style={{ width: `${share}%` }} />
                 </button>
               );
             })}
@@ -429,155 +346,88 @@ export function PublicUpdatesPage() {
               <button
                 className="pb-tile pb-tile--closed"
                 type="button"
-                aria-pressed={!allStatusesSelected && selectedStatuses.length === otherStatuses.length}
-                onClick={() => selectTile(otherStatuses)}
+                aria-pressed={!allStatusesSelected && filters.statuses.length === otherStatuses.length}
+                onClick={() => selectStage(otherStatuses)}
               >
                 <span className="pb-tile-num">{tileCounts.other}</span>
-                <span className="pb-tile-meter">
-                  <i style={{ width: `${tileCounts.total > 0 ? Math.round((tileCounts.other / tileCounts.total) * 100) : 0}%` }} />
-                </span>
                 <span className="pb-tile-lbl">{otherStatuses.length} other outcomes</span>
+                <span
+                  className="pb-tile-meter"
+                  style={{ width: `${tileCounts.total > 0 ? Math.round((tileCounts.other / tileCounts.total) * 100) : 0}%` }}
+                />
               </button>
             )}
           </div>
         </section>
       )}
 
-      {/* Placeholders shaped like the real rows, so nothing jumps when the data
-          lands. Hidden from assistive tech — there is nothing here to read. */}
-      {showSkeleton && (
-        <div className="pb-listwrap" aria-busy="true">
-          <div className="pb-band">
-            <div className="pb-band-head">
-              <span className="pb-scopebadge pb-scopebadge--list">This list</span>
-              <span className="sk-bar" style={{ width: 120 }} />
-              <span className="pb-band-hint">Loading tickets…</span>
-            </div>
-          </div>
-          <div className="pb-list" aria-hidden="true">
-            {[0, 1, 2, 3].map((row) => (
-              <article className="pb-item" key={row}>
-                <div className="pb-item-top">
-                  <span className="sk-bar" style={{ width: 68 }} />
-                  <span className="sk-bar" style={{ width: 96 }} />
-                  <span className="sk-bar" style={{ width: 74 }} />
-                </div>
-                <span className="sk-bar" style={{ width: '62%', height: 15, marginTop: 4 }} />
-                <span className="sk-bar" style={{ width: '100%', height: 34, marginTop: 12 }} />
-                <span className="sk-bar" style={{ width: 220, marginTop: 10 }} />
-              </article>
-            ))}
-          </div>
-        </div>
+      {showSkeleton && <StatusBoardSkeleton />}
+
+      {showError && (
+        <StatusBoardState
+          tone="error"
+          icon="!"
+          title="The board could not load"
+          actions={(
+            <button className="pb-filterbtn" type="button" onClick={() => { setIsLoading(true); load(); }}>
+              Try again
+            </button>
+          )}
+        >
+          {error} Your filters are still saved.
+        </StatusBoardState>
       )}
 
-      {!showSkeleton && !showError && hasItems && visibleItems.length > 0 && (
-        <div className="pb-listwrap">
-          <div className="pb-band">
-            <div className="pb-band-head">
-              <span className="pb-scopebadge pb-scopebadge--list">This list</span>
-              <span className="pb-band-title">
-                <b>{visibleItems.length}</b> of {tileCounts.total} tickets
-              </span>
-              {/* The explicit {' '} matter: JSX strips the whitespace between
-                  elements on separate lines, and .pb-sep carries no margin —
-                  without them the hint reads "filter·Billing Center·no filters". */}
-              <span className="pb-band-hint">
-                Changes with every filter
-                {' '}
-                <span className="pb-sep">·</span>
-                {' '}
-                {scopeLabel}
-                {mineOnly && (
-                  <>
-                    {' '}
-                    <span className="pb-sep">·</span>
-                    {' '}
-                    Yours only
-                  </>
-                )}
-                {' '}
-                <span className="pb-sep">·</span>
-                {' '}
-                {activeFilterCount === 0
-                  ? 'no filters applied'
-                  : `${activeFilterCount} filter${activeFilterCount === 1 ? '' : 's'} applied`}
-              </span>
-            </div>
-            <div className="pb-band-row">
-              <span className="pb-band-sort">
-                Sort
-                <select
-                  className="bs-inline-select"
-                  value={sortBy}
-                  aria-label="Sort tickets"
-                  onChange={(event) => setSortBy(event.target.value)}
-                >
-                  <option value="updated_desc">Recently updated</option>
-                  <option value="updated_asc">Oldest update</option>
-                  <option value="created_desc">Newest report</option>
-                  <option value="created_asc">Oldest report</option>
-                </select>
-              </span>
-              <PaginationControls
-                page={page}
-                totalPages={totalPages}
-                pageSize={pageSize}
-                setPage={setPage}
-                setPageSize={setPageSize}
-                summary={pageSize === 0
-                  ? `Showing all ${visibleItems.length}`
-                  : `Showing ${Math.min((page - 1) * pageSize + 1, visibleItems.length)}–${Math.min(page * pageSize, visibleItems.length)} of ${visibleItems.length}`}
-              />
-            </div>
-          </div>
-
-          <div className="pb-list">
-            {pagedItems.map((item) => (
-              <PublicItemCard key={item.id} item={item} isMine={isMine(item)} />
-            ))}
-          </div>
-        </div>
+      {showList && (
+        <StatusBoardList
+          items={visibleItems}
+          pagedItems={pagedItems}
+          totalInScope={tileCounts.total}
+          scopeLabel={scopeLabel}
+          activeFilterCount={activeFilters.length}
+          mineOnly={filters.mineOnly}
+          sortValue={filters.sort}
+          onSortChange={(sort) => setFilters((prev) => ({ ...prev, sort }))}
+          page={page}
+          setPage={setPage}
+          pageSize={pageSize}
+          setPageSize={setPageSize}
+          totalPages={totalPages}
+          isMine={isMine}
+        />
       )}
 
       {showEmptyBoard && (
-        <div className="pb-state">
-          <span className="pb-state-icon" aria-hidden="true">☐</span>
-          <h4>Nothing on the board yet</h4>
-          <p>Reports appear here once the team marks them public. Check back shortly.</p>
-        </div>
+        <StatusBoardState icon="☐" title="Nothing on the board yet">
+          Reports appear here once the team marks them public. Check back shortly.
+        </StatusBoardState>
       )}
 
       {showNoMatches && (
-        <div className="pb-state">
-          <span className="pb-state-icon" aria-hidden="true">⌕</span>
-          <h4>{mineOnly ? 'None of these are yours' : 'Nothing matches those filters'}</h4>
-          <p>
-            {mineOnly
-              ? 'Switch back to all reports, or widen the filters to see the rest of the board.'
-              : 'Try a different search, or clear the filters to see the whole board again.'}
-          </p>
-          <div className="pb-state-acts">
-            {mineOnly && (
-              <button className="pb-filterbtn" type="button" onClick={() => setMineOnly(false)}>
-                Show all reports
+        <StatusBoardState
+          icon="⌕"
+          title={filters.mineOnly ? 'None of these are yours' : 'Nothing matches those filters'}
+          actions={(
+            <>
+              {filters.mineOnly && (
+                <button
+                  className="pb-filterbtn"
+                  type="button"
+                  onClick={() => setFilters((prev) => ({ ...prev, mineOnly: false }))}
+                >
+                  Show all reports
+                </button>
+              )}
+              <button className="pb-filterbtn" type="button" onClick={clearAllFilters}>
+                Clear filters
               </button>
-            )}
-            <button
-              className="pb-filterbtn"
-              type="button"
-              onClick={() => {
-                setSearch('');
-                setTypeFilter('');
-                setSelectedStatuses([...dynamicPublicStatuses]);
-                setRetiredFilter('non_retired');
-                setMineOnly(false);
-              }}
-            >
-              Clear filters
-            </button>
-          </div>
-        </div>
+            </>
+          )}
+        >
+          {filters.mineOnly
+            ? 'Switch back to all reports, or widen the filters to see the rest of the board.'
+            : 'Try a different search, or clear the filters to see the whole board again.'}
+        </StatusBoardState>
       )}
     </div>
   );

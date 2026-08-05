@@ -195,6 +195,109 @@ Center only, sees 5 tickets including the 2 they redirected to Policy Center.
 Driving the app also caught a temporal-dead-zone crash I introduced while fixing (5):
 a `useMemo` reading `rows` above its declaration blanked the whole queue. Lint passed it.
 
+## Status board: rows instead of cards, and admin-grade sort/filter (2026-08-04)
+
+Built to the approved redesign mockup, **artifact v2**
+(https://claude.ai/code/artifact/f5d5fc91-ec8c-4b9b-b4a3-791cdb33a365). Supersedes the
+card layout of the section below; the four-stop track, the tiles and the ownership rules
+described there all survive, in new places.
+
+**A ticket is a row, not a card.** ~190px became ~46px, so a screenful holds roughly four
+times as many. The four-stop track that made up most of that height is four pips plus the
+name of the current stop (`StatusBoardRow.StageCell`); the dated track, the description,
+the reference numbers and the hand-off trail moved into an expansion that is not in the
+DOM until it is opened. Statuses that end a ticket elsewhere still render one outcome
+pill instead of a track, and the parked statuses (Backlog, Future Consideration,
+Deferred) now get a holding pill rather than a track that has stopped moving.
+
+**Columns:** Ticket · Type · Summary · Stage · Reported by · Application · Updated. One
+CSS grid definition is shared by the header and every row (`.sb-head, .sb-row`), so a
+column and its header cannot disagree. They drop in the order of what is recoverable
+elsewhere — Application at 1180px, Reported by at 1000px — and below 820px the row folds
+to three lines. Both dropped columns stay in the expansion at every width.
+
+**Sort, two ways that write one value** (`filters.sort`), mirroring the admin queue: a
+field + direction pair in the band (`PublicSortControl`) and a click on a column header
+(`StatusBoardList.toggleSort`). Nine fields, all inside the public allow-list
+(`PUBLIC_SORT_FIELDS`). Direction wording follows the field type, from the now-shared
+`utils/sortShared.js` — `createSortRegistry` binds the same mechanics to the admin
+registry (`sortUtils.js`) and the public one (`publicSortUtils.js`). Blanks sort last in
+BOTH directions: the blank check happens before the direction multiplier, so flipping the
+sort cannot dredge every ticket with no incident number to the top.
+
+**Filter, like the admin queue:** a command row (search, Filters + count, application
+scope, Active/Retired/All, All/My reports), removable chips, and a grouped panel drawn
+closed — Ticket / Where it stands / Reference numbers / People. New filters: reported
+year, incident #, JIRA #, one box matching either policy or account, reported by. Every
+one reads a field already in `PUBLIC_SUBMISSION_FIELDS`; nothing internal became
+filterable. State is one `filters` object so the chips, the Filters badge, the band's
+summary and the no-matches state cannot drift (`getActivePublicFilters`).
+
+**Stage is not state.** The Stage select and the tiles both read and write
+`filters.statuses` (`stageForStatuses` / `statusesForStage`), the same way the headers and
+the sort control both write `filters.sort` — otherwise picking a tile and picking a stage
+could disagree about what the board is showing.
+
+**The hand-off trail renders for the first time.** `PublicItemCard` had always had the
+markup, but only the by-id endpoint attached `routings` — the LIST endpoint never did, so
+the block was dead on the board and in AI search results. Fixed with
+`listRoutingsBySubmissionIds` (`redirectService.js`): two queries for the whole page
+instead of the two-per-row the existing `listRoutings` would have cost, which now
+delegates to it. `forPublic` still strips the note.
+
+**A status retired from the metadata no longer hides live tickets.** The board applied its
+status whitelist unconditionally, so a ticket sitting on a status that had since been
+retired vanished from an unfiltered board. `matchesPublicFilters` now drops the whitelist
+when every offered status is selected — the rule the admin queue already had
+(`AdminDashboardPage.loadRows`).
+
+**The column header is sticky, pinned below the app bar.** It was briefly shipped
+non-sticky on the belief that `.app-header`'s height varies with the nav and could not be
+depended on; measuring it disproved that — it is **61px at every width from 320 to 1600,
+on every page**. So the offset is now a real relationship rather than a magic number:
+`--app-header-h` is declared once in `:root`, `.app-header-top` derives its height from
+it, and `.sb-head` pins at `top: var(--app-header-h)`.
+
+Two things have to stay true for that to keep working, hence the comments on both rules:
+`.app-header` is sticky at `top: 0` with `z-index: 50`, so a column header stuck at 0
+would pin *underneath* it and be invisible; and `.sb-panel` must not carry
+`overflow: hidden`, because an overflow ancestor becomes the sticky container and the
+stick silently stops. (`body` uses `overflow-x: clip`, which deliberately does not create
+one.) Below 820px the column header is hidden anyway, so there is nothing to pin.
+
+Retired: `PublicItemCard.jsx`, `PublicFiltersBar.jsx`, and the `.pb-item` / `.pb-track` /
+`.pb-listwrap` CSS. `DuplicateCheck` and the AI search panel render the new row.
+
+**Two defects the browser found that nothing else would have.** The application picker
+wrapped onto a line of its own and stretched the full width — `.bs-inline-select` is
+`width: 100%`, which made its flex basis the whole row; it and the band's sort selects are
+now width-capped. And a long summary pushed a phone row to 154px, so `.sb-sum` is clamped
+to two lines below 820px.
+
+Verified in Chromium (headless, real built client against a seeded sandbox DB — never the
+hosted one): 1440 / 834 / 360 px × light and dark. Row height **46px** measured on
+desktop and tablet, 114px median on a phone (three stacked lines); no horizontal page
+scroll at any width; the column drop order confirmed at each breakpoint; a row expands in
+place; the filter panel's four groups; Type=Enhancement narrowing 26→7 with a matching
+chip that removes just itself; a header click sorting and the sort control following it;
+tickets with no incident number sorting last; the no-matches state; the column header
+pinning flush under the app bar and releasing with its own list; and **two windows both
+picking up a ticket filed by a third client with no refresh**. Console clean apart from
+the two 401s an anonymous visitor is meant to get (`/api/realtime/token`, `/api/auth/me`).
+
+One note for whoever runs this next: the live check went through a hand-rolled WebSocket
+proxy at first and dropped an event roughly one window in six. Rebuilding with
+`VITE_SOCKET_URL` pointed straight at the API — which is how the app connects in
+production anyway (client/src/lib/socket.js) — was clean four runs out of four. The flake
+was the test scaffolding, not the board.
+
+Also verified: 257 server tests (8 new in `test/routingsBatch.test.js`), client lint,
+client build; the routings attach proven end to end (chain oldest-first,
+note/`routed_by`/`status_at_handoff` absent, tickets that never moved carry no key); 35
+logic checks over sort/filter/chips/stage/persistence and 21 render checks over
+`StatusBoardRow`. The logic, render and browser checks all run from the scratchpad and are
+NOT wired into a suite — the client has no test runner.
+
 ## Status board rebuilt — status became position (2026-08-03)
 
 Step 6. Built to the approved redesign mockup, **artifact v1**
@@ -220,7 +323,8 @@ so; the "other outcomes" tile catches every status the four named tiles miss, so
 numbers always sum to the total.
 
 **The hand-off trail** renders in a card's details from the public `routings` — teams
-and dates only, never the note.
+and dates only, never the note. (It did not actually render on the board until
+2026-08-04; the list endpoint was not sending `routings`. See the section above.)
 
 **Second real bug found by verifying.** The board's per-status timestamps
 (`deployed_status_at`, `duplicate_status_at`, and the new `approved_status_at`) matched
