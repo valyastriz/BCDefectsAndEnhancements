@@ -11,15 +11,71 @@ Everything below this line up to the `---` is the live work queue. It is written
 be read by someone with no memory of the session that produced it. The dated
 sections after it are the historical record and unchanged.
 
-## PHASE 1 IS BUILT — start here (2026-08-06, second pass)
+## START HERE — the state, in one page (2026-08-06, end of the seventh pass)
 
-**All three mockups were approved, three PRs are merged and deployed, and the
-four items that were left are now built too** — the throughput page, the
-report-request status vocabulary, admin add/import/export parity, and the browser
-checks for the Delivery pane and the public board. What remains is §5 step 6
-(screenshots + docs) and the short "not done, on purpose" list at the end of this
-section. The ten-line orientation further down is two sessions old and is history;
-read this section, then §4 for the design decisions that govern the rest.
+**Phase 1 is built, verified and deployed.** Everything below this heading is the
+record of HOW, in the order it happened; this block is WHERE THINGS STAND. If the
+two ever disagree, this block is newer.
+
+**Nothing is in flight.** `main` is clean, pushed, and deployed (`562e900` is the
+last commit). Seven passes shipped on 2026-08-06:
+
+| Commit | What |
+|---|---|
+| `dfd944f` | Throughput page, report-request statuses, admin add/import/export parity |
+| `f54c4e0` | Report requests through Excel, both directions |
+| `d5fedf1` | Three submit-form fixes the owner found on the live site |
+| `2cecec0` | Five more owner items (+ the Report tab showing the request at all) |
+| `fc44be1` | The application picker's styling, and the "Other" queue |
+| `562e900` | "Requester Name is required" while signed in — a lapsed session, told honestly |
+
+**One decision is waiting on the owner, and it is the only thing anybody is
+blocked on:** sessions live in `express-session`'s default MemoryStore, so every
+deploy signs everyone out. The form now says so in plain words and keeps what was
+typed, but a persistent store (`connect-pg-simple` against the same Postgres) would
+stop it happening at all — one dependency, one table on the shared database, and it
+must be conditional because local dev runs on sql.js. **I recommended doing it**;
+the owner has not answered. See the seventh-pass section.
+
+**The next substantial piece of work is §5 step 6 — screenshots and docs.** Read
+`### Not done, on purpose` before starting it: the screenshot HARNESS does not
+exist (the six verify scripts can write PNGs with `--shots`, but the
+manifest-driven capture the docs need is unwritten), and that is the first task of
+that pass, not an afterthought.
+
+**Six working accounts exist on the hosted database** (fifth pass), all with the
+seeded password from `.env`, none a super user, none a `manager`:
+`pc_app_admin` · `bc_app_admin` (defects + enhancements) ·
+`pc_report_analyst` · `bc_report_analyst` (report requests only) ·
+`pc_owner_analyst` · `bc_owner_analyst` (both). `admin` is still the super user.
+There are three applications now: Billing Center, Policy Center and **Other**, the
+queue a report request lands in when nobody knows whose data it is yet.
+
+**Four traps that cost real time today. All four are in §0.3 in full:**
+1. **Do not pipe a verify script through `head`** — SIGPIPE kills the run before its
+   cleanup and leaves fixtures in the shared database. Redirect to a file.
+2. **`/api/auth/login` allows 10 attempts per 15 minutes per IP.** A burst of
+   re-runs starts answering 429, and a 429 mid-run looks exactly like a broken
+   check.
+3. **Read the submission count from
+   `server/scripts/removeVerificationSubmissions.js`, never from a number written
+   in this file.** It moves as the owner tests: it was 83 this morning and 86 at
+   the end of the seventh pass. **Tickets without a `VERIFY` marker are theirs —
+   #117, #131 and #143 are their own test report requests and must not be
+   removed.** (#143 is also the proof the application picker works: they chose
+   Policy Center and it landed there rather than in Billing Center.) A fixture of
+   your own left behind is your mistake to clear: mine was #139, and I removed it.
+4. **A browser probe is wrong more often than the code is.** Three of today's new
+   checks failed against working code: a fixed sleep that read the previous
+   filter's rows, a `.dm-pane` class that does not exist, and `.submission` on a
+   detail response that is flat. Wait on the response whose URL carries the
+   expected query, and read the shape before asserting on it.
+
+**And one lesson worth carrying:** the SIGNED-IN branch is not the branch a
+requester sees. Two of the owner's five submit-form complaints were only ever
+visible to a viewer with no session — which is everybody who files a request —
+because nobody signs in to file. `verify-submit-form.mjs` now opens the form in a
+second, session-less context for exactly that reason.
 
 **Approved mockups — these are the build contract, not sketches:**
 1. Submit form, report branch (v3) — https://claude.ai/code/artifact/075982a2-0670-4d48-b02d-ba92b420b0b7
@@ -434,11 +490,21 @@ be signed out by every deploy; the form now says so plainly.
 
 ### Not done, on purpose
 
-- **§5 step 6** — screenshots and docs. Unstarted.
-- **The detail modal still shows an Impact tab on a report request.** Dollar
-  impact and policies affected are defect/enhancement figures; the Add-a-ticket
-  dialog now hides that fold for a report request, but the modal's tab was left
-  alone rather than widened into this change.
+- **§5 step 6** — screenshots and docs. Unstarted, and the biggest thing left. The
+  screenshot HARNESS does not exist: the six verify scripts write PNGs with
+  `--shots`, but the manifest-driven capture the docs need is unwritten. Write that
+  first rather than shooting by hand — 43+ desktop screenshots were re-shot once
+  already after a rename.
+- **Sessions do not survive a restart** (seventh pass). The owner's call, and the
+  only open decision. Recommended: do it.
+- **A persistent session store would need to be conditional.** Local development
+  runs on sql.js; a Postgres-backed store cannot work there, so whatever lands has
+  to fall back to MemoryStore when `DB_PROVIDER` is not postgres.
+- **The five `401 Unauthorized` fetches on the public routes** are still untraced
+  (§3b). Pre-existing, harmless-looking, never chased.
+- **`feat/admin-detail-modal-redesign`** still needs a keep-or-delete decision (see
+  the branch note). Its content is on `main`; the two commits are not reachable
+  from it.
 - **`approval_recorded_by` is not importable, deliberately.** That column is the id
   of whoever entered an approval IN THIS PORTAL. Nobody did for an imported row, so
   it stays null rather than borrowing the importer's name — `approved_by_name` and
