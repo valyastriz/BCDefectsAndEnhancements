@@ -17,7 +17,7 @@ sections after it are the historical record and unchanged.
 record of HOW, in the order it happened; this block is WHERE THINGS STAND. If the
 two ever disagree, this block is newer.
 
-**Nothing is in flight.** `main` is clean, pushed, and deployed (`f0a1f1e` is the
+**Nothing is in flight.** `main` is clean, pushed, and deployed (`7f0ac67` is the
 last commit). Twelve passes shipped on 2026-08-06:
 
 | Commit | What |
@@ -32,7 +32,7 @@ last commit). Twelve passes shipped on 2026-08-06:
 | `20e70fc` | Who may see a report request, and who may say so — the private-report rule, rep logins, type-scoped grants |
 | `4b47489` | The detail modal, told apart by type — Delivery notes, the unlocked ticket number, Reviewer |
 | `0927f4d` | Two queues, two column sets — and a search that stops ruling |
-| `f0a1f1e` | Delivery notes through Excel, both ways — the owner corrected the reasoning |
+| `7f0ac67` | Delivery notes through Excel, both ways — the owner corrected the reasoning |
 
 **No decision is outstanding.** The one that was — whether to persist sessions —
 was answered "do it" by the owner and shipped as `7ee3003`. See the eighth-pass
