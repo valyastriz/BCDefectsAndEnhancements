@@ -8,15 +8,38 @@
  */
 import { TRACKER_LABEL, TRACKER_LABEL_THE } from '../../constants/tracker';
 
+/**
+ * What happens after Submit — and it is not the same story for every type.
+ *
+ * A report request is worked by an analyst in the portal and never handed
+ * downstream, so the Service Desk steps would be a promise the portal does not
+ * keep. Steps 2 and 3 change; step 1 is true of everything.
+ */
+function nextSteps(type) {
+  if (type === 'report') {
+    return [
+      ['Reported', 'Your request appears on the Status Board straight away with a reference number.'],
+      ['Picked up', 'A reporting analyst on the team takes it and sizes the work.'],
+      ['Delivered', 'You’ll see it marked complete on the board, with the date it was finished.'],
+    ];
+  }
+  return [
+    ['Reported', 'Your ticket appears on the Status Board straight away with a reference number.'],
+    ['Triaged', 'The triage team reviews it and either approves it, links it to an existing ticket, or explains why not.'],
+    [`Submitted to ${TRACKER_LABEL}`, `Approved items go to ${TRACKER_LABEL_THE} and get a ticket number you can track.`],
+  ];
+}
+
 export function SubmitReadinessRail({
   requiredFields,
   values,
   showErrors,
   isDefect,
+  type = 'defect',
   fileCount,
   saving,
 }) {
-  const outstanding = requiredFields.filter((field) => !values[field.key]?.trim());
+  const outstanding = requiredFields.filter((field) => !String(values[field.key] ?? '').trim());
 
   return (
     <aside className="rs-rail">
@@ -25,7 +48,7 @@ export function SubmitReadinessRail({
 
         <ul className="rs-check">
           {requiredFields.map((field) => {
-            const done = Boolean(values[field.key]?.trim());
+            const done = Boolean(String(values[field.key] ?? '').trim());
             const state = done ? 'on' : showErrors ? 'bad' : '';
             return (
               <li key={field.key} className={state}>
@@ -67,18 +90,12 @@ export function SubmitReadinessRail({
       <div className="rs-railcard">
         <p className="rs-grouplabel">What happens next</p>
         <ol className="rs-steps">
-          <li>
-            <b>Reported</b>
-            <span>Your ticket appears on the Status Board straight away with a reference number.</span>
-          </li>
-          <li>
-            <b>Triaged</b>
-            <span>The triage team reviews it and either approves it, links it to an existing ticket, or explains why not.</span>
-          </li>
-          <li>
-            <b>Submitted to {TRACKER_LABEL}</b>
-            <span>Approved items go to {TRACKER_LABEL_THE} and get a ticket number you can track.</span>
-          </li>
+          {nextSteps(type).map(([title, detail]) => (
+            <li key={title}>
+              <b>{title}</b>
+              <span>{detail}</span>
+            </li>
+          ))}
         </ol>
       </div>
     </aside>

@@ -3337,6 +3337,62 @@ select.dm-prow-input { cursor: pointer; }
   .rs-row--when { grid-template-columns: 1fr; }
 }
 
+/* Three segments do not fit a phone on one line, and letting them wrap is worse
+   than stacking: the one that lands alone on the second row stretches to the
+   full width and reads as the emphasised choice whether or not it is selected.
+   One per row keeps every option the same size, which is what `.rs-types`
+   already does at 640px. Left to itself it would overflow, and
+   client/scripts/lib/overflow-probe.mjs reports it at 390px. */
+@media (max-width: 560px) {
+  .rs-seg { display: grid; grid-template-columns: 1fr; width: 100%; border-radius: var(--radius); }
+  .rs-seg .rs-type { border-radius: var(--radius-sm); }
+}
+
+/* ── Report requests ──────────────────────────────────────────────────────
+   From the approved mockup v3:
+   https://claude.ai/code/artifact/075982a2-0670-4d48-b02d-ba92b420b0b7 */
+
+/* The branch choice reshapes the card it heads, exactly as the type choice
+   reshapes the form — so it uses the same control, one size down. */
+.rs-seg--sub .rs-type { padding: 5px 12px; }
+.rs-seg--sub .rs-type-name { font-size: 12.5px; font-weight: 650; }
+
+/* Conditional fields. One attribute on the form decides which branch's fields
+   exist, mirroring the `data-branch` gating the Add-a-ticket dialog already
+   uses, rather than a second mechanism. The wrapper carries the card's own
+   column gap so a two-field branch is spaced like the fields around it. */
+.rs-when-new, .rs-when-change { display: flex; flex-direction: column; gap: 11px; }
+.rs-cols[data-branch='new'] .rs-when-change,
+.rs-cols[data-branch='change'] .rs-when-new { display: none; }
+
+/* A short closed set the requester picks from — small enough to show all of,
+   so a dropdown would hide six options behind a click. */
+.rs-pick { display: flex; flex-wrap: wrap; gap: 7px; }
+.rs-pickbtn {
+  font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer;
+  padding: 7px 13px; border-radius: 999px; color: var(--color-text);
+  border: 1px solid var(--color-border); background: var(--color-surface);
+  transition: border-color .15s, background .15s, color .15s;
+}
+.rs-pickbtn:hover { border-color: color-mix(in srgb, var(--color-primary) 45%, var(--color-border)); }
+.rs-pickbtn[aria-pressed='true'] {
+  border-color: var(--color-primary); color: var(--color-primary); font-weight: 700;
+  background: color-mix(in srgb, var(--color-primary) 10%, var(--color-surface));
+}
+.rs-pickbtn:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+
+/* A field whose control is a group of buttons rather than one input: it has no
+   single element for a `for` attribute to point at, so the title is a plain
+   element and the group is labelled by it. */
+.rs-grouptitle {
+  margin: 0; font-size: 13px; font-weight: 650; color: var(--color-text);
+  display: flex; align-items: baseline; gap: 6px;
+}
+
+/* A one-line explanation under a field whose label cannot carry it all. Wired
+   to the control with aria-describedby, not just placed near it. */
+.rs-help { margin: 0; font-size: 12px; line-height: 1.5; color: var(--color-muted); }
+
 @media (prefers-reduced-motion: reduce) {
   .rs-skel, .rs-spin { animation: none; }
 }
@@ -3353,19 +3409,23 @@ select.dm-prow-input { cursor: pointer; }
 .rs-locked p { margin: 0; color: var(--color-muted); font-size: 14.5px; }
 .rs-locked-alt { font-size: 13px; }
 
-/* Who the ticket will be filed as, when the server already knows. A statement
-   rather than a field — the name is not the rep's to change. */
-.rs-reporter {
-  display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px;
-  padding: 11px 13px; border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm); background: var(--color-bg);
+/* Who the ticket is filed as, when the server already knows.
+   Lifted from the approved mockup v3:
+   https://claude.ai/code/artifact/075982a2-0670-4d48-b02d-ba92b420b0b7
+
+   It used to be a bordered box sharing a row with the one-line summary
+   (`.rs-row--who`), and it read as a broken input beside a working one: same
+   border, same fill, no label of its own, and `align-items: end` lining up their
+   bottoms so the reporter's top edge floated against the summary's label. It is
+   not a field — nobody can change it — so it stops being drawn as one.
+
+   `.rs-row--who` keeps the case it still fits: an anonymous filer, where "Your
+   name" really is an input and pairing two inputs is what that row is for. */
+.rs-filedby {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px;
+  font-size: 12.5px; color: var(--color-muted);
 }
-.rs-reporter-label {
-  font-size: 11.5px; font-weight: 650; letter-spacing: .04em;
-  text-transform: uppercase; color: var(--color-muted);
-}
-.rs-reporter-name { font-weight: 650; }
-.rs-reporter-email { font-size: 12.5px; color: var(--color-muted); }
+.rs-filedby b { font-size: 13px; font-weight: 650; color: var(--color-text); }
 
 /* ─────────────────────────────────────────────
    Access page (pages/AdminAccessPage.jsx)
