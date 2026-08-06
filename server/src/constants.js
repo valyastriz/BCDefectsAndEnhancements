@@ -183,6 +183,17 @@ const IMPORT_COLUMN_TARGETS = [
   { key: 'jira_number', label: 'JIRA Number', aliases: ['jira_number', 'jira'] },
   { key: 'release_number', label: 'Release Number', aliases: ['release_number', 'release'] },
   { key: 'release_notes', label: 'Release Notes', aliases: ['release_notes'] },
+  // The report-request counterpart. Importable because a backdated sheet is
+  // exactly where delivery notes already exist: a team switching to this portal
+  // is carrying over requests that were built and handed over somewhere else, and
+  // dropping the one column that says what was handed over would lose the point
+  // of the record. `delivered_notes` and `delivery_note` are there because a
+  // hand-maintained sheet will have been titled by a person, not by this list.
+  {
+    key: 'delivery_notes',
+    label: 'Delivery Notes',
+    aliases: ['delivery_notes', 'delivery_note', 'delivered_notes', 'what_was_delivered'],
+  },
   // Labels are display-only; the aliases are what an imported spreadsheet column
   // is matched against, so they keep the old spellings and gain the new ones.
   { key: 'easyvista_ticket_id', label: `${TRACKER_LABEL} Number`, aliases: ['easyvista_ticket_id', 'easyvista_ticket', 'easyvista_number', 'easyvista_id', 'ticket_id', 'service_desk_number', 'service_desk_ticket'] },

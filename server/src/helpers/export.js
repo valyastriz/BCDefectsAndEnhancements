@@ -95,6 +95,11 @@ function buildAdminExportFields() {
     { key: 'assigned_to_name', label: 'Assigned To', value: (row) => row.assigned_to_name },
     { key: 'approved_at', label: 'Approved Date', value: (row) => row.approved_at },
     { key: 'approved_by_name', label: 'Approved By', value: (row) => row.approved_by_name },
+    // What was delivered, in the analyst's words. Travels BOTH ways, unlike
+    // `assigned_to_name` above: this is free text that belongs to the row, not a
+    // name standing in for a foreign key, so importing it back is exactly as safe
+    // as importing the summary.
+    { key: 'delivery_notes', label: 'Delivery Notes', value: (row) => row.delivery_notes },
   ];
 }
 
@@ -169,7 +174,7 @@ const EXPORT_FIELD_GROUPS = [
       'is_new_dashboard', 'existing_report_link', 'changes_requested', 'needed_data',
       'measures_and_sources', 'primary_contact', 'report_usage_frequency', 'department',
       'assigned_to_name', 'level_of_effort', 'hours_logged', 'completed_at',
-      'approved_at', 'approved_by_name',
+      'approved_at', 'approved_by_name', 'delivery_notes',
     ],
   },
   { key: UNGROUPED_FIELD_GROUP, label: 'Other fields', fieldKeys: [] },

@@ -17,8 +17,8 @@ sections after it are the historical record and unchanged.
 record of HOW, in the order it happened; this block is WHERE THINGS STAND. If the
 two ever disagree, this block is newer.
 
-**Nothing is in flight.** `main` is clean, pushed, and deployed (`0927f4d` is the
-last commit). Eleven passes shipped on 2026-08-06:
+**Nothing is in flight.** `main` is clean, pushed, and deployed (`f0a1f1e` is the
+last commit). Twelve passes shipped on 2026-08-06:
 
 | Commit | What |
 |---|---|
@@ -32,6 +32,7 @@ last commit). Eleven passes shipped on 2026-08-06:
 | `20e70fc` | Who may see a report request, and who may say so — the private-report rule, rep logins, type-scoped grants |
 | `4b47489` | The detail modal, told apart by type — Delivery notes, the unlocked ticket number, Reviewer |
 | `0927f4d` | Two queues, two column sets — and a search that stops ruling |
+| `f0a1f1e` | Delivery notes through Excel, both ways — the owner corrected the reasoning |
 
 **No decision is outstanding.** The one that was — whether to persist sessions —
 was answered "do it" by the owner and shipped as `7ee3003`. See the eighth-pass
@@ -96,11 +97,11 @@ second, session-less context for exactly that reason.
 **Merged and deployed:** PR #12 (schema, authorisation sweep, backend), PR #13
 (submit form), PR #14 (Delivery pane, handover trail, approval evidence).
 
-**Verified:** 359 server tests, client lint and production build clean, and **312
+**Verified:** 361 server tests, client lint and production build clean, and **312
 harness checks** across seven committed scripts at 1500/820/390 in both themes — 119
 admin data entry, 60 submit form, 52 throughput, 26 metadata, 21 public board, 19
 spreadsheet round trip, 15 session store. **All seven were run green at the eleventh
-pass.** Every script that writes ends by printing the hosted count back where it
+pass**, and the round trip again at the twelfth (it now compares 16 fields, not 15). Every script that writes ends by printing the hosted count back where it
 found it; it is 86.
 
 **Six working accounts became eight**, and a second KIND of account exists.
@@ -667,11 +668,15 @@ test now pins the whole list in order.** A new column goes on the END.
   it means two people can ask for the same dashboard without either being told.
   A count without content ("2 similar requests exist") would close the gap without
   breaking the rule; nobody has asked for it.
-- **`delivery_notes` is not in the Excel export or import.** A delivery note is
-  written on the Delivery pane after the work; an import loads history that
-  happened elsewhere. Adding it means an `ADMIN_EXPORT_FIELDS` entry with a
-  `group` (or `test/exportFields.test.js` fails, which is the point) and an
-  `IMPORT_COLUMN_TARGETS` alias.
+- ~~**`delivery_notes` is not in the Excel export or import.**~~ **It is, as of
+  the twelfth pass.** The reasoning for leaving it out — "a delivery note is
+  written after the work, and an import loads history from elsewhere" — was
+  exactly backwards, and the owner said so: a backdated migration is the case
+  where delivery notes ALREADY EXIST, and dropping the column that says what was
+  handed over loses the point of the record. It exports (in the Report request
+  group) and imports, with aliases for the hand-titled spellings a real
+  spreadsheet will have. Report-sheet only on import: a defect has no Delivery
+  pane, so mapping it there would store a value nothing ever displays.
 - **An admin-created report request has no reporter**, so it is on the admin queue
   and on nobody's board. `reporter_user_id` is written only by the public submit
   route. That is coherent — an admin recording somebody else's request cannot

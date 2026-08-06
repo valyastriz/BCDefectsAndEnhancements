@@ -569,6 +569,10 @@ router.post('/api/admin/submissions/import-xlsx', ensureAdmin, tempUpload.single
           return value ? toIsoOrNow(value) : null;
         })(),
         approved_by_name: importedText(row, 'approved_by_name', ['approved_by_name', 'approved_by', 'report_dashboard_approval']),
+        // What was delivered. Free text belonging to the row, so it imports the
+        // same way the summary does — unlike `assigned_to`, which is a name that
+        // has to resolve to a real user before it may become a foreign key.
+        delivery_notes: importedText(row, 'delivery_notes', ['delivery_notes', 'delivery_note', 'delivered_notes', 'what_was_delivered']) || null,
       });
     });
 
@@ -753,11 +757,12 @@ router.post('/api/admin/submissions/import-xlsx', ensureAdmin, tempUpload.single
               ...(row.type === SUBMISSION_TYPE_REPORT
                 ? [levelOfEffortId, assignedTo, row.approved_at, row.approved_by_name]
                 : [null, null, null, null]),
-              // delivery_notes — last, matching SUBMISSION_INSERT_COLUMNS. Not a
-              // sheet column: a delivery note is written on the Delivery pane
-              // after the work, and an import is loading history that already
-              // happened elsewhere. It stays null and is typed in afterwards.
-              null,
+              // delivery_notes — last, matching SUBMISSION_INSERT_COLUMNS. It is
+              // a sheet column precisely BECAUSE an import loads history from
+              // elsewhere: a team moving onto this portal is carrying over
+              // requests that were already built and handed over, and what was
+              // handed over is the part of that record worth keeping.
+              row.delivery_notes,
             ];
             if (!Submission) {
               throw new Error('Submission model is not initialized');

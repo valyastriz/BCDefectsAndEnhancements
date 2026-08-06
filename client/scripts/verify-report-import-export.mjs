@@ -64,6 +64,11 @@ const REPORT_EXPORT_FIELDS = [
   'existing_report_link', 'changes_requested', 'report_usage_frequency', 'department',
   'assigned_to_name', 'level_of_effort', 'hours_logged', 'completed_at',
   'approved_at', 'approved_by_name',
+  // Travels BOTH ways. A team switching onto this portal imports requests that
+  // were built and handed over somewhere else, and what was handed over is the
+  // part of that record worth keeping — so it has to survive the round trip like
+  // any other column, not be re-typed by hand afterwards.
+  'delivery_notes',
 ];
 
 async function run() {
@@ -128,6 +133,7 @@ async function run() {
         level_of_effort: level,
         approved_at: '2026-07-01T00:00:00.000Z',
         approved_by_name: 'A Supervisor',
+        delivery_notes: 'Delivered as a Power BI page under Billing > Unapplied cash. Refreshes nightly at 04:00.',
       },
     }).then((response) => response.json());
     await context.post(`/api/admin/submissions/${originalId}/time-entries`, {
@@ -162,7 +168,8 @@ async function run() {
         && original['Level of Effort'] === level
         && String(original['Hours Logged']) === '2.5'
         && Boolean(original['Complete Date'])
-        && original['Approved By'] === 'A Supervisor',
+        && original['Approved By'] === 'A Supervisor'
+        && String(original['Delivery Notes'] || '').startsWith('Delivered as a Power BI page'),
       original
         ? Object.entries(original)
           .filter(([, value]) => value !== '')
@@ -276,6 +283,10 @@ async function run() {
       'primary_contact', 'existing_report_link', 'changes_requested',
       'report_usage_frequency', 'department', 'assigned_to', 'level_of_effort',
       'approved_by_name', 'what_happened_exact_details', 'request',
+      // Out and back again. This is the column a team migrating onto the portal
+      // carries the most history in, and it was the one field the round trip
+      // could not reproduce until it was mapped in both directions.
+      'delivery_notes',
     ];
     const drifted = sameFields.filter((field) => (
       String(copyRow?.[field] ?? '') !== String(originalRow?.[field] ?? '')

@@ -86,6 +86,10 @@ export function useImportModal({ loadRows }) {
       'existing_report_link', 'changes_requested', 'report_usage_frequency', 'department',
       'completed_at', 'level_of_effort', 'assigned_to', 'hours_logged',
       'approved_at', 'approved_by_name',
+      // Only a report request shows this (the Delivery pane). Mapped on a defect
+      // sheet it would be stored and never displayed, which is worse than being
+      // unmappable — the column would look imported and be unreachable.
+      'delivery_notes',
     ]);
 
     if (importMode === 'report') {

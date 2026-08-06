@@ -104,6 +104,36 @@ test('a sheet exported with every field re-imports every column it can', () => {
   assert.ok(exportedHeaders.length >= 30, `only ${exportedHeaders.length} export fields are importable`);
 });
 
+// A backdated migration is the case delivery notes matter most in: a team moving
+// onto this portal is carrying over requests that were built and handed over
+// somewhere else, and what was handed over is the part of that record worth
+// keeping. It was briefly export-and-import-less on the reasoning that a delivery
+// note is written after the work — which is true of work done HERE and exactly
+// backwards for history loaded from a sheet.
+test('delivery notes travel out and back', () => {
+  const field = ADMIN_EXPORT_FIELDS.find((candidate) => candidate.key === 'delivery_notes');
+  assert.ok(field, 'delivery_notes is not an export field');
+  assert.notStrictEqual(field.group, UNGROUPED_FIELD_GROUP, 'delivery_notes has no export group');
+
+  const target = IMPORT_COLUMN_TARGETS.find((candidate) => candidate.key === 'delivery_notes');
+  assert.ok(target, 'delivery_notes is not an import target');
+  assert.ok(
+    target.aliases.includes(normalizeImportHeader(field.label)),
+    `a sheet exported as "${field.label}" would not re-import`,
+  );
+});
+
+test('a hand-titled delivery-notes column still maps', () => {
+  // The spreadsheet being migrated was titled by a person, not by this list.
+  for (const header of ['Delivery Notes', 'Delivery Note', 'Delivered Notes', 'What Was Delivered']) {
+    assert.strictEqual(
+      suggestImportMappings([header]).delivery_notes,
+      header,
+      `"${header}" did not map to delivery_notes`,
+    );
+  }
+});
+
 test('the hand-off columns are named for the tracker label, not the vendor', () => {
   for (const key of ['easyvista_ticket_id', 'easyvista_submitted_by']) {
     const field = ADMIN_EXPORT_FIELDS.find((candidate) => candidate.key === key);
