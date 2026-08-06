@@ -17,8 +17,8 @@ sections after it are the historical record and unchanged.
 record of HOW, in the order it happened; this block is WHERE THINGS STAND. If the
 two ever disagree, this block is newer.
 
-**Nothing is in flight.** `main` is clean, pushed, and deployed (`7ee3003` is the
-last commit). Eight passes shipped on 2026-08-06:
+**Nothing is in flight.** `main` is clean, pushed, and deployed (`0927f4d` is the
+last commit). Eleven passes shipped on 2026-08-06:
 
 | Commit | What |
 |---|---|
@@ -29,10 +29,21 @@ last commit). Eight passes shipped on 2026-08-06:
 | `fc44be1` | The application picker's styling, and the "Other" queue |
 | `562e900` | "Requester Name is required" while signed in — a lapsed session, told honestly |
 | `7ee3003` | Sessions that survive a deploy — the persistent store, and the cause removed |
+| `20e70fc` | Who may see a report request, and who may say so — the private-report rule, rep logins, type-scoped grants |
+| `4b47489` | The detail modal, told apart by type — Delivery notes, the unlocked ticket number, Reviewer |
+| `0927f4d` | Two queues, two column sets — and a search that stops ruling |
 
 **No decision is outstanding.** The one that was — whether to persist sessions —
 was answered "do it" by the owner and shipped as `7ee3003`. See the eighth-pass
 section.
+
+**The last three passes are eleven items the owner found while testing.** They
+are recorded in full under "Eleven from the owner" below. Three of them were not
+the small changes they looked like: the Access page could not express a
+type-scoped grant AND silently escalated one on every save; report requests were
+readable by anyone on the board; and filing one anonymously left it belonging to
+nobody. **Two new columns landed on the hosted database** — `submissions.delivery_notes`
+(`npm run migrate:delivery-notes`) and the `user_sessions` table.
 
 **The next substantial piece of work is §5 step 6 — screenshots and docs.** Read
 `### Not done, on purpose` before starting it: the screenshot HARNESS does not
@@ -85,13 +96,19 @@ second, session-less context for exactly that reason.
 **Merged and deployed:** PR #12 (schema, authorisation sweep, backend), PR #13
 (submit form), PR #14 (Delivery pane, handover trail, approval evidence).
 
-**Verified:** 332 server tests, client lint and production build clean, and **290
-harness checks** across seven committed scripts at 1500/820/390 in both themes — 110
-admin data entry, 51 submit form, 52 throughput, 26 metadata, 19 spreadsheet round
-trip, 17 public board, 15 session store. Every script that writes ends by printing
-the hosted count back where it found it. The six page scripts were last run in full
-at the seventh pass; the eighth re-ran metadata (26/26) and added the session-store
-script.
+**Verified:** 359 server tests, client lint and production build clean, and **312
+harness checks** across seven committed scripts at 1500/820/390 in both themes — 119
+admin data entry, 60 submit form, 52 throughput, 26 metadata, 21 public board, 19
+spreadsheet round trip, 15 session store. **All seven were run green at the eleventh
+pass.** Every script that writes ends by printing the hosted count back where it
+found it; it is 86.
+
+**Six working accounts became eight**, and a second KIND of account exists.
+`users.role` is now the door with two values that may sign in: `admin` (the six
+triage accounts) and **`rep`** — `pc_rep` and `bc_rep`, who hold no grants at all,
+are refused by `ensureAdmin`, and see no Admin link in the header. They exist
+because a report request is only visible to the person who filed it, and that
+needs somebody to be. Same seeded password; `npm run seed:team-accounts`.
 
 The second pass shipped as `dfd944f` on `main`. The spreadsheet round trip that
 followed it is the third pass — see "The spreadsheet round trip" below.
@@ -547,6 +564,94 @@ answering the question.
 leaves a session behind — that is the store working. It expires in 8 hours and the
 pruner sweeps it.
 
+### Eleven from the owner (2026-08-06, ninth to eleventh passes)
+
+Found while testing the deployed site. Three were not what they looked like.
+
+**1. THE ACCESS PAGE COULD NOT MAKE AN ANALYST — AND UNMADE THE ONES THAT EXISTED.**
+The owner asked where analysts are assigned. The answer was nowhere: the page read
+and wrote only `(user, application, role)`, and `setUserGrants` deleted every row
+for a user then re-inserted without `request_type`, which defaults to `''` —
+**every type**. So saving anybody's row promoted a report-only analyst to a full
+admin on that application, from a dropdown, with no screen that would show it.
+`pc_report_analyst` and `bc_report_analyst` were one save away from it.
+
+Grants now carry their scope end to end. Each cell has a role and a scope (Every
+type · Defects & enhancements · Report requests only — the three shapes that exist
+in practice, and the three `seedTeamAccounts.js` creates). A combination those
+cannot express reads as **Mixed** rather than being rounded to the nearest one,
+which would rewrite it on the next save. Bulk grants clear only the types they
+name, except an every-type grant, which supersedes the narrower ones. The page
+also offers **Manager** now — the server always accepted it and the page never
+listed it, so the only way to hand it out was a database write. 12 tests.
+
+**2. A REPORT REQUEST IS PRIVATE.** Signed out, the board listed everybody's. It
+names an internal dataset, a department, and often what somebody is trying to
+measure. Now: only the person who filed it.
+
+The rule is ONE function (`helpers/reportVisibility.js`) because four surfaces
+enforce it — the board list, the board's by-id route, the public semantic search,
+and the live socket broadcast. Three agreeing and one not is the shape of a leak,
+**and that is exactly what happened while building it**: the by-id route went on
+answering 200 because `getSubmissionByIdWithLookups` hydrates the type as
+`model_type_name` while the list path writes `type`, so the check read `undefined`
+and let the row through. Found by a browser check, not by reading the code. The
+rule knows both spellings now.
+
+The socket needed a THIRD audience, not a second: `{}` is the whole board and
+`{ nobody: true }` is nobody. Collapsing them would broadcast a private row to
+every watcher.
+
+**3. FILING ONE NOW REQUIRES SIGNING IN** — the owner's call, given the above. An
+anonymous report request belongs to nobody: unfindable by its own requester and
+hidden from everyone else. The form says so when the type is picked, keeps what
+was typed, and disables **both** submit buttons. There are two — the readiness
+rail's and the sticky bar's — and the first version of that check read only the
+first match and missed that the one a desktop user clicks was still live.
+
+**Consequence worth knowing:** the duplicate check on the report branch now only
+finds the requester's OWN report requests. Two people asking for the same dashboard
+will not be warned about each other. That follows directly from the rule and is the
+owner's call to revisit.
+
+**4–7. The detail modal, told apart by type.** Release # and Release Notes gone
+from a report request (nothing ships), Workaround gone from its Triage tab
+(nothing is broken), **Delivery notes** added to the Delivery pane to answer the
+question that does apply, and the Service Desk number made editable **behind an
+unlock** — an application with no catalog has its tickets raised by hand, and the
+number had nowhere to go, but for every ticket the portal DID send that number is
+the server's own record of the hand-off. **Reviewer fills itself in on SAVE**, not
+on open: prefilling would mark every ticket edited the moment somebody looked at one.
+
+**8. Two queues, two column sets.** The report queue draws ID · Reported/Updated ·
+Summary · Status · Assigned To · Public, keeps its own saved layout, and calls the
+status column plain "Status". Both layouts live in the one `columns_json` as
+`{ default, report }`; a row still holding a bare array reads as the default set
+with no report set, which is right for anyone who saved a view before this.
+
+**9. The file picker** no longer renders the OS button. Only the button is
+redrawn — the native control carries the accept filter, multi-select and
+drag-and-drop, and all three would have to be rebuilt to replace it.
+
+**10. The semantic search describes, it does not rule.** The prompt already banned
+"Yes, this has been reported" and the model still produced rulings, because "do not
+say X" leaves every other way of saying X available. The SHAPE is prescribed now —
+sentence one must be the closest match, its ref, what it is about, its status — and
+the ban is stated as a class. The panel is "Closest matches", not "AI summary".
+Keyword hits still sit below.
+
+**11. Non-admins see no Admin link**, and a rep can sign out from the header,
+which is the only place they can — they never reach the admin pages where the
+account menu lives.
+
+**THE POSITIONAL-CONTRACT TRAP, PAID IN FULL.** `delivery_notes` was first slotted
+into `SUBMISSION_INSERT_COLUMNS` beside `release_notes`. That list is a positional
+contract with three parallel values arrays; shifting it by one broke the Excel
+import completely — 0 rows in, "Cannot read properties of undefined". The existing
+test pinned only the report-request TAIL, which a mid-list insert leaves untouched,
+so it passed while the import was broken and a browser check found it instead. **The
+test now pins the whole list in order.** A new column goes on the END.
+
 ### Not done, on purpose
 
 - **§5 step 6** — screenshots and docs. Unstarted, and the biggest thing left. The
@@ -557,6 +662,21 @@ pruner sweeps it.
   to test and make last changes first, and shooting before that means shooting
   twice.
 - ~~**Sessions do not survive a restart**~~ — done, eighth pass.
+- **The duplicate check no longer warns about somebody else's report request**
+  (eleventh pass). It follows from "only the person who filed it may see it", and
+  it means two people can ask for the same dashboard without either being told.
+  A count without content ("2 similar requests exist") would close the gap without
+  breaking the rule; nobody has asked for it.
+- **`delivery_notes` is not in the Excel export or import.** A delivery note is
+  written on the Delivery pane after the work; an import loads history that
+  happened elsewhere. Adding it means an `ADMIN_EXPORT_FIELDS` entry with a
+  `group` (or `test/exportFields.test.js` fails, which is the point) and an
+  `IMPORT_COLUMN_TARGETS` alias.
+- **An admin-created report request has no reporter**, so it is on the admin queue
+  and on nobody's board. `reporter_user_id` is written only by the public submit
+  route. That is coherent — an admin recording somebody else's request cannot
+  claim it for them — but it means the Add-a-ticket dialog cannot put a report
+  request in front of the person who asked for it.
 - **The session store's fallback is load-bearing, not a nicety.** Local
   development runs on sql.js, where a Postgres-backed store cannot work. Anything
   that touches `middleware/session.js` has to keep the MemoryStore branch working,
