@@ -103,7 +103,7 @@ async function deleteSupabaseStoredFileByUrl(filePath) {
   return true;
 }
 
-async function persistUploadedFiles(db, submissionId, files, uploadedByRole) {
+async function persistUploadedFiles(db, submissionId, files, uploadedByRole, { purpose = null } = {}) {
   if (!files || files.length === 0) return [];
 
   const dbModels = dbApi.getModels() || {};
@@ -151,6 +151,11 @@ async function persistUploadedFiles(db, submissionId, files, uploadedByRole) {
       file_path: storedPath,
       uploaded_at: uploadedAt,
       uploaded_by_role: uploadedByRole,
+      // Null for a screenshot, which is every existing attachment. 'approval'
+      // marks evidence behind a report request's go-ahead, which must NOT be
+      // readable from the unauthenticated /uploads path — it is served only by
+      // GET /api/admin/attachments/:id/file.
+      purpose,
     });
     const insertedId = Number(createdAttachment.id);
 
@@ -162,6 +167,7 @@ async function persistUploadedFiles(db, submissionId, files, uploadedByRole) {
       file_path: storedPath,
       uploaded_at: uploadedAt,
       uploaded_by_role: uploadedByRole,
+      purpose,
     });
   }
 

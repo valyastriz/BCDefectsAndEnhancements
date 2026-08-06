@@ -332,7 +332,7 @@ export function AdminDashboardPage({ user, onLogout }) {
   const {
     dynamicStatuses, dynamicCleanupStatuses, dynamicCleanupTagTypes,
     dynamicApplications, dynamicEnhancementRequestTypes, dynamicPriorityLevels,
-    dynamicOccurrenceTimeframes,
+    dynamicOccurrenceTimeframes, dynamicLevelsOfEffort,
     runtimeStatusFilterOptions, runtimeStatusOptions, runtimeCleanupInlineStatuses,
     runtimeCreatedViaOptions, runtimeTypeFilterOptions,
     dynamicCoreStatusSet, dynamicCleanupStatusSet,
@@ -907,6 +907,11 @@ export function AdminDashboardPage({ user, onLogout }) {
         dynamicEnhancementRequestTypes={dynamicEnhancementRequestTypes}
         dynamicPriorityLevels={dynamicPriorityLevels}
         dynamicOccurrenceTimeframes={dynamicOccurrenceTimeframes}
+        dynamicLevelsOfEffort={dynamicLevelsOfEffort}
+        viewerUserId={viewer?.user?.id ?? null}
+        logHours={detailModal.logHours}
+        removeHours={detailModal.removeHours}
+        attachApprovalFiles={detailModal.attachApprovalFiles}
         runtimeStatusOptions={runtimeStatusOptions}
         dynamicCoreStatusSet={dynamicCoreStatusSet}
         dynamicCleanupStatusSet={dynamicCleanupStatusSet}

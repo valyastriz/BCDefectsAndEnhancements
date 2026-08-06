@@ -552,6 +552,62 @@ export function useDetailModal({ loadRows, setRows, setError, currentUsername })
     ));
   }
 
+  // ── Report request delivery ─────────────────────────────────────────────
+  // These three write IMMEDIATELY rather than staging like an attachment does,
+  // and that is deliberate: they are their own rows on their own endpoints, so
+  // there is no optimistic-concurrency token to conflict with and nothing for a
+  // Save to apply. The server returns the whole ledger back, so the pane
+  // re-renders from the truth rather than from a guess about it.
+  function applyDeliveryResponse(next) {
+    setDetail((prev) => (prev ? { ...prev, ...next } : prev));
+  }
+
+  async function logHours(entry) {
+    if (!openId) return;
+    setWorking(true);
+    setModalBottomNotice('');
+    try {
+      applyDeliveryResponse(await api.logRequestHours(openId, entry));
+    } catch (error) {
+      setModalBottomNotice(error.message);
+    } finally {
+      setWorking(false);
+    }
+  }
+
+  async function removeHours(entryId) {
+    if (!openId) return;
+    setWorking(true);
+    setModalBottomNotice('');
+    try {
+      applyDeliveryResponse(await api.deleteRequestHours(openId, entryId));
+    } catch (error) {
+      setModalBottomNotice(error.message);
+    } finally {
+      setWorking(false);
+    }
+  }
+
+  async function attachApprovalFiles(files) {
+    if (!openId || !files?.length) return;
+    setWorking(true);
+    setModalBottomNotice('');
+    try {
+      const formData = new FormData();
+      files.forEach((file) => formData.append('files', file));
+      const created = await api.uploadApprovalFiles(openId, formData);
+      // Appended to the ticket's own attachment list, so the pane shows it
+      // without a refetch. The Files tab filters these out by purpose.
+      setDetail((prev) => (prev
+        ? { ...prev, attachments: [...(prev.attachments || []), ...created] }
+        : prev));
+    } catch (error) {
+      setModalBottomNotice(error.message);
+    } finally {
+      setWorking(false);
+    }
+  }
+
   async function deleteAttachment(attachment) {
     if (attachment?._isPendingUpload) {
       removePendingAttachment(attachment.id);
@@ -699,5 +755,8 @@ export function useDetailModal({ loadRows, setRows, setError, currentUsername })
     uploadAttachment,
     deleteAttachment,
     submitEasyVista,
+    logHours,
+    removeHours,
+    attachApprovalFiles,
   };
 }

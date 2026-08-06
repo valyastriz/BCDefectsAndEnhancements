@@ -19,6 +19,7 @@ import { DetailTimelineSection } from './detail/DetailTimelineSection';
 import { DetailReferenceSection } from './detail/DetailReferenceSection';
 import { DetailEasyVistaSection } from './detail/DetailEasyVistaSection';
 import { DetailActions } from './detail/DetailActions';
+import { DetailDeliverySection, DetailHandoverSection } from './detail/DetailDeliverySection';
 
 /**
  * Main detail / edit modal for an individual admin submission.
@@ -73,6 +74,13 @@ export function DetailModal({
   uploadAttachment,
   deleteAttachment,
   submitEasyVista,
+  // Delivery pane. Hours and approval files are their own endpoints, not part
+  // of the submission save — an entry has its own author and must not bump the
+  // ticket's optimistic-concurrency token.
+  viewerUserId,
+  logHours,
+  removeHours,
+  attachApprovalFiles,
   clearPendingAttachmentDrafts,
   presence,
   // Every active application as { id, name } — the redirect picker's source.
@@ -84,6 +92,7 @@ export function DetailModal({
   dynamicEnhancementRequestTypes,
   dynamicPriorityLevels,
   dynamicOccurrenceTimeframes,
+  dynamicLevelsOfEffort,
   runtimeStatusOptions,
   dynamicCoreStatusSet,
   dynamicCleanupStatusSet,
@@ -143,17 +152,25 @@ export function DetailModal({
 
   // Order follows the ticket's life: what came in, its evidence, what has
   // happened to it, the internal call, then the outbound hand-off last.
+  // A report request is worked by an analyst here and never handed downstream,
+  // so the sixth slot carries Delivery instead of the hand-off. Same position in
+  // the ticket's life — the step where it leaves your hands — and six tabs is
+  // already a lot without adding a seventh that is empty of meaning.
+  const isReportRequest = effectiveType === 'report';
+
   const tabs = [
     { key: DETAIL_TABS.report, label: 'Report', warn: blockedTabs.has(DETAIL_TABS.report) },
     { key: DETAIL_TABS.files, label: 'Files', count: visibleAttachments.length },
     { key: DETAIL_TABS.history, label: 'History' },
     { key: DETAIL_TABS.triage, label: 'Triage' },
     { key: DETAIL_TABS.impact, label: 'Impact', warn: blockedTabs.has(DETAIL_TABS.impact) },
-    {
-      key: DETAIL_TABS.easyvista,
-      label: `${TRACKER_LABEL} Submission`,
-      warn: easyVistaMissingRequirements.length > 0,
-    },
+    isReportRequest
+      ? { key: DETAIL_TABS.delivery, label: 'Delivery' }
+      : {
+        key: DETAIL_TABS.easyvista,
+        label: `${TRACKER_LABEL} Submission`,
+        warn: easyVistaMissingRequirements.length > 0,
+      },
   ];
 
   // A conflict or a load/save error forces the header open — those need acting
@@ -214,6 +231,7 @@ export function DetailModal({
           easyVistaConfirmation={easyVistaConfirmation}
           locked={locked}
           sendsDirectly={canSubmitEasyVistaDirectly}
+          hidesHandoff={isReportRequest}
           onEasyVista={() => {
             if (canSubmitEasyVistaDirectly) submitEasyVista();
             else selectTab(DETAIL_TABS.easyvista);
@@ -327,7 +345,34 @@ export function DetailModal({
                   dynamicCleanupStatusSet={dynamicCleanupStatusSet}
                 />
               </DetailGroup>
+              {/* Reassignment is required, so the current assignee cannot be the
+                  only record of who has held it. Same shape as the status trail
+                  above, on the tab that already means "what happened to this". */}
+              {isReportRequest && (
+                <DetailGroup label="Who has held this">
+                  <DetailHandoverSection assignments={detail.assignments} />
+                </DetailGroup>
+              )}
               <DetailReferenceSection detail={detail} edit={edit} setEdit={setEdit} />
+            </DetailPane>
+          )}
+
+          {activeTab === DETAIL_TABS.delivery && (
+            <DetailPane id={DETAIL_TABS.delivery} lockBody={locked}>
+              <DetailDeliverySection
+                detail={detail}
+                edit={edit}
+                setEdit={setEdit}
+                locked={locked}
+                working={working}
+                dynamicPriorityLevels={dynamicPriorityLevels}
+                dynamicLevelsOfEffort={dynamicLevelsOfEffort}
+                viewerUserId={viewerUserId}
+                onLogHours={logHours}
+                onRemoveHours={removeHours}
+                onAttachApproval={attachApprovalFiles}
+                onRemoveApproval={deleteAttachment}
+              />
             </DetailPane>
           )}
 

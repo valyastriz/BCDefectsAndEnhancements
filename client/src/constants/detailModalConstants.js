@@ -12,6 +12,9 @@ export const DETAIL_TABS = {
   files: 'files',
   history: 'history',
   easyvista: 'easyvista',
+  // Takes the sixth slot for a report request, where easyvista sits for every
+  // other type — a report request is finished in the portal and never handed on.
+  delivery: 'delivery',
 };
 
 /**

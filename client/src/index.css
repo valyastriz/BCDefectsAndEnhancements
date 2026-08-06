@@ -2386,6 +2386,161 @@ tr[data-selected="true"] td { background: color-mix(in srgb, var(--color-primary
   font-weight: 600;
 }
 
+/* ════════════════════════════════════════════════════════════════════════
+   Delivery pane — the analyst's half of a report request.
+   Lifted from the approved mockup v3 so the built pane and the artifact are
+   the same CSS: https://claude.ai/code/artifact/9d716633-70b6-45f0-94c4-44ad493be76c
+   ════════════════════════════════════════════════════════════════════════ */
+
+/* A group that owns the pane's full width instead of sharing the grid — it is a
+   sibling of `.dm-groups`, not a child, so it is full width by virtue of the
+   pane's flex column. Its own plain fields do not follow it out there: a date
+   input 900px wide reads as a text box for an essay. */
+.dm-group--wide > .bs-field { max-width: 280px; }
+
+/* Empty states inside a pane, one line rather than the queue's full block. */
+.dm-none { margin: 0; font-size: 13px; color: var(--color-muted); font-style: italic; }
+/* A quiet aside under a control. */
+.dm-note { margin: 0; font-size: 12px; color: var(--color-muted); }
+
+/* ── A group whose body folds away ──────────────────────────────────────────
+   The group label becomes the control. Closed is the default, so what the label
+   carries has to be the whole answer at a glance — the total, who it splits
+   across, and how many rows are underneath. `.dm-caret` and its [aria-expanded]
+   flip are the identity band's, not a second disclosure idiom. */
+.dm-fold-btn {
+  appearance: none; width: 100%; text-align: left; cursor: pointer;
+  display: flex; align-items: center; gap: 10px 14px; flex-wrap: wrap;
+  border: 0; border-bottom: 1px solid var(--color-border); background: transparent;
+  font: inherit; padding: 0 0 6px;
+}
+.dm-fold-btn:hover .dm-group-label { color: var(--color-primary-hover); }
+.dm-fold-btn:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 3px; }
+.dm-fold-btn .dm-group-label { padding-bottom: 0; border-bottom: 0; }
+.dm-fold-btn .dm-caret { margin-left: auto; }
+.dm-fold-btn[aria-expanded='true'] .dm-caret::after { content: '\25b4'; }
+.dm-fold-sum { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; font-size: 12.5px; color: var(--color-muted); }
+.dm-fold-sum b { font-size: 14px; font-weight: 700; color: var(--color-text); font-variant-numeric: tabular-nums; }
+
+/* ── The hours log ──────────────────────────────────────────────────────────
+   A ledger, not a field: rows accumulate across sittings and across people,
+   which is exactly why Duration cannot be one number in a column. The total on
+   the label is SUM(hours) computed on read — it can never disagree with the rows
+   underneath it, because there is nothing else for it to be. */
+.dm-hrs { display: flex; flex-direction: column; gap: 10px; }
+.dm-hrs-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px 16px; flex-wrap: wrap; }
+/* Who did the work, which is the number throughput reporting actually uses —
+   the assignee at closing time is a different fact and is kept separate. */
+.dm-hrs-by { margin: 0; font-size: 12px; color: var(--color-muted); font-variant-numeric: tabular-nums; }
+.dm-hrs-by b { font-weight: 650; color: var(--color-text); }
+
+.dm-hrs-list { display: flex; flex-direction: column; margin: 0; padding: 0; list-style: none; }
+.dm-hrs-row {
+  display: grid; gap: 2px 12px; align-items: baseline;
+  grid-template-columns: minmax(0, 1.1fr) auto minmax(0, 2fr) auto;
+  padding: 9px 0; border-bottom: 1px solid var(--color-border);
+}
+.dm-hrs-row:first-child { padding-top: 0; }
+.dm-hrs-row:last-child { border-bottom: 0; }
+.dm-hrs-who { font-size: 13.5px; font-weight: 650; min-width: 0; overflow-wrap: anywhere; }
+.dm-hrs-when { font-size: 12.5px; color: var(--color-muted); white-space: nowrap; }
+.dm-hrs-amt { font-size: 13.5px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; justify-self: end; }
+.dm-hrs-note { grid-column: 1 / -1; margin: 0; font-size: 12.5px; color: var(--color-muted); overflow-wrap: anywhere; }
+.dm-hrs-x {
+  border: 0; background: transparent; font: inherit; font-size: 12px; font-weight: 650;
+  color: var(--color-muted); cursor: pointer; padding: 0 2px; justify-self: end;
+}
+.dm-hrs-x:hover { color: var(--color-danger); }
+.dm-hrs-x:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+
+.dm-hrs-add {
+  display: grid; gap: 9px 11px; align-items: end;
+  grid-template-columns: minmax(0, 150px) minmax(0, 96px) minmax(0, 1fr) auto;
+  padding: 12px 13px; border-radius: var(--radius-sm);
+  border: 1px dashed color-mix(in srgb, var(--color-primary) 32%, transparent);
+  background: color-mix(in srgb, var(--color-primary) 5%, var(--color-surface));
+}
+/* A container query, not a media query: the detail modal already sets
+   `container-type: inline-size`, so this reflows with the MODAL rather than the
+   window — the only correct signal for something inside it. */
+@container (max-width: 620px) {
+  .dm-hrs-add { grid-template-columns: minmax(0, 1fr); }
+  .dm-hrs-row { grid-template-columns: minmax(0, 1fr) auto; }
+  .dm-hrs-when { grid-column: 1; }
+  .dm-hrs-x { grid-column: 2; }
+}
+
+/* ── Who has held this ──────────────────────────────────────────────────────
+   Reuses the status trail's shape rather than inventing a second timeline. */
+.dm-hand-current { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; font-size: 13.5px; margin: 0 0 4px; }
+.dm-hand-current b { font-weight: 700; }
+.dm-hand-current span { font-size: 12.5px; color: var(--color-muted); }
+
+/* ── A stamped fact: something the app records for you ──────────────────────
+   Approval and completion are both "who, and when" — never a bare checkbox,
+   because a tick with no name behind it cannot answer who approved it. */
+.dm-stamp {
+  display: flex; flex-direction: column; gap: 7px;
+  padding: 11px 13px; border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border); background: var(--color-bg);
+}
+.dm-stamp--on {
+  border-color: color-mix(in srgb, var(--status-approved-fg) 38%, transparent);
+  background: color-mix(in srgb, var(--status-approved-bg) 38%, var(--color-surface));
+}
+.dm-stamp-line { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; font-size: 13.5px; }
+.dm-stamp-line b { font-weight: 700; }
+.dm-stamp-line span { font-size: 12.5px; color: color-mix(in srgb, var(--color-text) 72%, transparent); }
+.dm-stamp-acts { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* An action inside a pane — smaller than the footer's buttons, which own the
+   modal-level verbs (Save, Retire, Redirect). */
+.dm-act {
+  font: inherit; font-size: 12.5px; font-weight: 650; cursor: pointer;
+  padding: 6px 12px; border-radius: var(--radius-sm);
+  border: 1px solid color-mix(in srgb, var(--color-primary) 42%, transparent);
+  background: var(--color-surface); color: var(--color-primary);
+}
+.dm-act:hover { background: color-mix(in srgb, var(--color-primary) 10%, var(--color-surface)); }
+.dm-act:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+.dm-act--quiet { border-color: var(--color-border); color: var(--color-muted); }
+.dm-act--quiet:hover { color: var(--color-text); background: var(--color-bg); }
+.dm-act:disabled { opacity: .5; cursor: not-allowed; }
+
+/* ── Approval evidence ──────────────────────────────────────────────────────
+   Files that are not screenshots, listed where the fact they prove lives. */
+.dm-files { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.dm-file {
+  display: flex; align-items: center; gap: 9px; min-width: 0;
+  padding: 7px 10px; border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border); background: var(--color-surface);
+}
+/* Wraps rather than truncating: an approval file is named at both ends —
+   "RE Weekly unapplied cash dashboard - approved.msg" — and an ellipsis takes
+   the half that says it was approved. */
+.dm-file-name { font-size: 12.5px; font-weight: 650; min-width: 0; flex: 1 1 auto; overflow-wrap: anywhere; }
+.dm-file-name a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
+.dm-file-size { font-size: 11.5px; color: var(--color-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.dm-file-kind {
+  font-size: 9.5px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase;
+  border-radius: 4px; padding: 2px 6px; white-space: nowrap;
+  background: color-mix(in srgb, var(--color-text) 8%, transparent); color: var(--color-muted);
+}
+.dm-file-x {
+  border: 0; background: transparent; font: inherit; font-size: 11.5px; font-weight: 650;
+  color: var(--color-muted); cursor: pointer; padding: 0 2px;
+}
+.dm-file-x:hover { color: var(--color-danger); }
+.dm-file-x:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+.dm-drop {
+  display: flex; align-items: center; gap: 9px; flex-wrap: wrap;
+  padding: 9px 11px; border-radius: var(--radius-sm);
+  border: 1px dashed color-mix(in srgb, var(--color-primary) 32%, transparent);
+  background: color-mix(in srgb, var(--color-primary) 5%, var(--color-surface));
+  font-size: 12px; color: var(--color-muted);
+}
+.dm-drop input[type='file'] { display: none; }
+
 /* ── Status history ── */
 .dm-timeline-scroll { max-height: 34vh; overflow-y: auto; }
 .dm-timeline { display: flex; flex-direction: column; margin: 0; padding: 0; list-style: none; }

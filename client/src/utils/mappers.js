@@ -15,6 +15,14 @@ export function editableFromDetail(detail) {
     // No invented fallback: every ticket has an application, and a wrong guess
     // here would silently retarget the ticket on the next save.
     application_name: detail.application_name || '',
+    // ── The analyst's half of a report request ──────────────────────────────
+    // Null, not '', for the assignee: it is a user id and "nobody" is null.
+    assigned_to: detail.assigned_to ?? null,
+    level_of_effort: detail.level_of_effort || '',
+    // Date inputs want YYYY-MM-DD; the columns hold ISO text.
+    completed_at: (detail.completed_at || '').slice(0, 10),
+    approved_at: (detail.approved_at || '').slice(0, 10),
+    approved_by_name: detail.approved_by_name || '',
     policy_num: detail.policy_num || '',
     account_num: detail.account_num || '',
     transaction_num: detail.transaction_num || '',

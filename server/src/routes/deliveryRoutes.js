@@ -6,9 +6,13 @@
 // string) that logging time has no business bumping. Two analysts with the same
 // request open would otherwise 409 each other over hours that do not conflict.
 const express = require('express');
+const path = require('path');
+const fs = require('fs');
 const dbApi = require('../../db');
 const { ensureAdmin, attachViewer } = require('../auth');
 const { withDb } = require('../helpers/db');
+const { persistUploadedFiles } = require('../helpers/storage');
+const { approvalUpload } = require('../middleware/upload');
 const {
   canMutateApplication,
   canManageApplication,
@@ -121,6 +125,88 @@ router.delete(
     return res.json({ entries, ...summarizeTimeEntries(entries) });
   }),
 );
+
+// ── Approval evidence ────────────────────────────────────────────────────────
+// The email, the signed page, the ticket that says go. Stored on the same
+// attachments table as screenshots, marked `purpose = 'approval'`, and — unlike
+// a screenshot — never reachable from /uploads, which express.static serves with
+// no authentication at all (src/index.js). They come back only through the
+// download route below.
+
+router.post(
+  '/api/admin/submissions/:id/approval-files',
+  ensureAdmin,
+  attachViewer,
+  approvalUpload.array('files', 5),
+  async (req, res) => withDb(async (db) => {
+    const submission = await loadWritableRequest(req, res);
+    if (!submission) return undefined;
+
+    const created = await persistUploadedFiles(db, submission.id, req.files || [], 'admin', {
+      purpose: 'approval',
+    });
+    emitAdminNotification('attachment:added', {
+      submission_id: Number(submission.id),
+      count: created.length,
+    });
+    return res.status(201).json(created);
+  }),
+);
+
+/**
+ * Read one attachment back, through the app rather than around it.
+ *
+ * Three things this does that /uploads does not: it requires a session, it
+ * re-checks the caller's grant on the ticket the file hangs off, and it sends
+ * the file as a download rather than letting a browser render it inline.
+ *
+ * Screenshots keep working exactly as they do today — the board and the Files
+ * tab still load them straight from /uploads — because they are public-board
+ * content. This route exists for the evidence that is not.
+ */
+router.get('/api/admin/attachments/:id/file', ensureAdmin, attachViewer, async (req, res) => withDb(async () => {
+  const models = dbApi.getModels() || {};
+  const attachment = await models.Attachment?.findByPk(Number(req.params.id), { raw: true });
+  if (!attachment) return res.status(404).json({ error: 'Attachment not found' });
+
+  const parent = await models.Submission?.findByPk(Number(attachment.submission_id), { raw: true });
+  // Authorised against the TICKET, never the attachment id. A missing parent is
+  // refused rather than treated as unowned.
+  if (!parent || !canReadApplication(req.viewer, parent.application_id)) {
+    return res.status(404).json({ error: 'Attachment not found' });
+  }
+
+  // Supabase storage hands back a URL rather than a path on disk. Redirecting
+  // would hand the caller a link that outlives this permission check, so the
+  // file is fetched here and streamed on.
+  const storedPath = String(attachment.file_path || '');
+  const isRemote = /^https?:\/\//i.test(storedPath);
+
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  // The whole point. Even a type a browser could render is handed over as a
+  // file, so nothing from this route ever executes in the app's origin.
+  res.setHeader(
+    'Content-Disposition',
+    `attachment; filename="${String(attachment.filename || 'attachment').replace(/[^\w.\- ]+/g, '_')}"`,
+  );
+  res.setHeader('Content-Type', attachment.mime_type || 'application/octet-stream');
+  res.setHeader('Cache-Control', 'private, no-store');
+
+  if (isRemote) {
+    const upstream = await fetch(storedPath);
+    if (!upstream.ok) return res.status(502).json({ error: 'The stored file could not be read' });
+    return res.send(Buffer.from(await upstream.arrayBuffer()));
+  }
+
+  const absolute = path.join(__dirname, '..', '..', storedPath);
+  // Refuse anything that resolves outside the uploads root — a stored path is
+  // written by this app, but a traversal in one must not become a file read.
+  const root = path.join(__dirname, '..', '..', 'uploads');
+  if (!absolute.startsWith(root) || !fs.existsSync(absolute)) {
+    return res.status(404).json({ error: 'Attachment not found' });
+  }
+  return res.send(fs.readFileSync(absolute));
+}));
 
 /**
  * The throughput page.

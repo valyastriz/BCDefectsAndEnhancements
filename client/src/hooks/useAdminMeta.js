@@ -30,6 +30,9 @@ export function useAdminMeta({ setFilters, setNotice }) {
   const [dynamicEnhancementRequestTypes, setDynamicEnhancementRequestTypes] = useState([]);
   const [dynamicPriorityLevels, setDynamicPriorityLevels] = useState([]);
   const [dynamicOccurrenceTimeframes, setDynamicOccurrenceTimeframes] = useState(['Day', 'Week', 'Month', 'Quarter', 'Year']);
+  // Report requests. Empty until the meta load lands — the Metadata page owns
+  // this list, so there is no sensible hardcoded fallback to guess at.
+  const [dynamicLevelsOfEffort, setDynamicLevelsOfEffort] = useState([]);
 
   const statusFilterOptionsRef = useRef([]);
 
@@ -63,6 +66,9 @@ export function useAdminMeta({ setFilters, setNotice }) {
     const nextOccurrenceTimeframes = Array.isArray(meta?.occurrenceTimeframes)
       ? meta.occurrenceTimeframes.filter((item) => item?.isActive).map((item) => String(item.name || '').trim()).filter(Boolean)
       : [];
+    const nextLevelsOfEffort = Array.isArray(meta?.levelsOfEffort)
+      ? meta.levelsOfEffort.filter((item) => item?.isActive).map((item) => String(item.name || '').trim()).filter(Boolean)
+      : [];
 
     if (nextStatuses.length > 0) setDynamicStatuses(nextStatuses);
 
@@ -84,6 +90,7 @@ export function useAdminMeta({ setFilters, setNotice }) {
     if (nextEnhancementRequestTypes.length > 0) setDynamicEnhancementRequestTypes(nextEnhancementRequestTypes);
     if (nextPriorityLevels.length > 0) setDynamicPriorityLevels(nextPriorityLevels);
     if (nextOccurrenceTimeframes.length > 0) setDynamicOccurrenceTimeframes(nextOccurrenceTimeframes);
+    if (nextLevelsOfEffort.length > 0) setDynamicLevelsOfEffort(nextLevelsOfEffort);
   }, [setFilters]);
 
   // ── Metadata CRUD core (shared with AdminMetadataPage) ─────────────────────
@@ -164,6 +171,7 @@ export function useAdminMeta({ setFilters, setNotice }) {
     dynamicEnhancementRequestTypes,
     dynamicPriorityLevels,
     dynamicOccurrenceTimeframes,
+    dynamicLevelsOfEffort,
     // Runtime computed options
     runtimeStatusFilterOptions,
     runtimeStatusOptions,

@@ -361,6 +361,33 @@ export const api = {
     request(`/api/admin/attachments/${id}`, {
       method: 'DELETE',
     }),
+  // ── Report request delivery ───────────────────────────────────────────────
+  // Hours are their own endpoints rather than part of the submission save: an
+  // entry is its own row with its own author, and the save carries an
+  // optimistic-concurrency token that logging time has no business bumping.
+  logRequestHours: (id, entry) =>
+    request(`/api/admin/submissions/${id}/time-entries`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(entry),
+    }),
+  deleteRequestHours: (id, entryId) =>
+    request(`/api/admin/submissions/${id}/time-entries/${entryId}`, {
+      method: 'DELETE',
+    }),
+  // Documents, not just images — and stored so they are readable only through
+  // GET /api/admin/attachments/:id/file, never from the unauthenticated
+  // /uploads path a screenshot uses.
+  uploadApprovalFiles: (id, formData) =>
+    request(`/api/admin/submissions/${id}/approval-files`, {
+      method: 'POST',
+      body: formData,
+    }),
+  getThroughput: ({ from, to, applicationId }) => {
+    const params = new URLSearchParams({ from, to });
+    if (applicationId) params.set('application_id', String(applicationId));
+    return request(`/api/admin/throughput?${params.toString()}`);
+  },
   previewEasyVista: (id, draft, sendAsType, attachmentIds) =>
     request(`/api/admin/submissions/${id}/easyvista-preview`, {
       method: 'POST',

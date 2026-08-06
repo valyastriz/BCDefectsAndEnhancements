@@ -90,6 +90,7 @@ router.get('/api/admin/meta/options', ensureAdmin, async (_req, res) => {
       priorityLevels: await fetchRows('priority-levels'),
       submissionSources: await fetchRows('submission-sources'),
       occurrenceTimeframes: await fetchRows('occurrence-timeframes'),
+      levelsOfEffort: await fetchRows('levels-of-effort'),
     });
   });
 });
