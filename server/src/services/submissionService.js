@@ -16,6 +16,7 @@ const {
   formatMissingLookupError,
   getDefectEnhancementStatuses,
   getSubmissionTypes,
+  getSubmissionTypeNameById,
   getSubmissionSources,
   getCleanupStatuses,
   getCleanupTagTypes,
@@ -33,6 +34,7 @@ const { SUBMISSION_INSERT_COLUMNS, buildInsertPayload } = require('../helpers/su
 const { mapSubmission, mapPublicSubmission } = require('../helpers/mappers');
 const { emitAdminNotification, emitPublicUpdate } = require('../socket');
 const { canReadSubmissionRow, canMutateApplication } = require('./viewerService');
+const { recordAssignment } = require('./deliveryService');
 const { scheduleEmbeddingRefresh } = require('./embeddingIndexService');
 const {
   submitToEasyVista,
@@ -162,6 +164,11 @@ async function getSubmissionByIdWithLookups(db, submissionId, { publicOnly = fal
       idColumn: 'occurrence_timeframe_id',
       table: 'occurrence_timeframes',
       targetKey: 'model_occurrence_timeframe_name',
+    },
+    {
+      idColumn: 'level_of_effort_id',
+      table: 'levels_of_effort',
+      targetKey: 'model_level_of_effort_name',
     },
   ];
 
@@ -601,7 +608,9 @@ async function createAdminSubmission(db, { body, username, viewer }) {
   // may only create a ticket in a queue they administer. Checked against the
   // resolved id rather than the submitted name, so the name that reaches the
   // lookup and the id that gets authorised are the same value.
-  if (!canMutateApplication(viewer, lookupIds.application_id)) {
+  // Type-scoped on the type being CREATED: an analyst granted only report
+  // requests may file one, and may not file a defect.
+  if (!canMutateApplication(viewer, lookupIds.application_id, effectiveType)) {
     return { error: 'You do not administer this application', status: 403 };
   }
 
@@ -761,7 +770,14 @@ async function updateAdminSubmission(db, { id, body, username, viewer }) {
   // reading it (resolveAdminReadScope) but stops being able to change it.
   // Checked before the conflict check below, so an unauthorised caller learns
   // nothing about the row's edit history.
-  if (!canMutateApplication(viewer, rawExisting.application_id)) {
+  // Type-scoped against the type the ticket IS, resolved from its id — a raw row
+  // carries `type_id`, and a grant stores the name. An unresolvable type comes
+  // back as '' and satisfies no narrowed grant, which is the safe direction.
+  if (!canMutateApplication(
+    viewer,
+    rawExisting.application_id,
+    await getSubmissionTypeNameById(rawExisting.type_id),
+  )) {
     return { error: 'You do not administer this application', status: 403 };
   }
   // Optimistic concurrency: if the caller sent the version it loaded and the row
@@ -901,7 +917,37 @@ async function updateAdminSubmission(db, { id, body, username, viewer }) {
         : existing.occurrence_timeframe_count,
     occurrence_timeframe:
       body.occurrence_timeframe ?? existing.occurrence_timeframe ?? null,
+
+    // ── The analyst's half of a report request ──────────────────────────────
+    // `hasOwnProperty` rather than `??` throughout, because null is a MEANING
+    // here — unassigning, un-approving and reopening are all real acts, and `??`
+    // would read every one of them as "not supplied" and silently keep the old
+    // value.
+    assigned_to: Object.prototype.hasOwnProperty.call(body, 'assigned_to')
+      ? (Number(body.assigned_to) || null)
+      : (existing.assigned_to ?? null),
+    level_of_effort: Object.prototype.hasOwnProperty.call(body, 'level_of_effort')
+      ? (body.level_of_effort || null)
+      : (existing.level_of_effort ?? null),
+    completed_at: Object.prototype.hasOwnProperty.call(body, 'completed_at')
+      ? (body.completed_at ? toIsoOrNow(body.completed_at) : null)
+      : (existing.completed_at ?? null),
+    approved_at: Object.prototype.hasOwnProperty.call(body, 'approved_at')
+      ? (body.approved_at ? toIsoOrNow(body.approved_at) : null)
+      : (existing.approved_at ?? null),
+    approved_by_name: Object.prototype.hasOwnProperty.call(body, 'approved_by_name')
+      ? (String(body.approved_by_name || '').trim() || null)
+      : (existing.approved_by_name ?? null),
   };
+
+  // Who ENTERED the approval is the server's answer, never the client's: a typed
+  // approver name with nobody behind it is a claim, not a record. Recomputed
+  // whenever the approval changes, and cleared with it.
+  const approvalChanged = String(next.approved_at || '') !== String(existing.approved_at || '')
+    || String(next.approved_by_name || '') !== String(existing.approved_by_name || '');
+  const approvalRecordedBy = next.approved_at
+    ? (approvalChanged ? (viewer?.user?.id ?? null) : (existing.approval_recorded_by ?? null))
+    : null;
 
   const normalizedExistingStatusValue = String(existing.status || '').trim() || 'New';
   const normalizedNextStatus = String(next.status || '').trim() || normalizedExistingStatusValue;
@@ -1010,6 +1056,12 @@ async function updateAdminSubmission(db, { id, body, username, viewer }) {
     occurrence_timeframe_count: next.occurrence_timeframe_count,
     occurrence_timeframe_id: await getLookupIdByName(db, 'occurrence_timeframes', next.occurrence_timeframe),
     occurrence_rate: calculateOccurrenceRate(next.occurrence_count, next.occurrence_timeframe_count, next.occurrence_timeframe),
+    assigned_to: next.assigned_to,
+    level_of_effort_id: await getLookupIdByName(db, 'levels_of_effort', next.level_of_effort),
+    completed_at: next.completed_at,
+    approved_at: next.approved_at,
+    approved_by_name: next.approved_by_name,
+    approval_recorded_by: approvalRecordedBy,
   };
 
   // Repeat the optimistic-concurrency check inside the UPDATE's WHERE so two
@@ -1026,6 +1078,17 @@ async function updateAdminSubmission(db, { id, body, username, viewer }) {
       error: 'This item was changed by someone else while you had it open.',
       body: { conflict: true, currentUpdatedAt: current?.updated_at ?? null },
     };
+  }
+
+  // The handover trail. Written only when the holder actually MOVES — saving the
+  // form with the same assignee must not manufacture a hand-over that never
+  // happened — and after the UPDATE, so a row that lost the optimistic-concurrency
+  // race above leaves no trace of a change it did not make.
+  if (Number(next.assigned_to || 0) !== Number(existing.assigned_to || 0)) {
+    await recordAssignment(Number(id), {
+      assignedTo: next.assigned_to,
+      assignedBy: viewer?.user?.id ?? null,
+    });
   }
 
   const statusChanged = String(next.status || '') !== String(existing.status || '');
@@ -1326,7 +1389,11 @@ async function submitSubmissionToEasyVista(db, { id, body, username, viewer, dry
   // Handing a ticket to EasyVista is the most consequential write there is — it
   // leaves the portal — so it takes the same ownership check as an edit. The
   // dry-run preview is gated too: it renders the ticket's real content.
-  if (!canMutateApplication(viewer, rawSubmission.application_id)) {
+  if (!canMutateApplication(
+    viewer,
+    rawSubmission.application_id,
+    rawSubmission.model_type_name,
+  )) {
     return { error: 'You do not administer this application', status: 403 };
   }
   const submission = mapSubmission(rawSubmission);

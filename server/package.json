@@ -13,6 +13,7 @@
     "backfill:public-visibility": "node scripts/backfillPublicVisibility.js",
     "migrate:money-columns": "node scripts/migrateMoneyColumns.js",
     "migrate:easyvista-catalog-columns": "node scripts/migrateEasyVistaCatalogColumns.js",
+    "migrate:report-requests": "node scripts/migrateReportRequests.js",
     "backfill:tracker-history": "node scripts/backfill-tracker-label-history.js",
     "grant:super-user": "node scripts/grantSuperUser.js"
   },

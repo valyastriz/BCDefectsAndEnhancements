@@ -34,7 +34,27 @@ const DEFAULT_DEFECT_ENHANCEMENT_STATUSES = [
 ];
 const RETIRED_STATUS = 'Retired';
 const DEFAULT_DEFECT_ENHANCEMENT_STATUSES_WITH_RETIRED = [...DEFAULT_DEFECT_ENHANCEMENT_STATUSES, RETIRED_STATUS];
-const DEFAULT_SUBMISSION_TYPES = ['defect', 'enhancement'];
+// `report` is the third request type (plan.md §4 Phase 1). It is a lookup value
+// like the other two, not an enum: the Metadata page manages this list, and
+// server/src/routes/submissionRoutes.js validates against it at run time.
+const SUBMISSION_TYPE_REPORT = 'report';
+const DEFAULT_SUBMISSION_TYPES = ['defect', 'enhancement', SUBMISSION_TYPE_REPORT];
+
+// How often a requested report will be used. A fixed cadence scale rather than a
+// managed lookup: it is not a database-managed entity the way an application is,
+// and free text would give an analyst "Daily", "daily" and "every day" as three
+// different answers. The client offers exactly these and the server refuses
+// anything else, so one list governs both.
+const REPORT_USAGE_FREQUENCIES = ['Daily', 'Weekly', 'Monthly', 'Quarterly', 'Annually', 'One-off'];
+
+// Seed values for the new Levels of Effort lookup. A starting point the Metadata
+// page can rename or switch off — not a closed set.
+const DEFAULT_LEVELS_OF_EFFORT = [
+  'S — up to 2 days',
+  'M — up to a week',
+  'L — up to a month',
+  'XL — more than a month',
+];
 const DEFAULT_APPLICATIONS = ['Billing Center', 'Policy Center'];
 const DEFAULT_ENHANCEMENT_REQUEST_TYPES = [...ENHANCEMENT_REQUEST_TYPES];
 const DEFAULT_PRIORITY_LEVELS = ['1 - Urgent', '2 - High', '3 - Medium', '4 - Low'];
@@ -186,9 +206,22 @@ const ADMIN_VIEW_FILTER_KEYS = [
 // application" — and a literal application could never be named this.
 const UNASSIGNED_APPLICATION = '__unassigned__';
 
-const APPLICATION_ROLES = ['viewer', 'admin'];
+// The ladder, weakest first — the ORDER is the comparison, so anything appended
+// here outranks everything before it.
+//
+// `manager` is a rank above admin, added for the reporting throughput page: it
+// answers "may this person see the team's numbers, and not just their own"
+// (plan.md §4 Phase 1, mockup 3). It is per application, like the others, and the
+// super-user flag still outranks it everywhere.
+//
+// It is NOT the fourth role the plan ruled out. That question was about analysts,
+// and its answer stands: an analyst is an admin grant narrowed to a request type
+// (`user_application_roles.request_type`). Rank and type-scoping are different
+// axes and they compose.
+const APPLICATION_ROLES = ['viewer', 'admin', 'manager'];
 const APPLICATION_ROLE_ADMIN = 'admin';
 const APPLICATION_ROLE_VIEWER = 'viewer';
+const APPLICATION_ROLE_MANAGER = 'manager';
 
 /** Position in the ladder, or -1 for anything unrecognised (which grants nothing). */
 function applicationRoleRank(role) {
@@ -259,6 +292,13 @@ const LOOKUP_TABLES = {
     normalize: (value) => String(value || '').trim().toLowerCase(),
     submissionIdColumn: 'created_via_id',
   },
+  'levels-of-effort': {
+    table: 'levels_of_effort',
+    modelName: 'LevelOfEffort',
+    hasRetiredFlag: false,
+    normalize: (value) => String(value || '').trim(),
+    submissionIdColumn: 'level_of_effort_id',
+  },
   'occurrence-timeframes': {
     table: 'occurrence_timeframes',
     modelName: 'OccurrenceTimeframe',
@@ -294,7 +334,11 @@ module.exports = {
   APPLICATION_ROLES,
   APPLICATION_ROLE_ADMIN,
   APPLICATION_ROLE_VIEWER,
+  APPLICATION_ROLE_MANAGER,
   applicationRoleRank,
   applicationRoleAtLeast,
   LOOKUP_TABLES,
+  SUBMISSION_TYPE_REPORT,
+  REPORT_USAGE_FREQUENCIES,
+  DEFAULT_LEVELS_OF_EFFORT,
 };

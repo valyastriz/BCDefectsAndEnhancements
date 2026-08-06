@@ -100,6 +100,7 @@ async function getLookupIdByName(db, table, value, { lowercase = false } = {}) {
     enhancement_request_types: dbModels.EnhancementRequestType,
     priority_levels: dbModels.PriorityLevel,
     occurrence_timeframes: dbModels.OccurrenceTimeframe,
+    levels_of_effort: dbModels.LevelOfEffort,
   };
 
   const model = tableToModel[table];
@@ -127,6 +128,7 @@ function getLookupModelByTable(table) {
     enhancement_request_types: dbModels.EnhancementRequestType,
     priority_levels: dbModels.PriorityLevel,
     occurrence_timeframes: dbModels.OccurrenceTimeframe,
+    levels_of_effort: dbModels.LevelOfEffort,
   };
   return tableToModel[table] || null;
 }
@@ -201,6 +203,25 @@ function resolveLookupModel(category) {
   if (!category?.modelName) return null;
   const dbModels = dbApi.getModels() || {};
   return dbModels[category.modelName] || null;
+}
+
+/**
+ * The request type a stored row is, by its `type_id`.
+ *
+ * Every authorisation question about a specific ticket needs the type NAME,
+ * because that is what a type-scoped grant stores — but several write paths hold
+ * only a raw row, which carries the id. This is the bridge.
+ *
+ * Returns '' when the id resolves to nothing. Callers must treat that as "type
+ * unknown", which `roleInApplication` refuses for a narrowed grant: an
+ * unresolvable type must never satisfy a scoped check.
+ */
+async function getSubmissionTypeNameById(typeId) {
+  const id = Number(typeId);
+  if (!Number.isInteger(id) || id <= 0) return '';
+  const dbModels = dbApi.getModels() || {};
+  const row = await dbModels.SubmissionType?.findByPk(id, { attributes: ['name'], raw: true });
+  return String(row?.name || '').trim().toLowerCase();
 }
 
 // ── Application rows, on a database that may predate the catalog columns ──────
@@ -402,6 +423,7 @@ module.exports = {
   loadApplicationRowById,
   getDefectEnhancementStatuses,
   getSubmissionTypes,
+  getSubmissionTypeNameById,
   getCleanupStatuses,
   getCleanupTagTypes,
   getApplications,

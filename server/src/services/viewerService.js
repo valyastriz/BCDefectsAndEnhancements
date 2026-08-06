@@ -10,9 +10,18 @@ const { AUTH_MODE, SUBMIT_REQUIRES_AUTH } = require('../config');
 const {
   APPLICATION_ROLE_ADMIN,
   APPLICATION_ROLE_VIEWER,
+  APPLICATION_ROLE_MANAGER,
   applicationRoleRank,
   applicationRoleAtLeast,
 } = require('../constants');
+
+// The stored marker for "this grant covers every request type". Empty string
+// rather than NULL so it can sit inside the composite unique index — see the
+// column's comment in db/models/index.js.
+const ALL_TYPES = '';
+
+/** A request type as the grant table stores it. Unknown shapes become ALL_TYPES. */
+const normalizeGrantType = (value) => String(value ?? '').trim().toLowerCase();
 
 // A real application id is a positive integer. Anything else — a stray null that
 // Number() would quietly turn into 0, a name that became NaN — is not an id and
@@ -120,14 +129,22 @@ async function resolveHomeApplicationId(models, sequelize, { userId, groups }) {
  * where two rows disagree the stronger one wins.
  */
 async function resolveApplicationRoles(models, { userId, isSuperUser, applications }) {
+  // `roles` is the STRONGEST role held in each application across every type —
+  // the answer to "may this person work in this queue at all". `typeRoles` is the
+  // per-type detail, keyed application → request type, and it is what a write on
+  // a specific ticket has to consult.
   const roles = {};
+  const typeRoles = {};
 
   if (isSuperUser) {
-    for (const application of applications) roles[application.id] = APPLICATION_ROLE_ADMIN;
-    return roles;
+    for (const application of applications) {
+      roles[application.id] = APPLICATION_ROLE_MANAGER;
+      typeRoles[application.id] = { [ALL_TYPES]: APPLICATION_ROLE_MANAGER };
+    }
+    return { roles, typeRoles };
   }
 
-  if (!userId) return roles;
+  if (!userId) return { roles, typeRoles };
 
   const rows = await models.UserApplicationRole.findAll({
     where: { user_id: userId },
@@ -141,11 +158,20 @@ async function resolveApplicationRoles(models, { userId, isSuperUser, applicatio
     const role = String(row.role || '').trim().toLowerCase();
     if (applicationRoleRank(role) < 0) continue;
 
+    // A grant row that names no type covers every type. Anything unrecognised
+    // in the column is read as a type name, not as a wildcard — an unknown value
+    // must narrow access, never widen it.
+    const grantType = normalizeGrantType(row.request_type);
+
     const held = roles[applicationId];
     if (!held || applicationRoleAtLeast(role, held)) roles[applicationId] = role;
+
+    const perType = typeRoles[applicationId] || (typeRoles[applicationId] = {});
+    const heldForType = perType[grantType];
+    if (!heldForType || applicationRoleAtLeast(role, heldForType)) perType[grantType] = role;
   }
 
-  return roles;
+  return { roles, typeRoles };
 }
 
 /**
@@ -262,14 +288,45 @@ function canReadSubmissionRow(scope, row) {
  * The single lookup every capability question goes through, so an unknown
  * application, an unauthenticated caller and a malformed envelope all answer the
  * same way: nothing.
+ *
+ * **Pass `requestType` whenever the question is about a specific ticket.** A
+ * grant can be narrowed to one request type — that is what an analyst is
+ * (plan.md §4 open question 4) — and omitting the type asks the weaker question
+ * "may they work in this queue at all", which is right for a queue-level check
+ * and WRONG for a write. An analyst scoped to report requests must not be able
+ * to edit a defect, and the only thing standing between them and one is this
+ * argument being supplied at the call site.
  */
-function roleInApplication(viewer, applicationId) {
+function roleInApplication(viewer, applicationId, requestType = undefined) {
   if (!viewer?.isAuthenticated) return '';
-  if (viewer.isSuperUser) return APPLICATION_ROLE_ADMIN;
+  if (viewer.isSuperUser) return APPLICATION_ROLE_MANAGER;
   const id = Number(applicationId);
   if (!isApplicationId(id)) return '';
-  const role = viewer.applicationRoles?.[id];
-  return applicationRoleRank(role) >= 0 ? role : '';
+
+  // No type asked for: the strongest role held anywhere in this application.
+  if (requestType === undefined || requestType === null) {
+    const role = viewer.applicationRoles?.[id];
+    return applicationRoleRank(role) >= 0 ? role : '';
+  }
+
+  // A specific type: an all-types grant, or one naming this type. Nothing else.
+  const perType = viewer.applicationTypeRoles?.[id];
+  if (!perType) {
+    // An envelope from before type scoping existed. Falling back to the
+    // unscoped map would honour it; refusing would lock out every admin on a
+    // stale session. The unscoped map is the pre-existing behaviour and the
+    // narrower risk, because a portal with no type-scoped grants behaves
+    // identically either way.
+    const role = viewer.applicationRoles?.[id];
+    return applicationRoleRank(role) >= 0 ? role : '';
+  }
+
+  const wanted = normalizeGrantType(requestType);
+  const candidates = [perType[ALL_TYPES], perType[wanted]].filter(
+    (role) => applicationRoleRank(role) >= 0,
+  );
+  if (candidates.length === 0) return '';
+  return candidates.reduce((best, role) => (applicationRoleAtLeast(role, best) ? role : best));
 }
 
 /**
@@ -278,8 +335,11 @@ function roleInApplication(viewer, applicationId) {
  * Satisfied by viewer as well as admin — the read-only seat exists precisely so
  * someone can follow a queue without being able to touch it.
  */
-function canReadApplication(viewer, applicationId) {
-  return applicationRoleAtLeast(roleInApplication(viewer, applicationId), APPLICATION_ROLE_VIEWER);
+function canReadApplication(viewer, applicationId, requestType = undefined) {
+  return applicationRoleAtLeast(
+    roleInApplication(viewer, applicationId, requestType),
+    APPLICATION_ROLE_VIEWER,
+  );
 }
 
 /**
@@ -291,8 +351,26 @@ function canReadApplication(viewer, applicationId) {
  * write access does not, so this asks only about the ticket's CURRENT
  * application.
  */
-function canMutateApplication(viewer, applicationId) {
-  return applicationRoleAtLeast(roleInApplication(viewer, applicationId), APPLICATION_ROLE_ADMIN);
+function canMutateApplication(viewer, applicationId, requestType = undefined) {
+  return applicationRoleAtLeast(
+    roleInApplication(viewer, applicationId, requestType),
+    APPLICATION_ROLE_ADMIN,
+  );
+}
+
+/**
+ * True when this caller may see OTHER PEOPLE's numbers for this application.
+ *
+ * The one thing the manager rank buys. Everyone who works report requests can
+ * see their own throughput; only a manager (or a super user) sees the team's,
+ * because the page names individuals and counts their output.
+ *
+ * Deliberately not type-scoped: managing a team is not managing a request type,
+ * and a manager grant narrowed to one type would still be reading the same
+ * people's names.
+ */
+function canManageApplication(viewer, applicationId) {
+  return applicationRoleAtLeast(roleInApplication(viewer, applicationId), APPLICATION_ROLE_MANAGER);
 }
 
 /**
@@ -317,10 +395,13 @@ async function resolveViewer(req, { models, sequelize }) {
     user: null,
     isSuperUser: false,
     applicationRoles: {},
+    applicationTypeRoles: {},
     adminApplicationIds: [],
     readableApplicationIds: [],
+    managerApplicationIds: [],
     memberApplicationIds: [],
     canAdminAnyApplication: false,
+    canManageAnyApplication: false,
     // An anonymous viewer still gets a sensible prefill so the board is not
     // unscoped on first load.
     homeApplicationId: applications.length > 0 ? applications[0].id : null,
@@ -338,13 +419,13 @@ async function resolveViewer(req, { models, sequelize }) {
   }
 
   const isSuperUser = Number(user.is_super_user || 0) === 1;
-  const applicationRoles = await resolveApplicationRoles(models, {
-    userId: Number(user.id),
-    isSuperUser,
-    applications,
-  });
+  const { roles: applicationRoles, typeRoles: applicationTypeRoles } = await resolveApplicationRoles(
+    models,
+    { userId: Number(user.id), isSuperUser, applications },
+  );
   const adminApplicationIds = applicationIdsWithRole(applicationRoles, APPLICATION_ROLE_ADMIN);
   const readableApplicationIds = applicationIdsWithRole(applicationRoles, APPLICATION_ROLE_VIEWER);
+  const managerApplicationIds = applicationIdsWithRole(applicationRoles, APPLICATION_ROLE_MANAGER);
   // Which products this person works in, per Active Directory. Not a grant.
   const memberApplicationIds = await resolveMemberApplicationIds(models, { groups: identity.groups });
   const homeApplicationId = await resolveHomeApplicationId(models, sequelize, {
@@ -367,10 +448,13 @@ async function resolveViewer(req, { models, sequelize }) {
     },
     isSuperUser,
     applicationRoles,
+    applicationTypeRoles,
     adminApplicationIds,
     readableApplicationIds,
+    managerApplicationIds,
     memberApplicationIds,
     canAdminAnyApplication: isSuperUser || adminApplicationIds.length > 0,
+    canManageAnyApplication: isSuperUser || managerApplicationIds.length > 0,
     homeApplicationId,
     applications,
   };
@@ -389,5 +473,6 @@ module.exports = {
   roleInApplication,
   canReadApplication,
   canMutateApplication,
+  canManageApplication,
   listActiveApplications,
 };

@@ -167,14 +167,15 @@ test('resolveSessionIdentity defaults groups to an empty list and drops blanks',
 
 // ── Which applications may be triaged ────────────────────────────────────────
 test('resolveApplicationRoles makes a super user admin of every active application', async () => {
-  const roles = await resolveApplicationRoles(makeModels(), {
+  const { roles } = await resolveApplicationRoles(makeModels(), {
     userId: 1, isSuperUser: true, applications: APPS.map((a) => ({ id: a.id, name: a.name })),
   });
-  assert.deepStrictEqual(roles, { 7: 'admin', 9: 'admin', 4: 'admin' });
+  assert.deepStrictEqual(roles, { 7: "manager", 9: "manager", 4: "manager" },
+    "a super user outranks every per-application grant, including manager");
 });
 
 test('resolveApplicationRoles returns nothing when nothing is granted', async () => {
-  const roles = await resolveApplicationRoles(makeModels(), {
+  const { roles } = await resolveApplicationRoles(makeModels(), {
     userId: 1, isSuperUser: false, applications: [],
   });
   assert.deepStrictEqual(roles, {});
@@ -188,7 +189,7 @@ test('resolveApplicationRoles reads hand-set grants and keeps each role', async 
       { user_id: 2, application_id: 4, role: 'admin' },
     ],
   });
-  const roles = await resolveApplicationRoles(models, {
+  const { roles } = await resolveApplicationRoles(models, {
     userId: 1, isSuperUser: false, applications: [],
   });
   // Another user's grant is not leaked in.
@@ -202,7 +203,7 @@ test('resolveApplicationRoles keeps the stronger role when two rows disagree', a
       { user_id: 1, application_id: 7, role: 'admin' },
     ],
   });
-  const roles = await resolveApplicationRoles(models, { userId: 1, isSuperUser: false, applications: [] });
+  const { roles } = await resolveApplicationRoles(models, { userId: 1, isSuperUser: false, applications: [] });
   assert.deepStrictEqual(roles, { 7: 'admin' });
 });
 
@@ -213,7 +214,7 @@ test('resolveApplicationRoles drops a role the catalog does not recognise', asyn
       { user_id: 1, application_id: 9, role: 'admin' },
     ],
   });
-  const roles = await resolveApplicationRoles(models, { userId: 1, isSuperUser: false, applications: [] });
+  const { roles } = await resolveApplicationRoles(models, { userId: 1, isSuperUser: false, applications: [] });
   assert.deepStrictEqual(roles, { 9: 'admin' }, 'an unknown role is not a grant');
 });
 
@@ -228,7 +229,7 @@ test('an AD group grants no triage rights at all', async () => {
     ],
   });
 
-  const roles = await resolveApplicationRoles(models, {
+  const { roles } = await resolveApplicationRoles(models, {
     userId: 1, isSuperUser: false, applications: [],
   });
   assert.deepStrictEqual(roles, {}, 'group membership is not a grant, even at role=admin');
