@@ -87,6 +87,63 @@ test('an anonymous filer must supply a name', async () => {
   assert.match(missing.error, /required/i);
 });
 
+// ── A session that WAS there and is gone ─────────────────────────────────────
+// Sessions live in express-session's default MemoryStore, so every restart of the
+// server — every deploy — drops all of them, while an open tab goes on showing
+// "Filing as …" from the viewer answer it fetched beforehand. That submit arrives
+// with a session cookie the server cannot resolve and no typed name, because the
+// form stops asking for one once it believes it knows who you are.
+//
+// It used to be answered "Requester Name is required": a field the form is not
+// showing, about a person who thought they were signed in. Now it says what
+// happened, so the form can keep what was typed and reshape itself.
+const withStaleCookie = (extra = {}) => ({
+  headers: { cookie: 'bc_csrf=abc; bc_sid=s%3Along-gone-session.signature' },
+  ...extra,
+});
+
+test('a submit carrying a dead session cookie is told the session expired', async () => {
+  const result = await resolveReporter(makeModels(), withStaleCookie(), {});
+
+  assert.strictEqual(result.status, 401, 'not a 400 about a missing field');
+  assert.strictEqual(result.sessionExpired, true);
+  assert.match(result.error, /session has expired/i);
+  assert.doesNotMatch(result.error, /required/i, 'it names what happened, not a field');
+});
+
+test('the session cookie has to be the SESSION one, not just any cookie', async () => {
+  // A CSRF cookie alone means a browser that has talked to the portal, not one
+  // that was signed in — that person is anonymous and the form is asking for
+  // their name.
+  const result = await resolveReporter(
+    makeModels(),
+    { headers: { cookie: 'bc_csrf=abc' } },
+    {},
+  );
+  assert.strictEqual(result.status, 400);
+  assert.match(result.error, /required/i);
+  assert.strictEqual(result.sessionExpired, undefined);
+});
+
+test('a dead session cookie WITH a typed name still files anonymously', async () => {
+  // Somebody who was signed in, lost it, and typed their name rather than signing
+  // in again. There is nothing to refuse: the name stands, unbound.
+  const result = await resolveReporter(makeModels(), withStaleCookie(), {
+    created_by: 'Dana Field',
+  });
+
+  assert.strictEqual(result.error, undefined);
+  assert.strictEqual(result.createdBy, 'Dana Field');
+  assert.strictEqual(result.reporterUserId, null);
+  assert.strictEqual(result.isBound, false);
+});
+
+test('a live session is unaffected by the cookie check', async () => {
+  const result = await resolveReporter(makeModels([JANE]), withStaleCookie(session(5)), {});
+  assert.strictEqual(result.reporterUserId, 5);
+  assert.strictEqual(result.createdBy, 'Jane Rep');
+});
+
 // ── Fail-safe edges ──────────────────────────────────────────────────────────
 test('a session pointing at a deleted user falls back to the anonymous path', async () => {
   // Binding an id that resolves to nobody would put an orphan reference on the

@@ -73,7 +73,12 @@ router.post('/api/submissions', imageUpload.array('attachments', 3), async (req,
     requireAuthenticated: SUBMIT_REQUIRES_AUTH,
   });
   if (reporter.error) {
-    return res.status(reporter.status || 400).json({ error: reporter.error });
+    return res.status(reporter.status || 400).json({
+      error: reporter.error,
+      // Lets the form tell a lapsed session apart from a missing field: the two
+      // need different words and different next steps.
+      ...(reporter.sessionExpired ? { sessionExpired: true } : {}),
+    });
   }
 
   let normalized = {

@@ -18,6 +18,26 @@
 // binds real identities with no change here.
 
 const BLANK_EMAIL = '-';
+const SESSION_COOKIE = 'bc_sid';
+
+/**
+ * Did this request ARRIVE with a session cookie?
+ *
+ * `express-session` mints a fresh empty session when the id it is presented with
+ * is not in the store, so `req.session` alone cannot tell "never signed in" from
+ * "signed in, and the session is gone". The cookie the browser sent can.
+ *
+ * That distinction is the whole point: sessions live in the default MemoryStore,
+ * so every restart of this process — every deploy — drops all of them, while an
+ * open tab goes on showing "Filing as …" from the viewer answer it fetched
+ * before. Reporting that as "Requester Name is required" names a field the form
+ * is not even showing, and the person cannot act on it.
+ */
+function arrivedWithASession(req) {
+  return String(req?.headers?.cookie || '')
+    .split(';')
+    .some((part) => part.trim().startsWith(`${SESSION_COOKIE}=`));
+}
 
 /**
  * Resolve the reporter for an incoming submission.
@@ -57,6 +77,16 @@ async function resolveReporter(models, req, body = {}, { requireAuthenticated = 
 
   const typedName = String(body.created_by || '').trim();
   if (!typedName) {
+    // A stale tab, not a missing field. Answered as 401 with `sessionExpired` so
+    // the form can say what happened and keep what was typed, rather than
+    // demanding a name it deliberately stopped asking for.
+    if (arrivedWithASession(req)) {
+      return {
+        error: 'Your session has expired. Sign in again and send this once more.',
+        status: 401,
+        sessionExpired: true,
+      };
+    }
     return { error: 'Requester Name is required', status: 400 };
   }
 

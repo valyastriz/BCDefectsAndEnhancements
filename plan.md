@@ -397,6 +397,41 @@ the live form by the owner. Neither is a harness fixture — every one of those 
 a `VERIFY` marker and is removed by the run that made it — so both were left alone.
 Read the count from the removal script rather than trusting a number written here.
 
+### "Requester Name is required" while signed in (2026-08-06, seventh pass)
+
+The owner, signed in as `admin`, saw "Filing as admin" on the form and got **"That
+did not send — Requester Name is required"** for a field the form deliberately
+stops showing once it knows who you are. It reproduced on the first try with a
+request that carries a session cookie the server cannot resolve.
+
+**Root cause: sessions live in `express-session`'s default MemoryStore.** Every
+restart of the API drops all of them — including every deploy, and there were three
+today — while an open tab goes on showing "Filing as …" from the viewer answer it
+fetched beforehand. The submit then arrives with a dead `bc_sid` and no typed name,
+and `resolveReporter` fell through to its anonymous branch, whose complaint is
+about a field that is not on screen.
+
+Fixed so the failure is honest and recoverable:
+
+- **The server tells the two cases apart.** `express-session` mints a fresh empty
+  session for an id it does not know, so `req.session` alone cannot distinguish
+  "never signed in" from "signed in, and it is gone" — the cookie the browser sent
+  can. A dead `bc_sid` with no typed name is now **401 `sessionExpired: true`**,
+  "Your session has expired". No cookie and no name is still 400 "Requester Name is
+  required", which is the right words for a form that IS asking. Five cases pinned
+  in `test/reporter.test.js`, including that a CSRF cookie alone is not a session
+  and that a dead cookie WITH a typed name still files anonymously.
+- **The form recovers instead of scolding.** It says what happened, keeps every
+  answer, and re-reads the viewer — so the name field comes back and the request can
+  be sent without signing in again if that is quicker.
+
+**Still open, and the owner's call:** sessions do not survive a restart. A
+persistent store (`connect-pg-simple` against the same Postgres, or any store)
+would stop the sign-out happening at all, at the cost of one dependency and one
+table on the shared database — and it would need to be conditional, because local
+development runs on sql.js where a Postgres store cannot work. Until then, expect to
+be signed out by every deploy; the form now says so plainly.
+
 ### Not done, on purpose
 
 - **§5 step 6** — screenshots and docs. Unstarted.

@@ -146,7 +146,10 @@ export function RepSubmitPage() {
   // Who the server will record this as. When it already knows, the form stops
   // asking — the name field would be a box whose value is discarded on arrival
   // (server/src/services/reporterService.js), which is worse than absent.
-  const { viewer } = useViewer();
+  // `reload` is used when a submit comes back saying the session has gone: the
+  // form has to reshape itself from what the server now knows, not from what it
+  // believed when the page was opened.
+  const { viewer, reload: reloadViewer } = useViewer();
   const knownReporter = viewer.isAuthenticated ? viewer.user : null;
 
   // Which application this ticket belongs to. Read from the viewer's own
@@ -289,7 +292,26 @@ export function RepSubmitPage() {
       setShowErrors(false);
       formRef.current?.reset();
     } catch (submitError) {
-      setError(submitError.message);
+      // A LAPSED SESSION, not a missing field. Sessions live in memory on the
+      // server, so every deploy drops them while an open tab goes on showing
+      // "Filing as …" from the viewer answer it fetched beforehand. The old
+      // failure said "Requester Name is required" — a field this form stops
+      // showing once it believes it knows who you are, so there was nothing to
+      // act on.
+      //
+      // Nothing typed is cleared. The viewer is re-read so the form reshapes
+      // itself: the name field comes back, and it can be sent as an anonymous
+      // request without signing in again if that is quicker.
+      if (submitError.status === 401 && submitError.body?.sessionExpired) {
+        setError(
+          'Your session ended — the server was restarted or you have been signed out.'
+          + ' Nothing you typed has been lost: sign in again in another tab and press'
+          + ' Submit, or fill in your name below and send it without signing in.',
+        );
+        reloadViewer();
+      } else {
+        setError(submitError.message);
+      }
     } finally {
       setSaving(false);
     }
