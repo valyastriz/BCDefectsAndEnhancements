@@ -55,8 +55,11 @@ const EXPECTED = {
   // Report requests (approved mockup v3, artifact 075982a2). Cards: Your
   // request · What you need · About the request · Screenshots. The two branches
   // ask a different number of questions, which is the whole point of the branch.
-  reportNew: { cards: 4, required: 3 },
-  reportChange: { cards: 4, required: 4 },
+  // The counts went up by one when "Which application is the data from?" became a
+  // required question rather than a value derived from the requester's own
+  // membership — it decides which analysts ever see the request, so it is asked.
+  reportNew: { cards: 4, required: 4 },
+  reportChange: { cards: 4, required: 5 },
 };
 // The measured heights the review reported for the compacted form. Treated as a
 // ceiling with slack, not an exact match — fonts and data move it a little.
@@ -248,6 +251,25 @@ async function run() {
       && newLabels.some((l) => l.startsWith('Who owns the questions about it?')),
     newLabels.join(' | '),
   );
+  // Asked, not assumed. It used to be derived from the requester's own membership
+  // and silently defaulted, which filed a report about billing data into whichever
+  // queue the fallback named.
+  const applicationPicker = await page.evaluate(() => {
+    const select = document.querySelector('#rs-application_name');
+    return select
+      ? { options: [...select.options].map((option) => option.textContent.trim()), value: select.value }
+      : null;
+  });
+  record(
+    'a report request is asked which application the data comes from',
+    Boolean(applicationPicker)
+      && applicationPicker.value === ''
+      && applicationPicker.options.length > 2
+      && newLabels.some((l) => l.startsWith('Which application is the data from?')),
+    applicationPicker
+      ? `default "${applicationPicker.value}", options: ${applicationPicker.options.join(' · ')}`
+      : 'no picker on the form',
+  );
   record(
     'and is NOT asked which report, nor what is not working',
     !newLabels.some((l) => l.startsWith('Which report is it?'))
@@ -338,10 +360,57 @@ async function run() {
   // searched from both directions.
   const csrf = (await context.cookies()).find((cookie) => cookie.name === 'bc_csrf')?.value || '';
   const marker = 'VERIFY duplicate scope unapplied cash dashboard';
+  const fixtureIds = [];
   let fixtureId = null;
   try {
-    const application = (await page.request.get(`${API}/api/viewer`).then((r) => r.json()))
-      .viewer.applications[0];
+    // ── The application is the SERVER's rule too ─────────────────────────────
+    // A report request with no application used to fall through to the portal's
+    // first one, so a report about billing data filed by somebody in Claims
+    // landed in whichever queue the fallback named. Refused now, at the endpoint,
+    // not only marked in the form.
+    const applications = (await page.request.get(`${API}/api/viewer`).then((r) => r.json()))
+      .viewer.applications;
+    const blankApplication = await page.request.post(`${API}/api/submissions`, {
+      multipart: {
+        type: 'report',
+        summary_of_issue: `${marker} — no application, must be refused`,
+        what_happened_exact_details: 'The endpoint should refuse this before it reaches the queue.',
+        measures_and_sources: 'One measure.',
+        is_new_dashboard: 'true',
+      },
+    });
+    const blankBody = await blankApplication.json().catch(() => ({}));
+    record(
+      'a report request with no application is refused, not defaulted',
+      blankApplication.status() === 400 && /which application/i.test(blankBody.error || ''),
+      `${blankApplication.status()} ${JSON.stringify(blankBody.error || blankBody).slice(0, 120)}`,
+    );
+
+    // And an ENHANCEMENT lands in the application it was filed against. The
+    // server pinned every one of them to Billing Center regardless of the payload
+    // — the same fault as above, one type over.
+    const otherApplication = applications[applications.length - 1];
+    const filed = await page.request.post(`${API}/api/submissions`, {
+      multipart: {
+        type: 'enhancement',
+        summary_of_issue: `${marker} enhancement — safe to delete`,
+        request: 'Check that this lands in the application it was filed against.',
+        application_name: otherApplication.name,
+      },
+    }).then((response) => response.json());
+    if (filed?.id) fixtureIds.push(Number(filed.id));
+    // The detail endpoint answers with the submission FLAT — `...mapSubmission(row)`
+    // plus its attachments and lists — not wrapped in `.submission`.
+    const filedRow = filed?.id
+      ? await page.request.get(`${API}/api/admin/submissions/${filed.id}`).then((r) => r.json())
+      : null;
+    record(
+      'an enhancement lands in the application it was filed against',
+      filedRow?.application_name === otherApplication.name,
+      `filed against ${otherApplication.name}, stored as ${filedRow?.application_name}`,
+    );
+
+    const application = applications[0];
     const made = await page.request.post(`${API}/api/admin/submissions`, {
       headers: { 'X-CSRF-Token': csrf, 'Content-Type': 'application/json' },
       data: {
@@ -357,6 +426,7 @@ async function run() {
       },
     }).then((response) => response.json());
     fixtureId = Number(made?.submission?.id || made?.id);
+    if (fixtureId) fixtureIds.push(fixtureId);
 
     const search = async (requestType) => page.request.post(`${API}/api/ai-search`, {
       headers: { 'Content-Type': 'application/json' },
@@ -387,18 +457,21 @@ async function run() {
       `report: ${JSON.stringify(asReport.meta?.searchedOnlyType)} · defect excluded: ${JSON.stringify(asDefect.meta?.excludedType)}`,
     );
   } finally {
-    if (fixtureId) {
+    if (fixtureIds.length > 0) {
       const output = execFileSync(
         process.execPath,
-        ['scripts/removeVerificationSubmissions.js', String(fixtureId), '--apply'],
+        ['scripts/removeVerificationSubmissions.js', ...fixtureIds.map(String), '--apply'],
         { cwd: SERVER_DIR, encoding: 'utf8' },
       );
       console.log(output.trim().split('\n').map((line) => `      ${line}`).join('\n'));
-      const gone = await page.request.get(`${API}/api/admin/submissions/${fixtureId}`);
+      const statuses = [];
+      for (const id of fixtureIds) {
+        statuses.push(`#${id} -> ${(await page.request.get(`${API}/api/admin/submissions/${id}`)).status()}`);
+      }
       record(
-        'the fixture report request is gone again',
-        gone.status() === 404,
-        `GET /api/admin/submissions/${fixtureId} -> ${gone.status()}`,
+        'the tickets this run created are gone again',
+        statuses.every((line) => line.endsWith('404')),
+        statuses.join(' · '),
       );
     }
     await page.goto(BASE, { waitUntil: 'networkidle' });

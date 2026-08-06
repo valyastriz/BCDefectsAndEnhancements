@@ -30,6 +30,12 @@ const initialForm = {
   // ── Report requests ───────────────────────────────────────────────────────
   // Title is `summary_of_issue`, Description is `what_happened_exact_details`
   // and "what's not working" is `request`, so those three are already above.
+  //
+  // `application_name` IS here, unlike for the other two types — for a report
+  // request it is a question ("whose data is this about?"), and only the requester
+  // knows the answer. It is sent only on the report branch; everything else still
+  // derives the application from the viewer.
+  application_name: '',
   is_new_dashboard: true,
   needed_data: '',
   measures_and_sources: '',
@@ -68,6 +74,10 @@ const REQUIRED_FIELDS = {
     { key: 'created_by', label: 'Your name' },
     { key: 'summary_of_issue', label: 'One-line summary' },
     { key: 'what_happened_exact_details', label: 'Description' },
+    // Required, not defaulted. It decides which analysts ever see the request, so
+    // a silent default files it into the wrong team's queue — which is exactly
+    // what happened while this was derived from the requester's own membership.
+    { key: 'application_name', label: 'Which application' },
   ],
 };
 
@@ -90,6 +100,7 @@ const FIELD_ERRORS = {
   measures_and_sources: 'List the measures and where the data comes from.',
   existing_report_link: 'Link the report, or say where you open it.',
   changes_requested: 'Describe what should change.',
+  application_name: 'Choose which application the data comes from.',
 };
 
 // The summary and description labels change with the type — a report request is
@@ -149,6 +160,17 @@ export function RepSubmitPage() {
     const home = list.find((app) => String(app.id) === String(viewer.homeApplicationId));
     return home?.name || list[0]?.name || '';
   }, [viewer.applications, viewer.homeApplicationId]);
+
+  // Every application this portal takes requests for. A report request ASKS which
+  // one, because "whose data is this about" is a question only the requester can
+  // answer — somebody in Claims can perfectly well need a report over billing
+  // data, and deriving it from their own membership filed those against the wrong
+  // queue silently. A defect still derives it: a bug happened where the person
+  // was, and they are already there.
+  const applicationOptions = useMemo(
+    () => (Array.isArray(viewer.applications) ? viewer.applications : []),
+    [viewer.applications],
+  );
 
   const [form, setForm] = useState(initialForm);
   const [files, setFiles] = useState([]);
@@ -231,7 +253,10 @@ export function RepSubmitPage() {
       const payload = {
         ...form,
         created_by_email: '-',
-        application_name: homeApplicationName,
+        // A report request carries the application the REQUESTER chose; everything
+        // else derives it from where they work. `form.application_name` is only
+        // ever set by the report branch's own picker.
+        application_name: (isReport && form.application_name) || homeApplicationName,
         steps_to_reproduce: isDefect ? form.steps_to_reproduce || '-' : '-',
         // `request` carries the enhancement's ask, and on a report request it
         // carries "what's not working" — which is only asked of a change.
@@ -256,7 +281,7 @@ export function RepSubmitPage() {
         // The confirmation must echo the name the server actually recorded, not
         // the (ignored) form field, or a signed-in rep sees a blank "filed by".
         name: knownReporter ? knownReporter.displayName : form.created_by,
-        application: homeApplicationName,
+        application: (isReport && form.application_name) || homeApplicationName,
         fileCount: files.length,
       });
       setForm(initialForm);
@@ -702,6 +727,32 @@ export function RepSubmitPage() {
                     </button>
                   </div>
                 </div>
+
+                {/* WHOSE DATA — asked, not assumed. This is the only type where
+                    the application is a question: a defect happened where the
+                    reporter was, but somebody in Claims can perfectly well need a
+                    report over billing data. It also decides which analysts ever
+                    see the request, so a silent default files it into the wrong
+                    team's queue — which is what it used to do. */}
+                <Field
+                  name="application_name"
+                  label="Which application is the data from?"
+                  required
+                  help="The system the numbers come out of, not the team asking for them."
+                  error={errorFor('application_name')}
+                >
+                  <select
+                    id="rs-application_name"
+                    aria-describedby="rs-application_name-help"
+                    value={form.application_name}
+                    onChange={(e) => updateField('application_name', e.target.value)}
+                  >
+                    <option value="">Select one</option>
+                    {applicationOptions.map((application) => (
+                      <option key={application.id} value={application.name}>{application.name}</option>
+                    ))}
+                  </select>
+                </Field>
 
                 {/* Identity first on a change: you cannot usefully describe what
                     you want done to a report before saying which one it is. */}

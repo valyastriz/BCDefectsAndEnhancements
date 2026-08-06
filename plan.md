@@ -29,11 +29,11 @@ read this section, then §4 for the design decisions that govern the rest.
 **Merged and deployed:** PR #12 (schema, authorisation sweep, backend), PR #13
 (submit form), PR #14 (Delivery pane, handover trail, approval evidence).
 
-**Verified:** 319 server tests, client lint and production build clean, and **264
-harness checks** across six committed scripts at 1500/820/390 in both themes — 102
-admin data entry, 52 throughput, 48 submit form, 26 metadata, 19 spreadsheet round
-trip, 17 public board. Every script that writes ended by printing the hosted
-submission count back at **83**.
+**Verified:** 319 server tests, client lint and production build clean, and **275
+harness checks** across six committed scripts at 1500/820/390 in both themes — 110
+admin data entry, 51 submit form, 52 throughput, 26 metadata, 19 spreadsheet round
+trip, 17 public board. Every script that writes ends by printing the hosted
+submission count back where it found it.
 
 The second pass shipped as `dfd944f` on `main`. The spreadsheet round trip that
 followed it is the third pass — see "The spreadsheet round trip" below.
@@ -274,6 +274,82 @@ Verified by 48 checks in `verify-submit-form.mjs`, which now creates one public
 report request to prove the narrowing from both directions (report search finds
 only report requests; defect search returns 16 cards, none of them a report) and
 removes it again.
+
+### Five more from the owner, and two bugs behind them (2026-08-06, fifth pass)
+
+1. **A report request's Impact tab is impact notes and nothing else.** Dollar
+   impact, policies affected and an occurrence rate are defect measures — a
+   dashboard that does not exist yet affects no policies and recurs no number of
+   times a month. Its SIZE lives on Delivery: level of effort and hours.
+
+   **The bug behind it:** the requester's eight fields were stored, exported and
+   imported and drawn **NOWHERE** in the modal. The Report tab asked a defect's
+   questions (policy number, screen, time it happened) and showed the summary
+   alone, so an analyst could open a report request and not read what had been
+   asked for. It has its own tab layout now — what it is for, who to ask or which
+   report, and what they need — read-only, like the rest of that tab.
+
+2. **A way back from the new-submissions view.** The banner replaces the whole
+   filter set, and for a while the only way back was Clear all, which also threw
+   away the application an admin was scoped to: answering "what's new?" cost them
+   their place. `filtersBeforeJump` remembers what was on screen and offers it back
+   as one chip ("Back to Billing Center"), withdrawn once taken or once Clear all
+   says start from nothing. Held in state, not localStorage — "where I just came
+   from" stops meaning anything after a reload.
+
+3. **A one-click switch between the two kinds of work** in the command row:
+   All kinds · Defects & enhancements · Report requests. It writes `filters.types`
+   — the same value the filter panel's multi-select writes — so the segments, the
+   chips and the table cannot disagree, and a hand-picked combination in the panel
+   simply presses no segment. Labels come from the live type list, not hardcoded,
+   so renaming the lookup value cannot silently stop matching.
+
+4. **A report request asks which application's data it is about.** It was derived
+   from the requester's own membership and defaulted, so a report over billing data
+   asked for by somebody in Claims went to whichever queue the fallback named. Now
+   required on the form AND refused at the endpoint — it decides which analysts
+   ever see the request. A defect still derives it: a bug happened where the person
+   was, and they are already there.
+
+   **The bug behind it:** the public submit route pinned every **enhancement** to
+   `'Billing Center'` outright, ignoring the payload. Same fault, one type over,
+   and invisible because the client had always sent the right value.
+
+5. **Six working accounts, seeded with per-application, per-type grants**
+   (`npm run seed:team-accounts`, dry-run by default). Grants are rows in
+   `user_application_roles`, so an "application admin for defects and
+   enhancements" is TWO rows, one per type — cleanups ride along with them, being
+   a flag on a defect or an enhancement rather than a type. An analyst is one row
+   narrowed to `report`. Somebody who does both is three rows.
+
+   | Account | Grants |
+   |---|---|
+   | `pc_app_admin` | Policy Center: defect, enhancement |
+   | `bc_app_admin` | Billing Center: defect, enhancement |
+   | `pc_report_analyst` | Policy Center: report |
+   | `bc_report_analyst` | Billing Center: report |
+   | `pc_owner_analyst` | Policy Center: defect, enhancement, report |
+   | `bc_owner_analyst` | Billing Center: defect, enhancement, report |
+
+   All six are `users.role = 'admin'` because `/api/auth/login` refuses anything
+   else — that column is the door and the grants are the rooms — `is_super_user`
+   0, and the seeded password from `.env`. **Nobody was given `manager`**: it is a
+   rank above admin that gates seeing OTHER PEOPLE's throughput numbers, nobody
+   asked for it, and handing it out because an account sounds senior is a privacy
+   decision made by accident. Add it deliberately if a product owner should see
+   their team's figures rather than only their own.
+
+**The hosted baseline is 84 now, not 83** — #117 "Testing a report request" is the
+owner's own, filed through the live form. It is Billing Center because that is what
+the old default did, which is the clearest possible evidence for item 4. Left alone.
+
+Verified by 51 checks on the submit form and 110 on the admin surfaces, including
+the two server rules (a blank application refused; an enhancement landing where it
+was filed) and the switch proved by the fixture appearing and disappearing from the
+table. Three probes in those scripts were wrong before the code was: a fixed sleep
+that read the previous filter's rows, a `.dm-pane` class that does not exist, and
+`.submission` on a detail response that is flat. Waits are now keyed to the query
+the click produces.
 
 ### Not done, on purpose
 

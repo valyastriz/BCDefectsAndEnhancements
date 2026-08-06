@@ -409,6 +409,35 @@ export function AdminDashboardPage({ user, onLogout }) {
   });
   const selectStatusTile = (status) => setFilters({ ...buildDefaultFilters(), statuses: [status] });
 
+  // ── Getting back from a banner's view ─────────────────────────────────────
+  // The new-submissions and workaround banners REPLACE the whole filter set with
+  // a preset one. For a while the only way back was Clear all, which also threw
+  // away the application an admin was scoped to and whatever else they had set —
+  // so answering "what's new?" cost them their place. The filters they had are
+  // kept here and offered back as one button.
+  //
+  // Held in state rather than localStorage on purpose: it is "where I just came
+  // from", which stops meaning anything after a reload.
+  const [filtersBeforeJump, setFiltersBeforeJump] = useState(null);
+
+  /** Jump to a banner's preset view, remembering what to come back to. */
+  const jumpToPresetFilters = useCallback((preset, previous) => {
+    // Only the FIRST jump snapshots: hopping from the new-submissions view to the
+    // workaround one must still offer the queue the admin actually came from.
+    setFiltersBeforeJump((existing) => existing ?? previous);
+    setFilters({ ...buildDefaultFilters(), ...preset });
+    setTimeout(() => {
+      document.querySelector('.table-wrap')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 100);
+  }, []);
+
+  const restoreFiltersBeforeJump = useCallback(() => {
+    setFiltersBeforeJump((snapshot) => {
+      if (snapshot) setFilters(snapshot);
+      return null;
+    });
+  }, []);
+
   // Clear every filter while preserving the retired scope and the sort: neither is
   // a chip, so resetting them would move ground the admin never touched.
   const clearAllFilters = useCallback(() => {
@@ -418,6 +447,9 @@ export function AdminDashboardPage({ user, onLogout }) {
       retiredFilter: prev.retiredFilter,
       sort: prev.sort,
     }));
+    // An explicit reset is the admin saying "start from nothing", which retires
+    // the offer to go back as well.
+    setFiltersBeforeJump(null);
   }, []);
 
   // Drop this browser's remembered filters and return to the default view.
@@ -724,20 +756,10 @@ export function AdminDashboardPage({ user, onLogout }) {
 
       <NewSubmissionsAlert
         count={newFormSubmissionsCount}
-        onViewNewSubmissions={() => {
-          // No "restore previous filters" ref any more: the applied filters now
-          // show as removable chips, so getting back is Clear all (or removing the
-          // Created Via chip) rather than a hidden snapshot.
-          setFilters({
-            ...buildDefaultFilters(),
-            statuses: ['New'],
-            createdVia: 'rep_form',
-            retiredFilter: 'non_retired',
-          });
-          setTimeout(() => {
-            document.querySelector('.table-wrap')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-          }, 100);
-        }}
+        onViewNewSubmissions={() => jumpToPresetFilters(
+          { statuses: ['New'], createdVia: 'rep_form', retiredFilter: 'non_retired' },
+          filters,
+        )}
       />
 
       {/* Below the new-submission banner but above the scope strip: a rep stuck
@@ -745,16 +767,10 @@ export function AdminDashboardPage({ user, onLogout }) {
           usually absent so the two rarely stack. */}
       <WorkaroundRequestsAlert
         count={workaroundRequestsCount}
-        onViewWorkaroundRequests={() => {
-          setFilters({
-            ...buildDefaultFilters(),
-            workaround: 'open',
-            retiredFilter: 'non_retired',
-          });
-          setTimeout(() => {
-            document.querySelector('.table-wrap')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-          }, 100);
-        }}
+        onViewWorkaroundRequests={() => jumpToPresetFilters(
+          { workaround: 'open', retiredFilter: 'non_retired' },
+          filters,
+        )}
       />
 
       <QueueScopeStrip
@@ -788,6 +804,10 @@ export function AdminDashboardPage({ user, onLogout }) {
         onOpenCustomize={() => setCustomizeOpen(true)}
         onResetSaved={resetSavedFilters}
         onClearAllFilters={clearAllFilters}
+        onRestoreFilters={filtersBeforeJump ? restoreFiltersBeforeJump : null}
+        restoreFiltersLabel={filtersBeforeJump?.application
+          ? `Back to ${filtersBeforeJump.application}`
+          : 'Back to what I was looking at'}
       />
 
       <AiSearchPanel

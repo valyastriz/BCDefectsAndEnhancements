@@ -117,7 +117,8 @@ async function run() {
       `${analyst?.name} · ${level} (${assignableUsers.length} assignable, ${levels.length} levels)`,
     );
 
-    const currentRow = (await json(`/api/admin/submissions/${originalId}`)).submission;
+    // Flat, not wrapped in `.submission`: the detail endpoint spreads the row.
+    const currentRow = await json(`/api/admin/submissions/${originalId}`);
     const saved = await context.put(`/api/admin/submissions/${originalId}`, {
       headers,
       data: {

@@ -2,6 +2,7 @@ import { Input, Select, Textarea } from '../../bite-size/BitsizeUI';
 import { DetailGroup } from './DetailPane';
 import { formatCurrency } from '../../../utils/formatUtils';
 import { EASYVISTA_REQUIREMENT_FIELD } from '../../../constants/detailModalConstants';
+import { SUBMISSION_TYPE_REPORT } from '../../../constants/statusConstants';
 
 /** Renders the same "N per Timeframe" phrasing the queue table uses. */
 function frequencyReadsAs(edit) {
@@ -37,6 +38,12 @@ export function DetailImpactSection({
   dynamicOccurrenceTimeframes,
 }) {
   const isEnhancement = effectiveType === 'enhancement';
+  // A report request's impact is a sentence, not a figure. Policy premium, direct
+  // dollars, policies affected and an occurrence rate are all defect/enhancement
+  // measures — a dashboard that does not exist yet affects no policies and recurs
+  // no number of times per month — so the tab keeps only the notes. Its SIZE lives
+  // on the Delivery pane instead: level of effort and hours logged.
+  const isReport = effectiveType === SUBMISSION_TYPE_REPORT;
   const readsAs = frequencyReadsAs(edit);
   const missingFields = new Set(
     (missingRequirements || []).map((label) => EASYVISTA_REQUIREMENT_FIELD[label]),
@@ -44,6 +51,18 @@ export function DetailImpactSection({
   const requiredTag = (field) => (
     missingFields.has(field) ? <em className="dm-rotag dm-rotag--req">required</em> : null
   );
+
+  if (isReport) {
+    return (
+      <Textarea
+        label="Impact notes"
+        rows={5}
+        value={edit.impact_notes}
+        placeholder="What this report is worth to the people asking for it — time saved, a decision it unblocks, a manual pull it replaces."
+        onChange={(e) => setEdit((p) => ({ ...p, impact_notes: e.target.value }))}
+      />
+    );
+  }
 
   return (
     <>

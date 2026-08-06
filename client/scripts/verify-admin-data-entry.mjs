@@ -495,6 +495,12 @@ async function run() {
   // IT WRITES. The ticket is removed at the end through
   // server/scripts/removeVerificationSubmissions.js, and the count is printed.
   let createdId = null;
+  // A second fixture: a REP-filed ticket, which is what the new-submissions banner
+  // counts. Both come out again in the `finally`.
+  let bannerId = null;
+  const scopedApplication = (await page.request.get(`${API}/api/viewer`)
+    .then((response) => response.json()))
+    .viewer.applications[0].name;
   try {
     await page.setViewportSize(VIEWPORTS[0]);
     await setTheme(page, 'light');
@@ -541,6 +547,52 @@ async function run() {
         'the detail modal carries a Delivery tab where the hand-off would be',
         tabs.includes('Delivery') && !tabs.some((tab) => /Service Desk|EasyVista/i.test(tab)),
         tabs.join(' · '),
+      );
+
+      // ── The request itself, on the Report tab ─────────────────────────────
+      // The requester's eight fields were stored, exported and imported but drawn
+      // NOWHERE in this modal: the tab asked a defect's questions (policy number,
+      // screen, time it happened) and showed the summary alone, so an analyst
+      // could not read what had been asked for.
+      await page.click('.dm-tab:has-text("Report")');
+      await page.waitForSelector('.dm-report-grid');
+      const reportTab = await page.evaluate(() => ({
+        labels: [...document.querySelectorAll('.dm-rofield > span')].map((node) => node.textContent.trim()),
+        values: [...document.querySelectorAll('.dm-ro')].map((node) => node.textContent.trim()),
+      }));
+      record(
+        'the Report tab shows what was actually requested',
+        ['Described in their words', 'Data it needs', 'Measures, and where they come from', 'Application']
+          .every((label) => reportTab.labels.includes(label))
+        && !reportTab.labels.includes('Policy #')
+        && !reportTab.labels.includes('Steps to Reproduce'),
+        reportTab.labels.join(' · '),
+      );
+
+      // ── The Impact tab keeps only the notes ──────────────────────────────
+      // Dollar impact, policies affected and an occurrence rate are
+      // defect/enhancement measures: a dashboard that does not exist yet affects
+      // no policies and recurs no number of times a month. Its SIZE is level of
+      // effort and hours, on Delivery.
+      await page.click('.dm-tab:has-text("Impact")');
+      await page.waitForTimeout(160);
+      await page.waitForSelector('#dm-panel-impact');
+      const impactTab = await page.evaluate(() => {
+        const pane = document.querySelector('#dm-panel-impact');
+        return {
+          numbers: pane.querySelectorAll('input[type="number"]').length,
+          textareas: pane.querySelectorAll('textarea').length,
+          groups: [...pane.querySelectorAll('.dm-group-label')].map((node) => node.textContent.trim()),
+          labels: [...pane.querySelectorAll('.bs-field > span')].map((node) => node.textContent.trim()),
+        };
+      });
+      record(
+        'a report request’s Impact tab is impact notes and nothing else',
+        impactTab.numbers === 0
+          && impactTab.textareas === 1
+          && impactTab.groups.length === 0
+          && impactTab.labels.some((label) => /Impact notes/i.test(label)),
+        `${impactTab.numbers} number inputs, ${impactTab.textareas} textareas, groups: ${impactTab.groups.join(', ') || 'none'}`,
       );
 
       await page.click('.dm-tab:has-text("Delivery")');
@@ -629,20 +681,143 @@ async function run() {
       await page.waitForTimeout(200);
       await page.fill('.admin-cmdbar input[type="search"], input[placeholder^="Search ID"]', '');
       await page.waitForTimeout(300);
+
+      // ── Switching between the two kinds of work ─────────────────────────────
+      // Report requests and defects are different jobs done by different people.
+      // The switch writes `filters.types` — the same value the filter panel's
+      // multi-select writes — so the segments, the chips and the table cannot
+      // disagree about what is on screen.
+      const kindSegments = await page.$$eval(
+        '[aria-label="Kind of request"] button',
+        (nodes) => nodes.map((node) => node.textContent.trim()),
+      );
+      record(
+        'the queue offers a one-click switch between the two kinds of work',
+        kindSegments.join(' | ') === 'All kinds | Defects & enhancements | Report requests',
+        kindSegments.join(' | ') || 'no switch on the queue',
+      );
+
+      // Read the row IDS rather than a Type column: which columns are on screen is
+      // this admin's own choice (CustomizeViewModal), so a check that depends on
+      // one being visible measures the preference, not the filter. The fixture
+      // report request is the row that must appear and disappear.
+      const idsOnScreen = async () => page.$$eval(
+        '.admin-submissions-table tbody tr td[data-label="ID"]',
+        (cells) => cells.map((cell) => Number(String(cell.textContent).replace(/\D/g, ''))).filter(Boolean),
+      );
+      // Wait for the LIST to come back, not for a guessed number of milliseconds:
+      // every filter change refetches, and against the hosted database that takes
+      // longer than any sleep worth writing. A fixed pause here read the previous
+      // filter's rows and called it a failure.
+      // Matched on the QUERY the click produces (`types=Report`), not merely on the
+      // endpoint: a list fetch is often already in flight when the click lands, and
+      // waiting for "a response from this URL" resolves on that one instead — which
+      // reads the previous filter's rows and reports a passing filter as broken.
+      const switchKind = async (label, expectQuery) => {
+        await Promise.all([
+          page.waitForResponse((response) => (
+            response.request().method() === 'GET'
+            && response.url().includes('/api/admin/submissions?')
+            && (expectQuery
+              ? response.url().includes(expectQuery)
+              : !response.url().includes('types='))
+          )),
+          page.click(`[aria-label="Kind of request"] button:text-is("${label}")`),
+        ]);
+        await page.waitForTimeout(250);
+      };
+
+      await switchKind('Report requests', 'types=Report');
+      const reportRows = await idsOnScreen();
+      const reportChip = await page.$$eval('.admin-chip', (nodes) => nodes.map((n) => n.textContent.trim()));
+      record(
+        'switching to report requests puts the report request in the table',
+        reportRows.includes(createdId) && reportChip.some((chip) => /Type: Report/i.test(chip)),
+        `${reportRows.length} rows${reportRows.includes(createdId) ? ` including #${createdId}` : `, missing #${createdId}`} · chips: ${reportChip.join(' / ')}`,
+      );
+
+      await switchKind('Defects & enhancements', 'types=Defect');
+      const workRows = await idsOnScreen();
+      record(
+        'and switching to defects and enhancements takes it out again',
+        workRows.length > 0 && !workRows.includes(createdId),
+        `${workRows.length} rows, report request present: ${workRows.includes(createdId)}`,
+      );
+      await switchKind('All kinds', '');
+
+      // ── Getting back from the new-submissions view ───────────────────────────
+      // The banner REPLACES the whole filter set. For a while the only way back
+      // was Clear all, which also threw away the application an admin was scoped
+      // to — so answering "what's new?" cost them their place. Needs a rep-filed
+      // New ticket for the banner to exist at all, so this makes one.
+      const submitted = await page.request.post(`${API}/api/submissions`, {
+        multipart: {
+          type: 'defect',
+          summary_of_issue: `${DELIVERY_MARKER} banner — safe to delete`,
+          screen_title: 'Invoice Details',
+          what_happened_exact_details: 'Created by scripts/verify-admin-data-entry.mjs to raise the new-submissions banner.',
+          date_of_error: new Date().toISOString().slice(0, 10),
+          application_name: scopedApplication,
+        },
+      });
+      bannerId = Number((await submitted.json().catch(() => ({})))?.id) || null;
+      record(
+        'a rep-filed ticket was created to raise the banner',
+        Boolean(bannerId),
+        bannerId ? `#${bannerId}` : `POST /api/submissions -> ${submitted.status()}`,
+      );
+
+      if (bannerId) {
+        await page.reload({ waitUntil: 'networkidle' });
+        await page.waitForSelector('.admin-header-row');
+        // Scope to one application, which is the thing that used to be lost.
+        await page.selectOption('.admin-scope-select', scopedApplication);
+        await page.waitForTimeout(400);
+        const before = await page.inputValue('.admin-scope-select');
+
+        await page.click('button:has-text("View new submissions"), .admin-alert button');
+        await page.waitForTimeout(500);
+        const afterJump = await page.evaluate(() => ({
+          scope: document.querySelector('.admin-scope-select')?.value,
+          chips: [...document.querySelectorAll('.admin-chip')].map((node) => node.textContent.trim()),
+          hasBack: Boolean(document.querySelector('.admin-chip--back')),
+        }));
+        record(
+          'the new-submissions view offers a way back to what was on screen',
+          afterJump.hasBack && afterJump.scope !== before,
+          `scope ${before} -> ${afterJump.scope || '(all)'} · chips: ${afterJump.chips.join(' / ')}`,
+        );
+
+        await page.click('.admin-chip--back');
+        await page.waitForTimeout(500);
+        const afterBack = await page.evaluate(() => ({
+          scope: document.querySelector('.admin-scope-select')?.value,
+          hasBack: Boolean(document.querySelector('.admin-chip--back')),
+        }));
+        record(
+          'and taking it restores the application scope rather than clearing everything',
+          afterBack.scope === before && afterBack.hasBack === false,
+          `scope back to ${afterBack.scope}, offer withdrawn: ${!afterBack.hasBack}`,
+        );
+      }
     }
   } finally {
-    if (createdId) {
+    const fixtures = [createdId, bannerId].filter(Boolean).map(String);
+    if (fixtures.length > 0) {
       const output = execFileSync(
         process.execPath,
-        ['scripts/removeVerificationSubmissions.js', String(createdId), '--apply'],
+        ['scripts/removeVerificationSubmissions.js', ...fixtures, '--apply'],
         { cwd: SERVER_DIR, encoding: 'utf8' },
       );
       console.log(output.trim().split('\n').map((line) => `      ${line}`).join('\n'));
-      const gone = await page.request.get(`${API}/api/admin/submissions/${createdId}`);
+      const statuses = [];
+      for (const id of fixtures) {
+        statuses.push(`#${id} -> ${(await page.request.get(`${API}/api/admin/submissions/${id}`)).status()}`);
+      }
       record(
-        'the report request this run created is gone again',
-        gone.status() === 404,
-        `GET /api/admin/submissions/${createdId} -> ${gone.status()}`,
+        'the tickets this run created are gone again',
+        statuses.every((line) => line.endsWith('404')),
+        statuses.join(' · '),
       );
     }
   }

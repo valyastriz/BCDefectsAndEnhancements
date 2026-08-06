@@ -135,6 +135,15 @@ router.post('/api/submissions', imageUpload.array('attachments', 3), async (req,
         error: `Summary, Description and ${branchLabel} are required for report requests`,
       });
     }
+    // WHICH APPLICATION'S DATA — asked, never defaulted. It decides which
+    // analysts ever see the request, and a blank used to fall through to the
+    // portal's first application: somebody in Claims asking for a report over
+    // billing data had it filed into whichever queue the fallback named. The name
+    // itself is still checked against the real application list further down, by
+    // the same lookup every other type goes through.
+    if (isBlank(application_name)) {
+      return res.status(400).json({ error: 'Choose which application the data comes from' });
+    }
     // A change request has to say WHICH report: an analyst cannot change one they
     // cannot find. The field takes any answer, because plenty of reports have no
     // link — a share drive path or "the menu I open it from" is a valid answer.
@@ -178,7 +187,11 @@ router.post('/api/submissions', imageUpload.array('attachments', 3), async (req,
 
     normalized = {
       ...normalized,
-      application_name: 'Billing Center',
+      // NOT hardcoded to one application any more. This pinned every enhancement
+      // to Billing Center regardless of who filed it or what the payload said —
+      // the same fault the report branch had, one type over. The submit form
+      // derives the application from the viewer and sends it; the shared fallback
+      // above still covers a payload that names none.
       policy_num: null,
       account_num: null,
       transaction_num: null,

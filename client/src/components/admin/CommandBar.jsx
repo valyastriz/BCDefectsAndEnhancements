@@ -45,10 +45,35 @@ export function CommandBar({
   onOpenCustomize,
   onResetSaved,
   onClearAllFilters,
+  // Offered only when a banner replaced the whole filter set; see
+  // `filtersBeforeJump` in AdminDashboardPage.
+  onRestoreFilters = null,
+  restoreFiltersLabel,
 }) {
   const isVisible = (key) => !visibleFilters || visibleFilters.includes(key);
   const activeCount = activeFilters.length;
   const retiredScope = filters.retiredFilter || 'non_retired';
+
+  // ── Which kind of request ──────────────────────────────────────────────────
+  // Built from the live type list rather than hardcoded labels, because the type
+  // filter matches on the label the lookup gives it: hardcoding 'Report' here
+  // would silently stop matching the day somebody renames the lookup value.
+  const reportTypeLabel = runtimeTypeFilterOptions.find((label) => /^report/i.test(label)) || '';
+  const otherTypeLabels = runtimeTypeFilterOptions.filter((label) => label !== reportTypeLabel);
+  const kindSwitchOptions = [
+    { key: 'all', label: 'All kinds', types: [] },
+    { key: 'work', label: 'Defects & enhancements', types: otherTypeLabels },
+    { key: 'report', label: 'Report requests', types: [reportTypeLabel] },
+  ];
+  // A segment is pressed only when the filter holds EXACTLY its set. Anything
+  // hand-picked in the panel presses none of them, which is the truth.
+  const selectedTypes = Array.isArray(filters.types) ? filters.types : [];
+  const activeKind = kindSwitchOptions.find((option) => (
+    option.types.length === selectedTypes.length
+    && option.types.every((label) => selectedTypes.includes(label))
+  ))?.key || '';
+  // Pointless where report requests are not a type this portal has.
+  const showKindSwitch = isVisible('types') && Boolean(reportTypeLabel) && otherTypeLabels.length > 0;
   // Pointless for someone who administers exactly one application — there is
   // nothing to switch between, and the summary tag already names it.
   const showApplicationScope = isVisible('application')
@@ -142,6 +167,28 @@ export function CommandBar({
           </span>
         )}
 
+        {/* Which KIND of request. Report requests and defects are different jobs
+            done by different people, and an analyst who works reports should not
+            have to open the filter panel and tick three boxes to stop seeing
+            defects. It writes `filters.types` — the same value the panel's
+            multi-select writes — so the chips, the badge and the table can never
+            disagree about what is being shown, and a hand-picked combination in
+            the panel simply leaves no segment pressed. */}
+        {showKindSwitch && (
+          <span className="bs-seg" role="group" aria-label="Kind of request">
+            {kindSwitchOptions.map((option) => (
+              <button
+                key={option.key}
+                type="button"
+                aria-pressed={activeKind === option.key}
+                onClick={() => setFilters((prev) => ({ ...prev, types: [...option.types] }))}
+              >
+                {option.label}
+              </button>
+            ))}
+          </span>
+        )}
+
         {isVisible('retiredFilter') && (
           <span className="bs-seg" role="group" aria-label="Retired scope">
             {RETIRED_SCOPES.map((scope) => (
@@ -162,6 +209,8 @@ export function CommandBar({
         activeFilters={activeFilters}
         onRemove={removeFilter}
         onClearAll={onClearAllFilters}
+        onRestore={onRestoreFilters}
+        restoreLabel={restoreFiltersLabel}
       />
 
       {filterPanelOpen && (

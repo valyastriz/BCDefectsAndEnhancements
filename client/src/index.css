@@ -1828,6 +1828,16 @@ button.stat-tile--clickable:focus-visible {
 }
 .admin-chip .admin-chip-x { font-size: 13px; line-height: 1; color: var(--color-muted); }
 .admin-chip:hover .admin-chip-x { color: var(--color-danger); }
+/* "Back to what I was looking at" — a chip in shape but not a filter: it REMOVES
+   this whole view rather than one of its parts, so it carries the primary colour
+   and leads with an arrow instead of an ✕. */
+.admin-chip--back {
+  gap: 6px;
+  color: var(--color-primary);
+  border-color: color-mix(in srgb, var(--color-primary) 40%, transparent);
+  background: color-mix(in srgb, var(--color-primary) 7%, var(--color-surface));
+}
+.admin-chip--back:hover { background: color-mix(in srgb, var(--color-primary) 13%, var(--color-surface)); }
 .bs-link-btn {
   background: none;
   border: 0;

@@ -1,6 +1,7 @@
 import { DetailGroup } from './DetailPane';
-import { formatDateTime } from '../../../utils/formatUtils';
+import { formatDateOnly, formatDateTime } from '../../../utils/formatUtils';
 import { TRACKER_LABEL, TRACKER_LABEL_THE } from '../../../constants/tracker';
+import { SUBMISSION_TYPE_REPORT } from '../../../constants/statusConstants';
 
 /**
  * Report — the form as it came in, read-only.
@@ -43,7 +44,85 @@ function ReportValue({ label, value, block = false }) {
 
 export function DetailSubmissionSection({ detail, effectiveType }) {
   const isDefect = effectiveType === 'defect' || !effectiveType;
+  const isReportRequest = effectiveType === SUBMISSION_TYPE_REPORT;
   const { label, note } = reportSource(detail);
+
+  // ── A report request, as it was asked for ────────────────────────────────
+  // Its own tab layout, because the defect one asks questions it has no answers
+  // to — a policy number, a screen, the time it happened — and answers none of
+  // the questions an analyst actually opens it for. Until this, the requester's
+  // eight fields were stored, exported and imported but shown NOWHERE in the
+  // modal: the analyst could read the summary and nothing else.
+  //
+  // Read-only, like the rest of this tab: it is the record of what was asked.
+  // What the analyst decides about it lives on Delivery.
+  if (isReportRequest) {
+    const isNew = detail.is_new_dashboard !== false;
+    return (
+      <>
+        <div className="dm-ev-head">
+          <h4>As requested</h4>
+          <p>
+            {isNew
+              ? 'A new report or dashboard. Showing the request as it was filed.'
+              : 'A change to a report they already use. Showing the request as it was filed.'}
+          </p>
+        </div>
+
+        <div className="dm-report-grid">
+          <DetailGroup label="What it is for">
+            <ReportValue label="Application" value={detail.application_name} />
+            <ReportValue label="Department" value={detail.department} />
+            <ReportValue
+              label="How often it will be used"
+              value={detail.report_usage_frequency}
+            />
+            <ReportValue
+              label="Wanted by"
+              value={detail.desired_completion_date ? formatDateOnly(detail.desired_completion_date) : ''}
+            />
+          </DetailGroup>
+
+          <DetailGroup label={isNew ? 'Who to ask' : 'Which report'}>
+            {isNew ? (
+              <ReportValue label="Primary contact" value={detail.primary_contact} />
+            ) : (
+              <ReportValue label="The report they use today" value={detail.existing_report_link} block />
+            )}
+            <ReportValue label="Requested by" value={detail.created_by} />
+          </DetailGroup>
+
+          <div className="dm-report-wide">
+            <DetailGroup label="What they need">
+              <ReportValue label="Summary" value={detail.summary_of_issue} block />
+              <ReportValue
+                label="Described in their words"
+                value={detail.what_happened_exact_details}
+                block
+              />
+              <ReportValue label="Data it needs" value={detail.needed_data} block />
+              {isNew ? (
+                <ReportValue
+                  label="Measures, and where they come from"
+                  value={detail.measures_and_sources}
+                  block
+                />
+              ) : (
+                <>
+                  <ReportValue
+                    label="What is not working, missing, or needs to change"
+                    value={detail.request}
+                    block
+                  />
+                  <ReportValue label="What should change" value={detail.changes_requested} block />
+                </>
+              )}
+            </DetailGroup>
+          </div>
+        </div>
+      </>
+    );
+  }
 
   return (
     <>
