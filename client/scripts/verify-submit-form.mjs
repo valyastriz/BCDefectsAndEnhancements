@@ -40,6 +40,11 @@ if (SHOTS) mkdirSync(SHOTS, { recursive: true });
 const EXPECTED = {
   defect: { fields: 10, controls: 12, cards: 4 },
   enhancement: { fields: 3, controls: 5, cards: 3 },
+  // Report requests (approved mockup v3, artifact 075982a2). Cards: Your
+  // request · What you need · About the request · Screenshots. The two branches
+  // ask a different number of questions, which is the whole point of the branch.
+  reportNew: { cards: 4, required: 3 },
+  reportChange: { cards: 4, required: 4 },
 };
 // The measured heights the review reported for the compacted form. Treated as a
 // ceiling with slack, not an exact match — fonts and data move it a little.
@@ -74,7 +79,10 @@ async function measure(page) {
       cards: [...main.querySelectorAll('.rs-card')].filter(shown).length,
       fields: [...main.querySelectorAll('.rs-field')].filter(shown).length,
       controls: main.querySelectorAll('input, textarea, select').length,
-      reporterIsStated: Boolean(main.querySelector('.rs-reporter')),
+      // `.rs-filedby` since the report-request work: the reporter stopped being
+      // drawn as a bordered box (`.rs-reporter`) and became a line of text, so
+      // it is no longer a `.rs-field` either. Both counts below move with it.
+      reporterIsStated: Boolean(main.querySelector('.rs-filedby')),
       groupLabels: [...main.querySelectorAll('.rs-grouplabel')].filter(shown).map((n) => n.textContent.trim()),
       dropHeight: Math.round(document.querySelector('.rs-drop')?.getBoundingClientRect().height || 0),
     };
@@ -107,15 +115,22 @@ async function run() {
     defect.cards === EXPECTED.defect.cards,
     `${defect.cards} cards: ${defect.groupLabels.join(' · ')}`,
   );
+  // A stated reporter costs BOTH a control and a field now. It used to cost only
+  // a control, because "Filing as" was still a `.rs-field` — a bordered box that
+  // looked like an input without being one. It is a line of text above the
+  // summary since the report-request work, so the question it answers is no
+  // longer a field on the form at all.
+  const expectedDefectFields = EXPECTED.defect.fields - (defect.reporterIsStated ? 1 : 0);
   const expectedDefectControls = EXPECTED.defect.controls - (defect.reporterIsStated ? 1 : 0);
   record(
     'the compaction removed no fields',
-    defect.fields === EXPECTED.defect.fields && defect.controls === expectedDefectControls,
-    `${defect.fields} fields / ${defect.controls} controls (expected ${EXPECTED.defect.fields} / ${expectedDefectControls}, reporter ${defect.reporterIsStated ? 'stated' : 'asked'})`,
+    defect.fields === expectedDefectFields && defect.controls === expectedDefectControls,
+    `${defect.fields} fields / ${defect.controls} controls (expected ${expectedDefectFields} / ${expectedDefectControls}, reporter ${defect.reporterIsStated ? 'stated' : 'asked'})`,
   );
   record(
     'the type picker shares the group-label row instead of owning a card',
-    (await page.$$('.rs-cardhead .rs-seg .rs-type')).length === 2
+    // Three since report requests joined defect and enhancement.
+    (await page.$$('.rs-cardhead .rs-seg:not(.rs-seg--sub) .rs-type')).length === 3
       && !defect.groupLabels.includes('What are you reporting?'),
     `group labels: ${defect.groupLabels.join(' · ')}`,
   );
@@ -159,8 +174,109 @@ async function run() {
     enhancement.cards === EXPECTED.enhancement.cards,
     `${enhancement.cards} cards: ${enhancement.groupLabels.join(' · ')}`,
   );
+  // ── Report requests ──────────────────────────────────────────────────────
+  // The third type (plan.md §4 Phase 1). What matters here is not the field
+  // count but the two conditional rules: a change asks which report and what is
+  // not working; a new dashboard asks for measures and a contact instead.
+  await page.click('.rs-seg .rs-type:has-text("Report request")');
+  await page.waitForTimeout(180);
+
+  record(
+    'the type picker offers three segments, report last',
+    (await page.$$eval('.rs-cardhead .rs-seg:not(.rs-seg--sub) .rs-type-name', (n) => n.map((e) => e.textContent)))
+      .join('|') === 'Defect|Enhancement|Report request',
+  );
+  record(
+    'the heading stopped calling everything an issue',
+    !(await page.textContent('.rs-head h1')).includes('issue'),
+    (await page.textContent('.rs-head h1')).trim(),
+  );
+  record(
+    '"Filing as" is a line above the summary, not a box beside it',
+    (await page.$$('.rs-reporter')).length === 0
+      && (await page.$$('.rs-filedby')).length === 1
+      && await page.evaluate(() => {
+        const who = document.querySelector('.rs-filedby')?.getBoundingClientRect();
+        const sum = document.querySelector('#rs-summary_of_issue')?.getBoundingClientRect();
+        return Boolean(who && sum && who.bottom <= sum.top);
+      }),
+  );
+
+  const reportNew = await measure(page);
+  record(
+    'a new-dashboard request is four cards',
+    reportNew.cards === EXPECTED.reportNew.cards,
+    `${reportNew.cards} cards: ${reportNew.groupLabels.join(' · ')}`,
+  );
+  const visibleLabels = () => page.$$eval(
+    '.rs-main .rs-field > label, .rs-main .rs-field > .rs-grouptitle',
+    (nodes) => nodes.filter((n) => n.getClientRects().length > 0).map((n) => n.textContent.trim()),
+  );
+  const newLabels = await visibleLabels();
+  record(
+    'a new dashboard asks for measures and a contact',
+    newLabels.some((l) => l.startsWith('Measures, and where they come from'))
+      && newLabels.some((l) => l.startsWith('Who owns the questions about it?')),
+    newLabels.join(' | '),
+  );
+  record(
+    'and is NOT asked which report, nor what is not working',
+    !newLabels.some((l) => l.startsWith('Which report is it?'))
+      && !newLabels.some((l) => l.includes('not working')),
+    newLabels.join(' | '),
+  );
+  record(
+    'the checklist lists exactly what a new dashboard needs',
+    (await page.$$('.rs-check li')).length === EXPECTED.reportNew.required,
+    (await page.$$eval('.rs-check li', (n) => n.map((e) => e.firstChild?.nextSibling?.textContent?.trim()))).join(' | '),
+  );
+
+  await page.click('.rs-seg--sub .rs-type:has-text("A change to one you already use")');
+  await page.waitForTimeout(180);
+  const changeLabels = await visibleLabels();
+  record(
+    'a change asks which report FIRST, then what is not working and what should change',
+    changeLabels.indexOf(changeLabels.find((l) => l.startsWith('Which report is it?')))
+      < changeLabels.indexOf(changeLabels.find((l) => l.startsWith('Describe what you need')))
+      && changeLabels.some((l) => l.includes('not working'))
+      && changeLabels.some((l) => l.startsWith('What should change?')),
+    changeLabels.join(' | '),
+  );
+  record(
+    'and is NOT asked for measures',
+    !changeLabels.some((l) => l.startsWith('Measures, and where they come from')),
+    changeLabels.join(' | '),
+  );
+  record(
+    'the checklist follows the branch',
+    (await page.$$('.rs-check li')).length === EXPECTED.reportChange.required,
+    `${(await page.$$('.rs-check li')).length} required (expected ${EXPECTED.reportChange.required})`,
+  );
+
+  // Pressing Submit empty must mark the branch's own fields, not a defect's.
+  await page.click('.rs-rail .rs-submit');
+  await page.waitForTimeout(200);
+  record(
+    'submitting an empty change request marks its four fields',
+    (await page.$$('.rs-field.is-bad')).length === EXPECTED.reportChange.required,
+    `${(await page.$$('.rs-field.is-bad')).length} marked`,
+  );
+
+  // The rail must not promise a Service Desk hand-off a report request never makes.
+  const reportSteps = await page.$$eval('.rs-steps li b', (n) => n.map((e) => e.textContent));
+  record(
+    'a report request is promised delivery, not a hand-off',
+    reportSteps[2] === 'Delivered',
+    reportSteps.join(' → '),
+  );
   await page.click('.rs-seg .rs-type:has-text("Defect")');
-  await page.waitForTimeout(150);
+  await page.waitForTimeout(180);
+  const defectSteps = await page.$$eval('.rs-steps li b', (n) => n.map((e) => e.textContent));
+  record(
+    'and a defect still gets the Service Desk step',
+    defectSteps[2].includes('Service Desk'),
+    defectSteps.join(' → '),
+  );
 
   // ── Responsive ───────────────────────────────────────────────────────────
   for (const theme of THEMES) {
@@ -184,14 +300,45 @@ async function run() {
           phone.height <= HEIGHT_CEILING.phone,
           `${phone.height}px (ceiling ${HEIGHT_CEILING.phone}px)`,
         );
-        // The name/summary pair goes back to one per row where there is no width.
-        const columns = await page.evaluate(
-          () => getComputedStyle(document.querySelector('.rs-row--who')).gridTemplateColumns,
-        );
+        // The name/summary pair goes back to one per row where there is no
+        // width. `.rs-row--who` only exists for an ANONYMOUS filer now — a known
+        // reporter is a line of text and the summary owns the row outright — so
+        // the two cases are asserted separately rather than one crashing on the
+        // other's absence.
+        const who = await page.evaluate(() => {
+          const row = document.querySelector('.rs-row--who');
+          const summary = document.querySelector('#rs-summary_of_issue');
+          const card = summary?.closest('.rs-card');
+          const pad = card ? Number.parseFloat(getComputedStyle(card).paddingLeft) : 0;
+          return {
+            paired: Boolean(row),
+            columns: row ? getComputedStyle(row).gridTemplateColumns : '',
+            summaryShort: card
+              ? Math.round(card.getBoundingClientRect().width - 2 * pad - summary.getBoundingClientRect().width)
+              : null,
+          };
+        });
         record(
-          'name and summary stop sharing a row on a phone',
-          columns.split(' ').length === 1,
-          `grid-template-columns: ${columns}`,
+          who.paired
+            ? 'name and summary stop sharing a row on a phone'
+            : 'a stated reporter leaves the summary the whole row',
+          who.paired ? who.columns.split(' ').length === 1 : Math.abs(who.summaryShort) <= 2,
+          who.paired ? `grid-template-columns: ${who.columns}` : `summary ${who.summaryShort}px short of the card`,
+        );
+
+        // Three segments do not fit one line at 390px: one per row, same width
+        // each, so none of them reads as emphasised.
+        const seg = await page.evaluate(() => {
+          const items = [...document.querySelectorAll('.rs-cardhead .rs-seg:not(.rs-seg--sub) .rs-type')];
+          return {
+            rows: new Set(items.map((e) => Math.round(e.getBoundingClientRect().top))).size,
+            widths: new Set(items.map((e) => Math.round(e.getBoundingClientRect().width))).size,
+          };
+        });
+        record(
+          'the three type segments stack one per row on a phone',
+          seg.rows === 3 && seg.widths === 1,
+          JSON.stringify(seg),
         );
       }
       await shoot(page, `submit-${viewport.name}-${theme}`);

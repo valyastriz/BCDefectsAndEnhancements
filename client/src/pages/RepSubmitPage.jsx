@@ -7,6 +7,13 @@ import { DuplicateCheck } from '../components/public/DuplicateCheck';
 import { ScreenshotDropZone } from '../components/public/ScreenshotDropZone';
 import { SubmitReadinessRail } from '../components/public/SubmitReadinessRail';
 
+// How often a requested report will be used. Mirrors REPORT_USAGE_FREQUENCIES in
+// server/src/constants.js, which refuses anything else — keep the two in step.
+// A fixed cadence scale rather than a managed lookup: it is not a
+// database-managed entity the way an application is, and free text would give an
+// analyst "Daily", "daily" and "every day" as three different answers.
+const USAGE_FREQUENCIES = ['Daily', 'Weekly', 'Monthly', 'Quarterly', 'Annually', 'One-off'];
+
 const initialForm = {
   created_by: '',
   type: 'defect',
@@ -25,6 +32,18 @@ const initialForm = {
   date_of_error: '',
   time_of_error: '',
   needs_workaround: false,
+  // ── Report requests ───────────────────────────────────────────────────────
+  // Title is `summary_of_issue`, Description is `what_happened_exact_details`
+  // and "what's not working" is `request`, so those three are already above.
+  is_new_dashboard: true,
+  needed_data: '',
+  measures_and_sources: '',
+  primary_contact: '',
+  existing_report_link: '',
+  changes_requested: '',
+  report_usage_frequency: '',
+  department: '',
+  desired_completion_date: '',
 };
 
 const SUMMARY_MAX_LENGTH = 140;
@@ -46,6 +65,24 @@ const REQUIRED_FIELDS = {
     { key: 'summary_of_issue', label: 'One-line summary' },
     { key: 'request', label: 'What should change' },
   ],
+  // Deliberately minimal, and mirroring the server's own report branch. The
+  // confirmed field list is a SAMPLE, so somebody blocked by a required question
+  // they cannot answer types anything to get past it — and then the field is
+  // worse than absent. The readiness rail still asks for the rest.
+  report: [
+    { key: 'created_by', label: 'Your name' },
+    { key: 'summary_of_issue', label: 'One-line summary' },
+    { key: 'what_happened_exact_details', label: 'Description' },
+  ],
+};
+
+/** The one field the chosen branch cannot do without, plus the change branch's identity. */
+const REPORT_BRANCH_FIELDS = {
+  new: [{ key: 'measures_and_sources', label: 'Measures and sources' }],
+  change: [
+    { key: 'existing_report_link', label: 'Which report' },
+    { key: 'changes_requested', label: 'What should change' },
+  ],
 };
 
 const FIELD_ERRORS = {
@@ -55,9 +92,21 @@ const FIELD_ERRORS = {
   date_of_error: 'Pick the date.',
   what_happened_exact_details: 'Describe what you saw.',
   request: 'Describe the change you would like.',
+  measures_and_sources: 'List the measures and where the data comes from.',
+  existing_report_link: 'Link the report, or say where you open it.',
+  changes_requested: 'Describe what should change.',
+};
+
+// The summary and description labels change with the type — a report request is
+// not an issue, and "what you saw" is a defect's question.
+const FIELD_ERRORS_REPORT = {
+  summary_of_issue: 'Write one line describing what you need.',
+  what_happened_exact_details: 'Describe the report you need.',
 };
 
 const COUNT_WORDS = ['no', 'One', 'Two', 'Three', 'Four', 'Five'];
+
+const TYPE_LABELS = { defect: 'Defect', enhancement: 'Enhancement', report: 'Report request' };
 
 function CheckIcon() {
   return (
@@ -67,8 +116,8 @@ function CheckIcon() {
   );
 }
 
-/** A labelled control with its counter and inline error slot. */
-function Field({ name, label, required, optional, counter, error, children }) {
+/** A labelled control with its counter, help line and inline error slot. */
+function Field({ name, label, required, optional, counter, help, error, children }) {
   return (
     <div className={`rs-field${error ? ' is-bad' : ''}`}>
       <label htmlFor={`rs-${name}`}>
@@ -77,6 +126,10 @@ function Field({ name, label, required, optional, counter, error, children }) {
         {optional && <span className="rs-chip rs-chip--opt">Optional</span>}
         {counter && <span className="rs-count">{counter}</span>}
       </label>
+      {/* Wired to the control with aria-describedby by the caller, not just
+          placed near it — a screen reader otherwise reads the label and skips
+          the sentence explaining it. */}
+      {help && <p className="rs-help" id={`rs-${name}-help`}>{help}</p>}
       {children}
       {error && <p className="rs-bad">{error}</p>}
     </div>
@@ -125,12 +178,19 @@ export function RepSubmitPage() {
 
   const isDefect = form.type === 'defect';
   const isEnhancement = form.type === 'enhancement';
+  const isReport = form.type === 'report';
+  const reportBranch = form.is_new_dashboard ? 'new' : 'change';
+
   // `created_by` drops out of the required set once the reporter is known,
   // mirroring the server: it no longer reads a typed name for a signed-in caller,
   // so demanding one here would block a submit that would have succeeded.
-  const requiredFields = knownReporter
-    ? REQUIRED_FIELDS[form.type].filter((field) => field.key !== 'created_by')
-    : REQUIRED_FIELDS[form.type];
+  const requiredFields = useMemo(() => {
+    const base = [
+      ...(REQUIRED_FIELDS[form.type] || REQUIRED_FIELDS.defect),
+      ...(form.type === 'report' ? REPORT_BRANCH_FIELDS[form.is_new_dashboard ? 'new' : 'change'] : []),
+    ];
+    return knownReporter ? base.filter((field) => field.key !== 'created_by') : base;
+  }, [form.type, form.is_new_dashboard, knownReporter]);
   const missing = requiredFields.filter((field) => !String(form[field.key] ?? '').trim());
 
   function updateField(name, value) {
@@ -145,7 +205,8 @@ export function RepSubmitPage() {
   }
 
   function errorFor(key) {
-    return showErrors && missing.some((field) => field.key === key) ? FIELD_ERRORS[key] : '';
+    if (!showErrors || !missing.some((field) => field.key === key)) return '';
+    return (isReport && FIELD_ERRORS_REPORT[key]) || FIELD_ERRORS[key];
   }
 
   function onSubmit(event) {
@@ -177,7 +238,9 @@ export function RepSubmitPage() {
         created_by_email: '-',
         application_name: homeApplicationName,
         steps_to_reproduce: isDefect ? form.steps_to_reproduce || '-' : '-',
-        request: isDefect ? '-' : form.request,
+        // `request` carries the enhancement's ask, and on a report request it
+        // carries "what's not working" — which is only asked of a change.
+        request: isEnhancement ? form.request : (isReport && reportBranch === 'change' ? form.request : '-'),
         // Defect-only, and the server enforces that too — an enhancement is not
         // stopping anyone today.
         needs_workaround: isDefect && form.needs_workaround,
@@ -192,6 +255,7 @@ export function RepSubmitPage() {
       setSubmitted({
         id: result.id,
         type: form.type,
+        typeLabel: TYPE_LABELS[form.type] || 'Request',
         summary: form.summary_of_issue,
         screen: form.screen_title,
         // The confirmation must echo the name the server actually recorded, not
@@ -257,7 +321,7 @@ export function RepSubmitPage() {
                 <h4>{submitted.summary}</h4>
               </div>
               <p className="rs-recap-meta">
-                {submitted.type === 'defect' ? 'Defect' : 'Enhancement'}
+                {submitted.typeLabel}
                 {submitted.application ? ` · ${submitted.application}` : ''}
                 {submitted.screen ? ` · ${submitted.screen}` : ''}
                 {` · Reported by ${submitted.name}`}
@@ -286,16 +350,26 @@ export function RepSubmitPage() {
     <div className="rs-page">
       <div className="rs-head">
         <div>
-          <h1>{homeApplicationName ? `Report a ${homeApplicationName} issue` : 'Report an issue'}</h1>
+          {/* Type-neutral: a report request is not an issue, and a heading that
+              rewrites itself when you press a segment moves the text above the
+              control you just clicked. */}
+          <h1>{homeApplicationName ? `Submit a ${homeApplicationName} request` : 'Submit a request'}</h1>
           <p>
-            Defects and enhancements go to the same triage queue. You&rsquo;ll get a reference
-            number and can follow it on the Status Board.
+            Defects, enhancements and report requests all go to the same triage queue.
+            You&rsquo;ll get a reference number and can follow it on the Status Board.
           </p>
         </div>
         <Link className="rs-headlink" to="/public">Status Board →</Link>
       </div>
 
-      <form ref={formRef} className="rs-cols" onSubmit={onSubmit} noValidate>
+      <form
+        ref={formRef}
+        className="rs-cols"
+        data-type={form.type}
+        data-branch={reportBranch}
+        onSubmit={onSubmit}
+        noValidate
+      >
         <div className="rs-main">
 
           <section className="rs-card">
@@ -323,6 +397,15 @@ export function RepSubmitPage() {
                   <span className="rs-type-mark" aria-hidden="true" />
                   <span className="rs-type-name">Enhancement</span>
                 </button>
+                <button
+                  type="button"
+                  className="rs-type"
+                  aria-pressed={isReport}
+                  onClick={() => setType('report')}
+                >
+                  <span className="rs-type-mark" aria-hidden="true" />
+                  <span className="rs-type-name">Report request</span>
+                </button>
               </div>
             </div>
 
@@ -349,20 +432,40 @@ export function RepSubmitPage() {
               </div>
             )}
 
-            {/* Who is filing and what it is about are both short — they share a
-                row rather than each taking one. */}
-            <div className="rs-row--who">
-              {knownReporter ? (
-                // Stated rather than asked. The rep still sees whose name goes on
-                // the ticket — they just cannot put someone else's there.
-                <div className="rs-field rs-reporter">
-                  <span className="rs-reporter-label">Filing as</span>
-                  <span className="rs-reporter-name">{knownReporter.displayName}</span>
-                  {knownReporter.email && (
-                    <span className="rs-reporter-email">{knownReporter.email}</span>
-                  )}
+            {/* The reporter is a STATEMENT, not a field — nobody can change it —
+                so it is a line of text above the summary rather than a box beside
+                it. `.rs-row--who` keeps the case it still fits: an anonymous
+                filer, where "Your name" really is an input and pairing two inputs
+                is what that row is for. */}
+            {knownReporter ? (
+              <>
+                <p className="rs-filedby">
+                  Filing as <b>{knownReporter.displayName}</b>
+                  {knownReporter.email && <span>{knownReporter.email}</span>}
+                </p>
+                <div className="rs-field-lead">
+                  <Field
+                    name="summary_of_issue"
+                    label="Summarize it in one line"
+                    required
+                    counter={`${form.summary_of_issue.length} / ${SUMMARY_MAX_LENGTH}`}
+                    error={errorFor('summary_of_issue')}
+                  >
+                    <input
+                      id="rs-summary_of_issue"
+                      type="text"
+                      maxLength={SUMMARY_MAX_LENGTH}
+                      placeholder={isReport
+                        ? 'e.g. Weekly unapplied cash by billing centre'
+                        : "e.g. Renewal invoice shows the prior term's installment amount"}
+                      value={form.summary_of_issue}
+                      onChange={(e) => updateField('summary_of_issue', e.target.value)}
+                    />
+                  </Field>
                 </div>
-              ) : (
+              </>
+            ) : (
+              <div className="rs-row--who">
                 <Field
                   name="created_by"
                   label="Your name"
@@ -378,27 +481,29 @@ export function RepSubmitPage() {
                     onChange={(e) => updateField('created_by', e.target.value)}
                   />
                 </Field>
-              )}
 
-              <div className="rs-field-lead">
-                <Field
-                  name="summary_of_issue"
-                  label="Summarize it in one line"
-                  required
-                  counter={`${form.summary_of_issue.length} / ${SUMMARY_MAX_LENGTH}`}
-                  error={errorFor('summary_of_issue')}
-                >
-                  <input
-                    id="rs-summary_of_issue"
-                    type="text"
-                    maxLength={SUMMARY_MAX_LENGTH}
-                    placeholder="e.g. Renewal invoice shows the prior term's installment amount"
-                    value={form.summary_of_issue}
-                    onChange={(e) => updateField('summary_of_issue', e.target.value)}
-                  />
-                </Field>
+                <div className="rs-field-lead">
+                  <Field
+                    name="summary_of_issue"
+                    label="Summarize it in one line"
+                    required
+                    counter={`${form.summary_of_issue.length} / ${SUMMARY_MAX_LENGTH}`}
+                    error={errorFor('summary_of_issue')}
+                  >
+                    <input
+                      id="rs-summary_of_issue"
+                      type="text"
+                      maxLength={SUMMARY_MAX_LENGTH}
+                      placeholder={isReport
+                        ? 'e.g. Weekly unapplied cash by billing centre'
+                        : "e.g. Renewal invoice shows the prior term's installment amount"}
+                      value={form.summary_of_issue}
+                      onChange={(e) => updateField('summary_of_issue', e.target.value)}
+                    />
+                  </Field>
+                </div>
               </div>
-            </div>
+            )}
 
             <DuplicateCheck query={form.summary_of_issue} />
           </section>
@@ -560,6 +665,199 @@ export function RepSubmitPage() {
             </section>
           )}
 
+          {isReport && (
+            <>
+              <section className="rs-card">
+                <div className="rs-cardhead">
+                  <p className="rs-grouplabel">What you need</p>
+                  {/* The branch choice reshapes this card exactly as the type
+                      choice reshapes the form, so it uses the same control. */}
+                  <div className="rs-seg rs-seg--sub" role="group" aria-label="Is this new, or a change?">
+                    <button
+                      type="button"
+                      className="rs-type"
+                      aria-pressed={reportBranch === 'new'}
+                      onClick={() => updateField('is_new_dashboard', true)}
+                    >
+                      <span className="rs-type-mark" aria-hidden="true" />
+                      <span className="rs-type-name">Something new</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="rs-type"
+                      aria-pressed={reportBranch === 'change'}
+                      onClick={() => updateField('is_new_dashboard', false)}
+                    >
+                      <span className="rs-type-mark" aria-hidden="true" />
+                      <span className="rs-type-name">A change to one you already use</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Identity first on a change: you cannot usefully describe what
+                    you want done to a report before saying which one it is. */}
+                <div className="rs-when-change">
+                  <Field
+                    name="existing_report_link"
+                    label="Which report is it?"
+                    required
+                    help="Paste a link to it. If there is no link — a spreadsheet on a share drive,
+                          something you open from a menu — just say where you find it."
+                    error={errorFor('existing_report_link')}
+                  >
+                    <input
+                      id="rs-existing_report_link"
+                      type="text"
+                      aria-describedby="rs-existing_report_link-help"
+                      placeholder="https://… or where you open it from"
+                      value={form.existing_report_link}
+                      onChange={(e) => updateField('existing_report_link', e.target.value)}
+                    />
+                  </Field>
+                </div>
+
+                <Field
+                  name="what_happened_exact_details"
+                  label="Describe what you need"
+                  required
+                  counter={`${form.what_happened_exact_details.length} characters`}
+                  error={errorFor('what_happened_exact_details')}
+                >
+                  <textarea
+                    id="rs-what_happened_exact_details"
+                    rows={5}
+                    placeholder="What it should show, who will read it, and what decision it helps them make."
+                    value={form.what_happened_exact_details}
+                    onChange={(e) => updateField('what_happened_exact_details', e.target.value)}
+                  />
+                </Field>
+
+                <Field name="needed_data" label="What data does it need?" optional>
+                  <textarea
+                    id="rs-needed_data"
+                    rows={3}
+                    placeholder="Fields, systems, date ranges — anything you know it has to pull from."
+                    value={form.needed_data}
+                    onChange={(e) => updateField('needed_data', e.target.value)}
+                  />
+                </Field>
+
+                <div className="rs-when-new">
+                  <Field
+                    name="measures_and_sources"
+                    label="Measures, and where they come from"
+                    required
+                    help="The numbers it should calculate, and the system or report each one comes from today."
+                    error={errorFor('measures_and_sources')}
+                  >
+                    <textarea
+                      id="rs-measures_and_sources"
+                      rows={4}
+                      aria-describedby="rs-measures_and_sources-help"
+                      placeholder={'e.g. Unapplied cash total — from the nightly billing extract\nCount of open invoices — Billing Center'}
+                      value={form.measures_and_sources}
+                      onChange={(e) => updateField('measures_and_sources', e.target.value)}
+                    />
+                  </Field>
+                  <Field
+                    name="primary_contact"
+                    label="Who owns the questions about it?"
+                    optional
+                    help="Leave it blank and we will come to you."
+                  >
+                    <input
+                      id="rs-primary_contact"
+                      type="text"
+                      aria-describedby="rs-primary_contact-help"
+                      placeholder="Name and email"
+                      value={form.primary_contact}
+                      onChange={(e) => updateField('primary_contact', e.target.value)}
+                    />
+                  </Field>
+                </div>
+
+                {/* Only asked of a change: nothing is broken about a report that
+                    does not exist yet, so asking it of a new one asks for a blank. */}
+                <div className="rs-when-change">
+                  <Field
+                    name="request"
+                    label="What&rsquo;s not working, missing, or needed to change?"
+                    optional
+                  >
+                    <textarea
+                      id="rs-request"
+                      rows={3}
+                      placeholder="What it gives you today, and where that falls short."
+                      value={form.request}
+                      onChange={(e) => updateField('request', e.target.value)}
+                    />
+                  </Field>
+                  <Field
+                    name="changes_requested"
+                    label="What should change?"
+                    required
+                    error={errorFor('changes_requested')}
+                  >
+                    <textarea
+                      id="rs-changes_requested"
+                      rows={4}
+                      placeholder="A new column, a different filter, a number that reads wrong, a different cut of the same data."
+                      value={form.changes_requested}
+                      onChange={(e) => updateField('changes_requested', e.target.value)}
+                    />
+                  </Field>
+                </div>
+              </section>
+
+              <section className="rs-card">
+                <p className="rs-grouplabel">About the request</p>
+                <div className="rs-field">
+                  <p className="rs-grouptitle" id="rs-frequency-label">
+                    How often will this be used?
+                    <span className="rs-chip rs-chip--opt">Optional</span>
+                  </p>
+                  <div className="rs-pick" role="group" aria-labelledby="rs-frequency-label">
+                    {USAGE_FREQUENCIES.map((frequency) => (
+                      <button
+                        key={frequency}
+                        type="button"
+                        className="rs-pickbtn"
+                        aria-pressed={form.report_usage_frequency === frequency}
+                        // Clicking the chosen one again clears it: an optional
+                        // field you cannot un-answer is not optional.
+                        onClick={() => updateField(
+                          'report_usage_frequency',
+                          form.report_usage_frequency === frequency ? '' : frequency,
+                        )}
+                      >
+                        {frequency}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="rs-row">
+                  <Field name="desired_completion_date" label="When do you need it by?" optional>
+                    <input
+                      id="rs-desired_completion_date"
+                      type="date"
+                      value={form.desired_completion_date}
+                      onChange={(e) => updateField('desired_completion_date', e.target.value)}
+                    />
+                  </Field>
+                  <Field name="department" label="Which department is this for?" optional>
+                    <input
+                      id="rs-department"
+                      type="text"
+                      placeholder="e.g. Claims Operations"
+                      value={form.department}
+                      onChange={(e) => updateField('department', e.target.value)}
+                    />
+                  </Field>
+                </div>
+              </section>
+            </>
+          )}
+
           <section className="rs-card">
             <p className="rs-grouplabel">
               Screenshots
@@ -582,6 +880,7 @@ export function RepSubmitPage() {
           values={form}
           showErrors={showErrors}
           isDefect={isDefect}
+          type={form.type}
           fileCount={files.length}
           saving={saving}
         />
