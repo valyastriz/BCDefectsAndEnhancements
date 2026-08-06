@@ -766,6 +766,10 @@ async function createAdminSubmission(db, { body, username, viewer }) {
         textOrNull(body.approved_by_name),
       ]
       : [null, null, null, null]),
+    // Last, matching the last entry in SUBMISSION_INSERT_COLUMNS. Every type may
+    // carry one — a delivery note is only ASKED for on a report request, and a
+    // column that silently refuses a value for other types is a trap.
+    body.delivery_notes || null,
   ];
   const payload = buildInsertPayload(insertColumns, insertValues);
   const createdSubmission = await Submission.create(payload);
@@ -876,6 +880,28 @@ async function createAdminSubmission(db, { body, username, viewer }) {
 // on success. Moved verbatim from the PUT handler; the entire status /
 // retired / cleanup / type reconciliation block and its logStatusChange
 // ordering is preserved exactly.
+/**
+ * Who reviewed this — filled in with whoever saved it, when it is still blank.
+ *
+ * ON SAVE, not on open. Prefilling the field when the modal opens would mark
+ * every ticket as edited the moment somebody looked at one, and the unsaved-
+ * changes warning would fire on closing a ticket nobody touched. Filling it here
+ * means the name lands on the person who actually did something to the ticket,
+ * which is what the field is for and what ties the status history to a person.
+ *
+ * Applies to every type. It is redundant on a report request (that work is
+ * tracked by assignment and time entries) but a reviewer who is sometimes filled
+ * in and sometimes not is worse than one that always is.
+ *
+ * Clearing the field and saving therefore re-fills it with the person clearing
+ * it. That is the honest answer to "who last worked this", not a bug.
+ */
+function reviewerForSave({ body, existing, viewer, username }) {
+  const submitted = body.reviewer ?? existing.reviewer;
+  if (String(submitted ?? '').trim()) return submitted;
+  return String(viewer?.user?.displayName || username || '').trim() || null;
+}
+
 async function updateAdminSubmission(db, { id, body, username, viewer }) {
   const dbModels = dbApi.getModels() || {};
   const Submission = dbModels.Submission;
@@ -982,7 +1008,7 @@ async function updateAdminSubmission(db, { id, body, username, viewer }) {
       ? toIsoOrNow(body.date_time_of_error)
       : existing.date_time_of_error,
     status: String(body.status ?? normalizedExistingStatus).trim() || normalizedExistingStatus,
-    reviewer: body.reviewer ?? existing.reviewer,
+    reviewer: reviewerForSave({ body, existing, viewer, username }),
     decision_notes: body.decision_notes ?? existing.decision_notes,
     fingerprint: body.fingerprint ?? existing.fingerprint,
     desired_completion_date:
@@ -1018,8 +1044,17 @@ async function updateAdminSubmission(db, { id, body, username, viewer }) {
       body.enhancement_request_type ?? existing.enhancement_request_type,
     priority_level: body.priority_level ?? existing.priority_level,
     jira_number: body.jira_number ?? existing.jira_number,
+    // The downstream ticket number, now editable — an application with no
+    // catalog cannot be sent to, so its tickets are raised by hand on the Service
+    // Desk site and the number has to be typed back in. Blank is a real value
+    // (it clears a wrong one); `?? existing` only covers the key being absent.
+    // The UI keeps it behind an unlock; this is the write side of that.
+    easyvista_ticket_id: body.easyvista_ticket_id === undefined
+      ? existing.easyvista_ticket_id
+      : (String(body.easyvista_ticket_id ?? '').trim() || null),
     release_number: body.release_number ?? existing.release_number,
     release_notes: body.release_notes ?? existing.release_notes,
+    delivery_notes: body.delivery_notes ?? existing.delivery_notes,
     is_cleanup: isCleanup,
     cleanup_status: nextCleanupStatus,
     cleanup_tag_type: nextCleanupTagType,
@@ -1199,8 +1234,10 @@ async function updateAdminSubmission(db, { id, body, username, viewer }) {
     enhancement_request_type_id: lookupIds.enhancement_request_type_id,
     priority_level_id: lookupIds.priority_level_id,
     jira_number: next.jira_number,
+    easyvista_ticket_id: next.easyvista_ticket_id,
     release_number: next.release_number,
     release_notes: next.release_notes,
+    delivery_notes: next.delivery_notes,
     is_cleanup: toBooleanSql(next.is_cleanup),
     // When is_cleanup=false preserve the existing ID so it can be restored if re-checked later
     cleanup_status_id: isCleanup ? lookupIds.cleanup_status_id : (existing.cleanup_status_id ?? null),
@@ -1682,6 +1719,7 @@ async function submitSubmissionToEasyVista(db, { id, body, username, viewer, dry
     source.jira_number = draftPayload.jira_number ?? submission.jira_number;
     source.release_number = draftPayload.release_number ?? submission.release_number;
     source.release_notes = draftPayload.release_notes ?? submission.release_notes;
+    source.delivery_notes = draftPayload.delivery_notes ?? submission.delivery_notes;
     source.duplicate_reference = draftPayload.duplicate_of ?? submission.duplicate_reference;
     source.is_public =
       typeof draftPayload.is_public === 'boolean'
@@ -2030,7 +2068,7 @@ async function submitSubmissionToEasyVista(db, { id, body, username, viewer, dry
     'status_id', 'reviewer', 'decision_notes', 'fingerprint', 'duplicate_reference', 'duplicate_of',
     'easyvista_ticket_id', 'desired_completion_date', 'impact_details', 'impact_notes',
     'policy_premium_impact', 'direct_dollar_impact', 'policies_affected_count', 'logged_defect',
-    'enhancement_request_type_id', 'priority_level_id', 'jira_number', 'release_number', 'release_notes',
+    'enhancement_request_type_id', 'priority_level_id', 'jira_number', 'release_number', 'release_notes', 'delivery_notes',
     'is_cleanup', 'cleanup_status_id', 'cleanup_tag_type_id', 'easyvista_submitted_by',
     'is_resubmission', 'resubmission_of_submission_id', 'resubmission_of_easyvista_ticket_id',
     'has_resubmission', 'latest_resubmission_submission_id', 'latest_resubmission_easyvista_ticket_id',
@@ -2072,6 +2110,7 @@ async function submitSubmissionToEasyVista(db, { id, body, username, viewer, dry
     source.jira_number,
     source.release_number,
     source.release_notes,
+    source.delivery_notes,
     toBooleanSql(source.is_cleanup),
     createdLookupIds.cleanup_status_id,
     createdLookupIds.cleanup_tag_type_id,

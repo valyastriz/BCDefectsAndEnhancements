@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { Input, Select } from '../../bite-size/BitsizeUI';
+import { Input, Select, Textarea } from '../../bite-size/BitsizeUI';
 import { DetailGroup } from './DetailPane';
 import { formatDateOnly } from '../../../utils/formatUtils';
 
@@ -128,6 +128,23 @@ export function DetailDeliverySection({
             ))}
           </Select>
         </DetailGroup>
+      </div>
+
+      {/* What actually came out of it, in the analyst's words.
+          The other three types answer this with Release # and Release Notes on
+          the History tab. A report request is finished in the portal and handed
+          to the person who asked — nothing ships, so there is no release to
+          number, and those two fields are hidden for this type rather than
+          repurposed. This is where the answer goes instead. */}
+      <div className="dm-group dm-group--wide">
+        <span className="dm-group-label">Delivery notes</span>
+        <Textarea
+          label="What was delivered"
+          rows={3}
+          value={edit.delivery_notes || ''}
+          placeholder="What the requester got, where it lives, and anything they need to know to use it."
+          onChange={(e) => setEdit((p) => ({ ...p, delivery_notes: e.target.value }))}
+        />
       </div>
 
       {/* Labelled "Go-ahead", not "Approval": the identity band already carries a

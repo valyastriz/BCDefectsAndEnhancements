@@ -37,6 +37,15 @@ const SUBMISSION_INSERT_COLUMNS = [
   // whoever entered the approval IN THIS PORTAL, and nobody did for an imported
   // row, so it stays null rather than borrowing the importer's name.
   'level_of_effort_id', 'assigned_to', 'approved_at', 'approved_by_name',
+  // What was delivered, in the analyst's words — the report-request counterpart
+  // to release_notes, which is deploy language nothing here ever uses.
+  //
+  // APPENDED, like everything above it, and for the reason this file exists: the
+  // first attempt slotted it beside release_notes in the middle of the list,
+  // which shifted every column after it for the import call site — whose values
+  // array was not updated to match. The whole import then failed with "Cannot
+  // read properties of undefined", 0 rows inserted. A new column goes on the END.
+  'delivery_notes',
 ];
 
 // Zip a parallel columns array and values array into a payload object.

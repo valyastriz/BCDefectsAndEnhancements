@@ -172,6 +172,10 @@ function defineModels(sequelize) {
     jira_number: { type: DataTypes.TEXT },
     release_number: { type: DataTypes.TEXT },
     release_notes: { type: DataTypes.TEXT },
+    // What was actually delivered, in the analyst's words. The report-request
+    // counterpart to release_notes, which is deploy language a report request
+    // never uses — nothing ships, so there is no release to note.
+    delivery_notes: { type: DataTypes.TEXT },
     is_cleanup: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
     cleanup_status_id: { type: DataTypes.INTEGER, allowNull: true },
     cleanup_tag_type_id: { type: DataTypes.INTEGER, allowNull: true },

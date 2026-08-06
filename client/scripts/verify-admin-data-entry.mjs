@@ -638,6 +638,19 @@ async function run() {
         `level of effort: ${pane.effortOptions.join(' · ')} | ${pane.assigneeOptions} assignee options`,
       );
 
+      // ── What a report request answers instead of "what shipped" ───────────
+      // Release # and Release Notes are deploy language; nothing ships here. The
+      // question that does apply — what the requester actually got — had nowhere
+      // to go until delivery_notes. Only the presence check here; the write and
+      // the History tab come after the hours ledger below, so this section does
+      // not leave the Delivery pane half-way through its own flow.
+      record(
+        'the pane asks what was delivered',
+        pane.groups.includes('Delivery notes')
+          && pane.fields.some((field) => /What was delivered/i.test(field)),
+        pane.groups.join(' · '),
+      );
+
       // Log an hour through the pane, which is the one write this section makes
       // beyond the ticket itself — and it comes back out with the ticket.
       await page.click('.dm-fold-btn');
@@ -659,6 +672,59 @@ async function run() {
         logged.rows === 1 && /1\.5/.test(logged.amount || '') && /1\.5/.test(logged.summary || ''),
         JSON.stringify(logged),
       );
+
+      // ── Delivery notes, written and read back ─────────────────────────────
+      const deliveryNote = 'VERIFY delivery note — safe to delete';
+      await page.fill('.dm-group:has(.dm-group-label:text-is("Delivery notes")) textarea', deliveryNote);
+      await page.click('.dm-save, button:has-text("Save")');
+      await page.waitForTimeout(900);
+      const savedNote = await page.request.get(`${API}/api/admin/submissions/${createdId}`)
+        .then((response) => response.json())
+        .then((body) => body.submission || body);
+      record(
+        'what was delivered survives the round trip to the database',
+        String(savedNote.delivery_notes || '') === deliveryNote,
+        `stored "${String(savedNote.delivery_notes || '').slice(0, 40)}"`,
+      );
+      // Left blank, the server stamps whoever saved — so the record ties to a
+      // person without anybody typing their own name.
+      record(
+        'saving also records who worked it, without asking them to type it',
+        String(savedNote.reviewer || '').trim().length > 0,
+        `reviewer="${savedNote.reviewer}"`,
+      );
+
+      // ── The History tab: no Release group, and a protected ticket number ──
+      await page.click('.dm-tab:has-text("History")');
+      await page.waitForSelector('.dm-locked');
+      const history = await page.evaluate(() => ({
+        groups: [...document.querySelectorAll('.dm-group-label')].map((node) => node.textContent.trim()),
+        locked: Boolean(document.querySelector('.dm-locked')),
+        unlockButton: Boolean([...document.querySelectorAll('.dm-locked-btn')]
+          .find((node) => /unlock/i.test(node.textContent || ''))),
+        editableBeforeUnlock: Boolean(document.querySelector('.dm-locked input')),
+      }));
+      record(
+        'a report request is not asked for a release number or release notes',
+        !history.groups.includes('Release'),
+        history.groups.join(' · '),
+      );
+      record(
+        'the Service Desk number is read-only until deliberately unlocked',
+        history.locked && history.unlockButton && !history.editableBeforeUnlock,
+        `locked=${history.locked} button=${history.unlockButton} input before unlock=${history.editableBeforeUnlock}`,
+      );
+      await page.click('.dm-locked-btn');
+      await page.waitForSelector('.dm-locked--open input');
+      record(
+        'and one click opens it, with the original still on screen to revert to',
+        Boolean(await page.$('.dm-locked--open input')) && Boolean(await page.$('.dm-locked-was')),
+        (await page.textContent('.dm-locked-was'))?.trim() || '',
+      );
+      await shoot(page, 'detail-history-ticket-unlocked');
+      // Back to Delivery for the overflow sweep below, which is about that pane.
+      await page.click('.dm-tab:has-text("Delivery")');
+      await page.waitForSelector('.dm-hrs');
 
       for (const theme of THEMES) {
         for (const viewport of VIEWPORTS) {

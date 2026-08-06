@@ -68,6 +68,12 @@ export function editableFromDetail(detail) {
     easyvista_submitted_by: detail.easyvista_submitted_by || '',
     release_number: detail.release_number || '',
     release_notes: detail.release_notes || '',
+    // What was delivered, for a report request — the counterpart to the two
+    // above, which are deploy language a report request never uses.
+    delivery_notes: detail.delivery_notes || '',
+    // Editable, but only behind the unlock in DetailReferenceSection. For every
+    // ticket the portal sent, this is the server's own record of the hand-off.
+    easyvista_ticket_id: detail.easyvista_ticket_id || '',
     logged_defect: Boolean(detail.logged_defect),
     duplicate_of: detail.duplicate_reference || detail.duplicate_of || '',
     is_retired: Boolean(detail.is_retired),

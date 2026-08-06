@@ -753,6 +753,11 @@ router.post('/api/admin/submissions/import-xlsx', ensureAdmin, tempUpload.single
               ...(row.type === SUBMISSION_TYPE_REPORT
                 ? [levelOfEffortId, assignedTo, row.approved_at, row.approved_by_name]
                 : [null, null, null, null]),
+              // delivery_notes — last, matching SUBMISSION_INSERT_COLUMNS. Not a
+              // sheet column: a delivery note is written on the Delivery pane
+              // after the work, and an import is loading history that already
+              // happened elsewhere. It stays null and is typed in afterwards.
+              null,
             ];
             if (!Submission) {
               throw new Error('Submission model is not initialized');

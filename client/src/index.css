@@ -2531,6 +2531,27 @@ tr[data-selected="true"] td { background: color-mix(in srgb, var(--color-primary
 .dm-act--quiet:hover { color: var(--color-text); background: var(--color-bg); }
 .dm-act:disabled { opacity: .5; cursor: not-allowed; }
 
+/* A field that is read-only until deliberately unlocked. The Service Desk number
+   is the server's own record of a hand-off for every ticket the portal sent, so
+   it is protected from a stray keystroke — but it still has to be typeable for
+   the tickets somebody raised by hand. */
+.dm-locked { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }
+.dm-locked-btn { align-self: flex-start; }
+.dm-locked--open {
+  padding: 8px; margin: -8px;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--color-primary) 6%, transparent);
+  border: 1px dashed color-mix(in srgb, var(--color-primary) 40%, transparent);
+}
+.dm-locked--open .bs-field { width: 100%; }
+.dm-locked-foot {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  width: 100%; margin-top: 6px;
+}
+/* The value before this edit, kept on screen so a mistake is visible and
+   revertible without reloading the ticket. */
+.dm-locked-was { font-size: 12px; color: var(--color-muted); margin-right: auto; }
+
 /* ── Approval evidence ──────────────────────────────────────────────────────
    Files that are not screenshots, listed where the fact they prove lives. */
 .dm-files { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; }

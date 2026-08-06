@@ -18,6 +18,7 @@
     "migrate:report-requests": "node scripts/migrateReportRequests.js",
     "migrate:report-statuses": "node scripts/migrateReportStatuses.js",
     "migrate:session-store": "node scripts/migrateSessionStore.js",
+    "migrate:delivery-notes": "node scripts/migrateDeliveryNotes.js",
     "backfill:tracker-history": "node scripts/backfill-tracker-label-history.js",
     "grant:super-user": "node scripts/grantSuperUser.js",
     "remove:verification-tickets": "node scripts/removeVerificationSubmissions.js"

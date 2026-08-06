@@ -136,9 +136,13 @@ export function DetailTriageSection({
       </DetailGroup>
 
       <DetailGroup label="Ownership & tracking">
+        {/* Left blank, the server fills this with whoever saves — see
+            reviewerForSave. The placeholder says so rather than the field being
+            pre-filled here, which would mark every ticket edited on open. */}
         <Input
           label="Reviewer"
           value={edit.reviewer}
+          placeholder="Your name, when you save"
           onChange={(e) => setEdit((p) => ({ ...p, reviewer: e.target.value }))}
         />
         <Input
@@ -159,26 +163,35 @@ export function DetailTriageSection({
 
       {/* The alert at the top of the modal is the prompt; this is where the two
           flags actually live, so a request can also be raised on a reporter's
-          behalf or reopened after the fact. */}
-      <DetailGroup label="Workaround">
-        <label className="dm-check">
-          <input
-            type="checkbox"
-            checked={Boolean(edit.needs_workaround)}
-            onChange={(e) => setEdit((p) => ({ ...p, needs_workaround: e.target.checked }))}
-          />
-          <span>Reporter needs a workaround for their case</span>
-        </label>
-        <label className="dm-check">
-          <input
-            type="checkbox"
-            disabled={!edit.needs_workaround}
-            checked={Boolean(edit.workaround_provided)}
-            onChange={(e) => setEdit((p) => ({ ...p, workaround_provided: e.target.checked }))}
-          />
-          <span>Workaround provided</span>
-        </label>
-      </DetailGroup>
+          behalf or reopened after the fact.
+
+          NOT ON A REPORT REQUEST. A workaround is what you give someone whose
+          work is blocked by something broken. Nothing is broken here — the
+          report does not exist yet — so "does the reporter need a workaround"
+          has no answer, and a permanently-unticked pair of boxes reads as an
+          outstanding question rather than an inapplicable one. The columns stay
+          on the row and keep whatever they hold; only the control goes. */}
+      {!isReport && (
+        <DetailGroup label="Workaround">
+          <label className="dm-check">
+            <input
+              type="checkbox"
+              checked={Boolean(edit.needs_workaround)}
+              onChange={(e) => setEdit((p) => ({ ...p, needs_workaround: e.target.checked }))}
+            />
+            <span>Reporter needs a workaround for their case</span>
+          </label>
+          <label className="dm-check">
+            <input
+              type="checkbox"
+              disabled={!edit.needs_workaround}
+              checked={Boolean(edit.workaround_provided)}
+              onChange={(e) => setEdit((p) => ({ ...p, workaround_provided: e.target.checked }))}
+            />
+            <span>Workaround provided</span>
+          </label>
+        </DetailGroup>
+      )}
 
       <DetailGroup label="Decision">
         <Textarea
