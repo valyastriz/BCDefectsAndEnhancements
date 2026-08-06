@@ -11,14 +11,26 @@
  * Plus the card count (six -> four) and per-container overflow at three widths in
  * both themes.
  *
- * Read-only: it fills nothing and submits nothing.
+ * It also holds the two claims about what a REQUESTER sees that nothing else
+ * checks: the summary owns its own row (it used to share one with the name box for
+ * anyone not signed in — which is everybody, on the live site), and the duplicate
+ * check searches only the kind of request being filed, saying so on screen.
+ *
+ * Nearly read-only: the duplicate-scope section creates ONE public report request
+ * so the narrowing can be proved from both directions, and removes it again
+ * through server/scripts/removeVerificationSubmissions.js.
  *
  * Usage (server on :4000 and Vite on :5173 must already be running):
  *   node scripts/verify-submit-form.mjs [--shots ./out]
  */
 import { chromium } from 'playwright';
 import { mkdirSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
 import { OVERFLOW_PROBE } from './lib/overflow-probe.mjs';
+
+const SERVER_DIR = path.resolve(fileURLToPath(new URL('../../server', import.meta.url)));
 
 const BASE = process.env.VERIFY_BASE_URL || 'http://localhost:5173';
 const API = process.env.VERIFY_API_URL || 'http://localhost:4000';
@@ -107,6 +119,23 @@ async function run() {
 
   await page.goto(BASE, { waitUntil: 'networkidle' });
   await page.waitForSelector('.rs-main .rs-card');
+
+  // ── The heading names the portal's job, not one application ──────────────
+  // It read "Submit a Billing Center request", derived from the viewer's own
+  // application. This is the Service Requests Portal: it takes requests for
+  // whatever application the requester works in, and naming one in the h1 made
+  // the page look like somebody else's to everybody else. The ticket still
+  // records the application and the confirmation still names it.
+  const heading = (await page.textContent('.rs-head h1')).trim();
+  const applications = await page.request.get(`${API}/api/viewer`)
+    .then((response) => response.json())
+    .then((body) => (body?.viewer?.applications || []).map((application) => application.name));
+  record(
+    'the heading names the service, not an application',
+    heading === 'Submit a service request'
+      && !applications.some((name) => heading.includes(name)),
+    `"${heading}" (applications: ${applications.join(', ')})`,
+  );
 
   // ── Defect: the default shape ────────────────────────────────────────────
   const defect = await measure(page);
@@ -278,6 +307,104 @@ async function run() {
     defectSteps.join(' → '),
   );
 
+  // ── The duplicate check searches its own kind ────────────────────────────
+  // A report request is only ever a duplicate of another report request: "the
+  // unapplied cash dashboard needs a write-off column" has nothing to do with a
+  // broken invoice screen, and offering one as a possible duplicate of the other
+  // spends the requester's attention on the one screen where they are trying not
+  // to file twice. A defect and an enhancement stay eligible for each other,
+  // because which of the two a sentence describes is a triage decision.
+  //
+  // The panel also has to SAY which it searched: a narrowed search that reports
+  // "nothing like this" without saying what it looked at makes a bigger claim than
+  // it can support.
+  for (const [type, expected] of [
+    ['Report request', 'existing report requests'],
+    ['Enhancement', 'existing defects and enhancements'],
+    ['Defect', 'existing defects and enhancements'],
+  ]) {
+    await page.click(`.rs-seg .rs-type:has-text("${type}")`);
+    await page.waitForTimeout(140);
+    const said = (await page.textContent('.rs-dupe-txt')).replace(/\s+/g, ' ').trim();
+    record(
+      `the duplicate check says what it will search — ${type}`,
+      said.includes(expected),
+      said,
+    );
+  }
+  await page.click('.rs-seg .rs-type:has-text("Defect")');
+
+  // And the narrowing is the SERVER's, not a label: one fixture report request,
+  // searched from both directions.
+  const csrf = (await context.cookies()).find((cookie) => cookie.name === 'bc_csrf')?.value || '';
+  const marker = 'VERIFY duplicate scope unapplied cash dashboard';
+  let fixtureId = null;
+  try {
+    const application = (await page.request.get(`${API}/api/viewer`).then((r) => r.json()))
+      .viewer.applications[0];
+    const made = await page.request.post(`${API}/api/admin/submissions`, {
+      headers: { 'X-CSRF-Token': csrf, 'Content-Type': 'application/json' },
+      data: {
+        type: 'report',
+        status: 'New',
+        application_name: application.name,
+        created_by: 'Verification harness',
+        summary_of_issue: `${marker} — safe to delete`,
+        what_happened_exact_details: 'Created by scripts/verify-submit-form.mjs. Removed by the same run.',
+        measures_and_sources: 'One measure, from one place.',
+        is_new_dashboard: true,
+        is_public: true,
+      },
+    }).then((response) => response.json());
+    fixtureId = Number(made?.submission?.id || made?.id);
+
+    const search = async (requestType) => page.request.post(`${API}/api/ai-search`, {
+      headers: { 'Content-Type': 'application/json' },
+      data: { query: marker, requestType },
+    }).then((response) => response.json());
+
+    const asReport = await search('report');
+    const reportCards = [...(asReport.matches || []), ...(asReport.keywordMatches || [])];
+    record(
+      'searching as a report request finds report requests, and only those',
+      reportCards.length > 0
+        && reportCards.every((card) => String(card.type || '').toLowerCase() === 'report')
+        && reportCards.some((card) => Number(card.id) === fixtureId),
+      `${reportCards.length} cards, types: ${[...new Set(reportCards.map((card) => card.type))].join(', ')}`,
+    );
+
+    const asDefect = await search('defect');
+    const defectCards = [...(asDefect.matches || []), ...(asDefect.keywordMatches || [])];
+    record(
+      'searching as a defect never offers a report request as the duplicate',
+      defectCards.every((card) => String(card.type || '').toLowerCase() !== 'report')
+        && !defectCards.some((card) => Number(card.id) === fixtureId),
+      `${defectCards.length} cards, types: ${[...new Set(defectCards.map((card) => card.type))].join(', ') || 'none'}`,
+    );
+    record(
+      'and the response says what it searched, so the client can too',
+      asReport.meta?.searchedOnlyType === 'report' && asDefect.meta?.excludedType === 'report',
+      `report: ${JSON.stringify(asReport.meta?.searchedOnlyType)} · defect excluded: ${JSON.stringify(asDefect.meta?.excludedType)}`,
+    );
+  } finally {
+    if (fixtureId) {
+      const output = execFileSync(
+        process.execPath,
+        ['scripts/removeVerificationSubmissions.js', String(fixtureId), '--apply'],
+        { cwd: SERVER_DIR, encoding: 'utf8' },
+      );
+      console.log(output.trim().split('\n').map((line) => `      ${line}`).join('\n'));
+      const gone = await page.request.get(`${API}/api/admin/submissions/${fixtureId}`);
+      record(
+        'the fixture report request is gone again',
+        gone.status() === 404,
+        `GET /api/admin/submissions/${fixtureId} -> ${gone.status()}`,
+      );
+    }
+    await page.goto(BASE, { waitUntil: 'networkidle' });
+    await page.waitForSelector('.rs-main .rs-card');
+  }
+
   // ── Responsive ───────────────────────────────────────────────────────────
   for (const theme of THEMES) {
     for (const viewport of VIEWPORTS) {
@@ -293,37 +420,39 @@ async function run() {
         offenders.length === 0,
         offenders.length ? JSON.stringify(offenders.slice(0, 3)) : '',
       );
+      if (theme === 'light') {
+        // The summary owns its row outright, at every width and in both branches.
+        // It used to share one with the name box for an anonymous filer — which is
+        // what a visitor to the live site is — so this asks the question the way it
+        // is now true: is the summary the full width of its card, and is anything
+        // else on its line?
+        const who = await page.evaluate(() => {
+          const summary = document.querySelector('#rs-summary_of_issue');
+          const card = summary?.closest('.rs-card');
+          const pad = card ? Number.parseFloat(getComputedStyle(card).paddingLeft) : 0;
+          const summaryBox = summary?.getBoundingClientRect();
+          const name = document.querySelector('#rs-created_by');
+          const nameBox = name?.getBoundingClientRect();
+          return {
+            summaryShort: card
+              ? Math.round(card.getBoundingClientRect().width - 2 * pad - summaryBox.width)
+              : null,
+            sharesLine: Boolean(nameBox) && Math.abs(nameBox.top - summaryBox.top) < 8,
+            anonymous: Boolean(name),
+          };
+        });
+        record(
+          `the summary owns its row — ${viewport.name}, ${who.anonymous ? 'anonymous' : 'stated'} filer`,
+          Math.abs(who.summaryShort) <= 2 && who.sharesLine === false,
+          `summary ${who.summaryShort}px short of the card, shares its line with the name box: ${who.sharesLine}`,
+        );
+      }
       if (viewport.name === 'phone' && theme === 'light') {
         const phone = await measure(page);
         record(
           'the form column fits the reviewed height — phone',
           phone.height <= HEIGHT_CEILING.phone,
           `${phone.height}px (ceiling ${HEIGHT_CEILING.phone}px)`,
-        );
-        // The name/summary pair goes back to one per row where there is no
-        // width. `.rs-row--who` only exists for an ANONYMOUS filer now — a known
-        // reporter is a line of text and the summary owns the row outright — so
-        // the two cases are asserted separately rather than one crashing on the
-        // other's absence.
-        const who = await page.evaluate(() => {
-          const row = document.querySelector('.rs-row--who');
-          const summary = document.querySelector('#rs-summary_of_issue');
-          const card = summary?.closest('.rs-card');
-          const pad = card ? Number.parseFloat(getComputedStyle(card).paddingLeft) : 0;
-          return {
-            paired: Boolean(row),
-            columns: row ? getComputedStyle(row).gridTemplateColumns : '',
-            summaryShort: card
-              ? Math.round(card.getBoundingClientRect().width - 2 * pad - summary.getBoundingClientRect().width)
-              : null,
-          };
-        });
-        record(
-          who.paired
-            ? 'name and summary stop sharing a row on a phone'
-            : 'a stated reporter leaves the summary the whole row',
-          who.paired ? who.columns.split(' ').length === 1 : Math.abs(who.summaryShort) <= 2,
-          who.paired ? `grid-template-columns: ${who.columns}` : `summary ${who.summaryShort}px short of the card`,
         );
 
         // Three segments do not fit one line at 390px: one per row, same width
@@ -344,6 +473,54 @@ async function run() {
       await shoot(page, `submit-${viewport.name}-${theme}`);
     }
   }
+
+  // ── The same form with nobody signed in ──────────────────────────────────
+  // The case that regressed, and the case a visitor to the live site is actually
+  // in: the name is a real input then, and it used to sit on the summary's line.
+  // Checked in its own context because the one above is signed in, and the branch
+  // only exists for a viewer the server does not recognise.
+  const anonymous = await browser.newContext({
+    viewport: VIEWPORTS[0], deviceScaleFactor: 2, reducedMotion: 'reduce',
+  });
+  const anonymousPage = await anonymous.newPage();
+  await anonymousPage.goto(BASE, { waitUntil: 'networkidle' });
+  await anonymousPage.waitForSelector('.rs-main .rs-card');
+  for (const viewport of VIEWPORTS) {
+    await anonymousPage.setViewportSize({ width: viewport.width, height: viewport.height });
+    await anonymousPage.waitForTimeout(140);
+    const who = await anonymousPage.evaluate(() => {
+      const summary = document.querySelector('#rs-summary_of_issue');
+      const name = document.querySelector('#rs-created_by');
+      const card = summary?.closest('.rs-card');
+      const pad = card ? Number.parseFloat(getComputedStyle(card).paddingLeft) : 0;
+      const summaryBox = summary?.getBoundingClientRect();
+      const nameBox = name?.getBoundingClientRect();
+      return {
+        asksForName: Boolean(name),
+        nameWidth: nameBox ? Math.round(nameBox.width) : null,
+        summaryShort: card
+          ? Math.round(card.getBoundingClientRect().width - 2 * pad - summaryBox.width)
+          : null,
+        sharesLine: Boolean(nameBox) && Math.abs(nameBox.top - summaryBox.top) < 8,
+        nameAbove: Boolean(nameBox) && nameBox.top < summaryBox.top,
+      };
+    });
+    record(
+      `an anonymous filer is asked their name ABOVE the summary — ${viewport.name}`,
+      who.asksForName
+        && who.sharesLine === false
+        && who.nameAbove
+        && Math.abs(who.summaryShort) <= 2,
+      `name ${who.nameWidth}px, above=${who.nameAbove}, shares line=${who.sharesLine}, summary ${who.summaryShort}px short`,
+    );
+    const offenders = await anonymousPage.evaluate(OVERFLOW_PROBE, '.app-main');
+    record(
+      `the anonymous form has no clipped overflow — ${viewport.name}`,
+      offenders.length === 0,
+      offenders.length ? JSON.stringify(offenders.slice(0, 3)) : '',
+    );
+  }
+  await shoot(anonymousPage, 'submit-anonymous-desktop-light');
 
   const realErrors = consoleErrors.filter((t) => !/401|Unauthorized/i.test(t));
   record('console is clean', realErrors.length === 0, realErrors.slice(0, 3).join(' | '));

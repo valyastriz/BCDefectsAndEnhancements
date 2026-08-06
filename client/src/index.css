@@ -3160,16 +3160,13 @@ select.dm-prow-input { cursor: pointer; }
 
 .rs-row { display: grid; gap: 11px; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); }
 .rs-row--when { grid-template-columns: minmax(0,2fr) minmax(0,1.1fr) minmax(0,1fr); }
-/* A short identifying field and a one-line summary do not each need a full row of
-   an 848px column. One per row again on narrow screens. */
-.rs-row--who {
-  display: grid; gap: 11px; grid-template-columns: minmax(0, 250px) minmax(0, 1fr);
-  align-items: end;
-}
-.rs-row--who .rs-field-lead { min-width: 0; }
-@media (max-width: 760px) {
-  .rs-row--who { grid-template-columns: minmax(0, 1fr); }
-}
+/* An anonymous filer's name. Its own row, capped rather than full-bleed — a name
+   is short and a 848px-wide box for one invites a sentence.
+   It used to share a row with the one-line summary (`.rs-row--who`, now gone):
+   two fields, `align-items: end`, and the summary's 140-character counter pressed
+   against its label. The summary is the field that carries the request; on this
+   form it does not share a line with anything. */
+.rs-field-name { max-width: 340px; }
 
 /* Optional reference numbers. They already sat three-up; the dashed box around
    them added a border, a heading row and 25px of padding for three optional
@@ -3568,14 +3565,16 @@ select.dm-prow-input { cursor: pointer; }
    Lifted from the approved mockup v3:
    https://claude.ai/code/artifact/075982a2-0670-4d48-b02d-ba92b420b0b7
 
-   It used to be a bordered box sharing a row with the one-line summary
-   (`.rs-row--who`), and it read as a broken input beside a working one: same
-   border, same fill, no label of its own, and `align-items: end` lining up their
-   bottoms so the reporter's top edge floated against the summary's label. It is
-   not a field — nobody can change it — so it stops being drawn as one.
+   It used to be a bordered box sharing a row with the one-line summary, and it
+   read as a broken input beside a working one: same border, same fill, no label of
+   its own, and `align-items: end` lining up their bottoms so the reporter's top
+   edge floated against the summary's label. It is not a field — nobody can change
+   it — so it stops being drawn as one.
 
-   `.rs-row--who` keeps the case it still fits: an anonymous filer, where "Your
-   name" really is an input and pairing two inputs is what that row is for. */
+   The paired row (`.rs-row--who`) is gone entirely now. It survived for the
+   anonymous case, which is exactly what a visitor to the live site sees, so the
+   summary went on sharing its line with a name box for everybody who was not
+   signed in. Both branches now read the same way: who, then what, one per row. */
 .rs-filedby {
   display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px;
   font-size: 12.5px; color: var(--color-muted);

@@ -29,7 +29,7 @@ function SkeletonRow({ titleWidth, metaWidth }) {
  * Self-disabling: `/api/ai-search/status` reports `enabled: false` when no
  * provider key is configured, and the whole block renders nothing.
  */
-export function DuplicateCheck({ query }) {
+export function DuplicateCheck({ query, requestType = '' }) {
   const [status, setStatus] = useState({ loading: true, enabled: false, summaryEnabled: false });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -76,6 +76,11 @@ export function DuplicateCheck({ query }) {
         applicationName: '',
         reportedWithinDays: null,
         resolvedWithinDays: null,
+        // What is being filed decides what can be a duplicate of it. A report
+        // request is only ever a duplicate of another report request; a defect and
+        // an enhancement stay eligible for each other, because which of the two a
+        // sentence describes is a triage decision. The server does the narrowing.
+        requestType,
       });
       if (reqIdRef.current !== reqId) return; // a newer check superseded this one
       if (res && res.enabled === false) {
@@ -108,14 +113,21 @@ export function DuplicateCheck({ query }) {
   else if (hasHits) tone = ' rs-dupe--hits';
   else if (isClear) tone = ' rs-dupe--clear';
 
+  // What the search was allowed to look at, stated wherever it is narrower than
+  // "the queue". A check that quietly searched one kind of ticket and found
+  // nothing would read as "nothing like this anywhere", which is a different and
+  // stronger claim than the one it can make.
+  const isReportRequest = String(requestType || '').trim().toLowerCase() === 'report';
+  const scopeNoun = isReportRequest ? 'report requests' : 'defects and enhancements';
+
   let title = 'Already reported?';
   let subtitle = tooShort
-    ? 'Write your one-line summary above and we will check it against the queue.'
-    : 'Check your line against tickets already in the queue before you file.';
+    ? `Write your one-line summary above and we will check it against existing ${scopeNoun}.`
+    : `Check your line against existing ${scopeNoun} before you file.`;
 
   if (loading) {
     title = 'Checking the queue…';
-    subtitle = 'Comparing your summary against reported tickets.';
+    subtitle = `Comparing your summary against ${scopeNoun} already reported.`;
   } else if (error) {
     title = 'The duplicate check could not run';
     subtitle = `${error} You can still submit — this check is optional.`;
@@ -125,11 +137,13 @@ export function DuplicateCheck({ query }) {
       ? 'These matches are for what you wrote before. Re-check to search the new wording.'
       : 'The last check was for what you wrote before. Re-check to search the new wording.';
   } else if (hasHits) {
-    title = total === 1 ? '1 similar ticket found' : `${total} similar tickets found`;
+    title = total === 1
+      ? `1 similar ${isReportRequest ? 'report request' : 'ticket'} found`
+      : `${total} similar ${isReportRequest ? 'report requests' : 'tickets'} found`;
     subtitle = 'Review these before you file. A duplicate slows the original one down.';
   } else if (isClear) {
-    title = 'Nothing like this in the queue';
-    subtitle = 'Looks new — carry on and file it.';
+    title = `Nothing like this in the ${isReportRequest ? 'report queue' : 'queue'}`;
+    subtitle = `Looks new — carry on and file it. Only existing ${scopeNoun} were searched.`;
   }
 
   const showButton = !loading && (!result || isStale || isClear);

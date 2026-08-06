@@ -345,10 +345,15 @@ export function RepSubmitPage() {
     <div className="rs-page">
       <div className="rs-head">
         <div>
-          {/* Type-neutral: a report request is not an issue, and a heading that
-              rewrites itself when you press a segment moves the text above the
-              control you just clicked. */}
-          <h1>{homeApplicationName ? `Submit a ${homeApplicationName} request` : 'Submit a request'}</h1>
+          {/* Type-neutral AND application-neutral. Type-neutral because a report
+              request is not an issue, and because a heading that rewrites itself
+              when you press a segment moves the text above the control you just
+              clicked. Application-neutral because this is the Service Requests
+              Portal: it takes requests for whatever application the requester
+              works in, and naming one of them in the h1 made the page look like
+              somebody else's when it was not. The ticket still records the
+              application, and the confirmation still says which one it went to. */}
+          <h1>Submit a service request</h1>
           <p>
             Defects, enhancements and report requests all go to the same triage queue.
             You&rsquo;ll get a reference number and can follow it on the Status Board.
@@ -427,11 +432,15 @@ export function RepSubmitPage() {
               </div>
             )}
 
-            {/* The reporter is a STATEMENT, not a field — nobody can change it —
-                so it is a line of text above the summary rather than a box beside
-                it. `.rs-row--who` keeps the case it still fits: an anonymous
-                filer, where "Your name" really is an input and pairing two inputs
-                is what that row is for. */}
+            {/* WHO, THEN WHAT — one field per row, both branches.
+                The reporter is a STATEMENT for a signed-in filer (nobody can
+                change it) and a field for an anonymous one, but either way it
+                comes first and the summary gets the full column beneath it.
+                The two used to share a row when nobody was signed in, which is
+                what a visitor to the live site saw: a 250px name box crowding the
+                one field that carries the whole request, and its 140-character
+                counter squeezed against the label. A one-line summary is the lead
+                field on this form; it does not share. */}
             {knownReporter ? (
               <>
                 <p className="rs-filedby">
@@ -460,22 +469,24 @@ export function RepSubmitPage() {
                 </div>
               </>
             ) : (
-              <div className="rs-row--who">
-                <Field
-                  name="created_by"
-                  label="Your name"
-                  required
-                  error={errorFor('created_by')}
-                >
-                  <input
-                    id="rs-created_by"
-                    type="text"
-                    autoComplete="name"
-                    placeholder="First and last name"
-                    value={form.created_by}
-                    onChange={(e) => updateField('created_by', e.target.value)}
-                  />
-                </Field>
+              <>
+                <div className="rs-field-name">
+                  <Field
+                    name="created_by"
+                    label="Your name"
+                    required
+                    error={errorFor('created_by')}
+                  >
+                    <input
+                      id="rs-created_by"
+                      type="text"
+                      autoComplete="name"
+                      placeholder="First and last name"
+                      value={form.created_by}
+                      onChange={(e) => updateField('created_by', e.target.value)}
+                    />
+                  </Field>
+                </div>
 
                 <div className="rs-field-lead">
                   <Field
@@ -497,10 +508,13 @@ export function RepSubmitPage() {
                     />
                   </Field>
                 </div>
-              </div>
+              </>
             )}
 
-            <DuplicateCheck query={form.summary_of_issue} />
+            {/* The type being filed decides what can be a duplicate of it: a
+                report request is only ever a duplicate of another report request,
+                while a defect and an enhancement stay eligible for each other. */}
+            <DuplicateCheck query={form.summary_of_issue} requestType={form.type} />
           </section>
 
           {isDefect && (

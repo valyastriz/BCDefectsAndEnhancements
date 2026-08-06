@@ -29,9 +29,9 @@ read this section, then §4 for the design decisions that govern the rest.
 **Merged and deployed:** PR #12 (schema, authorisation sweep, backend), PR #13
 (submit form), PR #14 (Delivery pane, handover trail, approval evidence).
 
-**Verified:** 319 server tests, client lint and production build clean, and **248
+**Verified:** 319 server tests, client lint and production build clean, and **264
 harness checks** across six committed scripts at 1500/820/390 in both themes — 102
-admin data entry, 52 throughput, 32 submit form, 26 metadata, 19 spreadsheet round
+admin data entry, 52 throughput, 48 submit form, 26 metadata, 19 spreadsheet round
 trip, 17 public board. Every script that writes ended by printing the hosted
 submission count back at **83**.
 
@@ -227,6 +227,53 @@ catch a header which does not round-trip — the two that never did ("Reported D
 "Request Details") are why the pattern exists. The same run asserts all three
 refusal paths and the `Deployed` rejection. `xlsx` is a client devDependency now, so
 the harness can build the fixture sheets it needs.
+
+### Three things the owner found on the live site (2026-08-06, fourth pass)
+
+All three were on the SUBMIT FORM, and two of them were only ever visible to a
+viewer the server does not recognise — which is every visitor to the live site,
+because nobody signs in to file. That is the lesson worth keeping: **the signed-in
+branch is not the branch a requester sees.** `verify-submit-form.mjs` now opens the
+form in a second, session-less context and checks the anonymous branch at all three
+widths on its own.
+
+1. **The summary was still sharing a row with the name box.** The report-request
+   work replaced the reporter with a `Filing as` line *for a signed-in filer* and
+   left `.rs-row--who` in place for everyone else, so the field carrying the whole
+   request sat in ~814px next to a 250px name box with its 140-character counter
+   squeezed against the label. The paired row is gone: **who, then what, one per
+   row, both branches.** `.rs-field-name` caps the name at 340px because a name is
+   short; the summary takes the column.
+2. **The heading named one application.** It was `Submit a {application} request`,
+   derived from the viewer — so it read "Submit a Billing Center request" to
+   somebody filing against Policy Center. It is **`Submit a service request`** now:
+   application-neutral, matching the portal's own name (§0.2). The ticket still
+   records the application, and the confirmation still says which one it went to.
+3. **The duplicate check searched every kind of ticket.** A report request is only
+   ever a duplicate of another report request — "the unapplied cash dashboard needs
+   a write-off column" has nothing to do with a broken invoice screen — so both
+   directions are hard filters in the QUERY (`loadCandidates`), not a post-filter:
+   a wrong-kind ticket never takes a top-K slot from a right-kind one. A defect and
+   an enhancement stay eligible for each other, because which of the two a sentence
+   describes is a triage decision; the same kind gets a **0.05 preference on the
+   display blend only** (`AI_SEARCH_SAME_TYPE_WEIGHT`, smaller than the 0.15
+   recency weight), never on `match` — so it settles ties and cannot lift a ticket
+   past the similarity floor.
+
+   The panel **says what it searched** ("existing report requests" / "existing
+   defects and enhancements"), and the response carries `meta.searchedOnlyType` /
+   `meta.excludedType` so it cannot claim more than it looked at. A narrowed search
+   reporting "nothing like this" without naming its scope is a bigger claim than it
+   can support.
+
+   `Op.ne` alone would have dropped every row with a NULL `type_id` — SQL says NULL
+   is neither equal nor unequal to anything, and historical rows exist with no type.
+   Excluding one KIND of ticket must not also exclude the untyped ones.
+
+Verified by 48 checks in `verify-submit-form.mjs`, which now creates one public
+report request to prove the narrowing from both directions (report search finds
+only report requests; defect search returns 16 cards, none of them a report) and
+removes it again.
 
 ### Not done, on purpose
 

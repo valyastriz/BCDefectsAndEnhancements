@@ -41,6 +41,11 @@ function readSearchParams(body = {}) {
     applicationName: body.applicationName ?? '',
     reportedWithinDays: body.reportedWithinDays ?? null,
     resolvedWithinDays: body.resolvedWithinDays ?? null,
+    // The kind of request being filed, when there is one. The submit form's
+    // duplicate check sends it; the board's own search does not, and sees
+    // everything. Validated where it is used — an unrecognised value narrows
+    // nothing rather than erroring.
+    requestType: body.requestType ?? '',
   };
 }
 

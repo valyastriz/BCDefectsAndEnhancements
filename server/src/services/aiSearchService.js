@@ -50,8 +50,15 @@ const {
   AI_SEARCH_RECENCY_HALFLIFE_DAYS,
   AI_SEARCH_MIN_SIMILARITY,
 } = require('../config');
+const { SUBMISSION_TYPE_REPORT } = require('../constants');
 
 const RECENCY_HALFLIFE_MS = AI_SEARCH_RECENCY_HALFLIFE_DAYS * 86400000;
+
+// How much a ticket of the SAME kind as the one being filed is preferred, in the
+// display-order blend. Deliberately smaller than the recency weight (0.15): a
+// defect that is clearly the same problem should still outrank an enhancement
+// that merely shares a word, so this settles ties rather than deciding them.
+const AI_SEARCH_SAME_TYPE_WEIGHT = 0.05;
 
 // 1 for a brand-new ticket, halving every RECENCY_HALFLIFE_DAYS, → 0 for old.
 function recencyScore(createdAt, now) {
@@ -310,12 +317,22 @@ function buildLatestChangeMap(events) {
   return map;
 }
 
-async function loadCandidates({ scope, applicationId }) {
+async function loadCandidates({ scope, applicationId, onlyTypeId = null, excludeTypeId = null }) {
   const { Submission } = dbApi.getModels() || {};
   if (!Submission) return [];
   const where = {};
   if (scope === SCOPE_PUBLIC) where.is_public = 1;
   if (applicationId) where.application_id = applicationId;
+  // Request TYPE, narrowed in the query rather than after ranking, so a
+  // wrong-kind ticket never takes a top-K slot from a right-kind one.
+  if (onlyTypeId) {
+    where.type_id = onlyTypeId;
+  } else if (excludeTypeId) {
+    // `Op.ne` alone drops rows with a NULL type_id, because SQL says NULL is
+    // neither equal nor unequal to anything. Historical rows exist with no type,
+    // and excluding one KIND of ticket must not also exclude the untyped ones.
+    where[Op.or] = [{ type_id: { [Op.ne]: excludeTypeId } }, { type_id: null }];
+  }
   const rows = await Submission.findAll({
     where,
     order: [['created_at', 'DESC']],
@@ -369,6 +386,10 @@ async function runAiSearch(db, {
   applicationName = '',
   reportedWithinDays = null,
   resolvedWithinDays = null,
+  // Which KIND of request the caller is asking about. The submit form's duplicate
+  // check sends the type being filed; a general search sends nothing and sees
+  // everything.
+  requestType = '',
 } = {}) {
   const safeScope = scope === SCOPE_PUBLIC ? SCOPE_PUBLIC : SCOPE_ADMIN;
 
@@ -393,8 +414,32 @@ async function runAiSearch(db, {
     }
   }
 
+  // Which kinds of ticket can be a match for this one.
+  //
+  // A REPORT REQUEST is only ever a duplicate of another report request: "the
+  // unapplied cash dashboard needs a write-off column" has nothing to do with a
+  // broken invoice screen, and offering one as a possible duplicate of the other
+  // wastes the requester's attention on the one screen where they are trying to
+  // avoid filing twice. So the two directions are both hard filters.
+  //
+  // A defect and an enhancement, on the other hand, genuinely blur — the same
+  // sentence can be either, and which one it is is a triage decision. They stay
+  // eligible for each other, with a preference for the same kind applied to the
+  // display order below.
+  const wantedType = String(requestType || '').trim().toLowerCase();
+  const reportTypeId = wantedType
+    ? await getLookupIdByName(db, 'submission_types', SUBMISSION_TYPE_REPORT, { lowercase: true })
+    : null;
+  const onlyTypeId = wantedType === SUBMISSION_TYPE_REPORT ? reportTypeId : null;
+  const excludeTypeId = wantedType && wantedType !== SUBMISSION_TYPE_REPORT ? reportTypeId : null;
+
   // 1. Candidate pre-filter (DB) + hydrate.
-  const rawCandidates = await loadCandidates({ scope: safeScope, applicationId: appId });
+  const rawCandidates = await loadCandidates({
+    scope: safeScope,
+    applicationId: appId,
+    onlyTypeId,
+    excludeTypeId,
+  });
   if (!rawCandidates.length) {
     return { enabled: true, query: cleanQuery, summary: emptySummary(), matches: [], keywordMatches: [], window: { reportedWithinDays: reportedDays, resolvedWithinDays: resolvedDays }, windowExcluded: 0, meta: emptyMeta() };
   }
@@ -450,10 +495,25 @@ async function runAiSearch(db, {
 
   // Score each candidate: the raw cosine `match` drives SELECTION; the
   // recency-blended `score` is only a display-order tiebreak later on.
+  // The same-kind preference rides on `score`, never on `match`: `match` is raw
+  // cosine and is what the similarity floor and top-K selection use, so a
+  // same-type ticket cannot buy its way past a relevance floor it does not meet —
+  // it only sorts above an equally relevant one of the other kind.
+  const sameTypeBonus = (row) => (
+    wantedType && String(row.type || '').trim().toLowerCase() === wantedType
+      ? AI_SEARCH_SAME_TYPE_WEIGHT
+      : 0
+  );
   const ranked = queryVector ? withVectors.map(({ id, vector, row }) => {
     const match = cosineSimilarity(queryVector, vector);
     const recency = recencyScore(row.created_at, nowTs);
-    return { id: Number(id), row, match, recency, score: match + AI_SEARCH_RECENCY_WEIGHT * recency };
+    return {
+      id: Number(id),
+      row,
+      match,
+      recency,
+      score: match + AI_SEARCH_RECENCY_WEIGHT * recency + sameTypeBonus(row),
+    };
   }) : [];
   // Similarity floor first (on the raw match), then top-K by raw match, so
   // near-zero-relevance tickets never pad out the result set and recency never
@@ -470,7 +530,7 @@ async function runAiSearch(db, {
     const existing = rankedById.get(id);
     if (existing) return existing;
     const recency = recencyScore(row.created_at, nowTs);
-    return { id, row, match: 0, recency, score: AI_SEARCH_RECENCY_WEIGHT * recency };
+    return { id, row, match: 0, recency, score: AI_SEARCH_RECENCY_WEIGHT * recency + sameTypeBonus(row) };
   });
 
   // Keyword safety net + identifier lookup. Both ride along to the LLM (so it
@@ -561,6 +621,12 @@ async function runAiSearch(db, {
       keywordCount: keywordMatches.length,
       embeddedInline: ensureReport.embedded,
       skippedEmbed: ensureReport.skipped,
+      // What was actually searched. Reported because a narrowed search that does
+      // not say it is narrowed reads as "there is nothing like this anywhere",
+      // and the client puts it on screen.
+      requestType: wantedType || null,
+      searchedOnlyType: onlyTypeId ? SUBMISSION_TYPE_REPORT : null,
+      excludedType: excludeTypeId ? SUBMISSION_TYPE_REPORT : null,
     },
   };
 }
