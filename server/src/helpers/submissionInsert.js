@@ -31,6 +31,12 @@ const SUBMISSION_INSERT_COLUMNS = [
   'is_new_dashboard', 'needed_data', 'measures_and_sources', 'primary_contact',
   'existing_report_link', 'changes_requested', 'report_usage_frequency', 'department',
   'completed_at',
+  // The analyst's half, for a report request that already had one: an imported
+  // history sheet knows who worked it, how big it was, and who signed it off.
+  // `approval_recorded_by` is deliberately NOT here — that column is the id of
+  // whoever entered the approval IN THIS PORTAL, and nobody did for an imported
+  // row, so it stays null rather than borrowing the importer's name.
+  'level_of_effort_id', 'assigned_to', 'approved_at', 'approved_by_name',
 ];
 
 // Zip a parallel columns array and values array into a payload object.

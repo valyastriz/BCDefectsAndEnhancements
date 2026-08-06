@@ -12,6 +12,10 @@ const ROW_TYPES = [
   { value: 'defect', label: 'Defects' },
   { value: 'enhancement', label: 'Enhancements' },
   { value: 'cleanup', label: 'Cleanup tasks' },
+  // The fourth. The mode sets the type of every row, so without this entry a sheet
+  // of report requests could only be imported as defects — and its report columns
+  // were never read.
+  { value: 'report', label: 'Report requests' },
 ];
 
 function formatImportHistoryDate(entry) {
@@ -92,6 +96,7 @@ export function ImportModal({
   importStatusKind,
   setImportStatusKind,
   importResultErrors,
+  importResultWarnings = [],
   importSummary,
   importAction,
   importHistory,
@@ -522,6 +527,28 @@ export function ImportModal({
                   <li key={`${line}-${index}`}>{line}</li>
                 ))}
               </ul>
+            )}
+
+            {/* Rows that DID land, minus something — an assignee the sheet named
+                that no portal user matches, hours with nobody to credit them to.
+                Said plainly and separately from the skipped rows above, because
+                silence here would read as "everything in the sheet arrived". */}
+            {importResultWarnings.length > 0 && (
+              <>
+                <div className="xl-needs xl-needs--soft">
+                  <b>
+                    {importResultWarnings.length} row{importResultWarnings.length === 1 ? '' : 's'} imported
+                    with a field left empty.
+                  </b>
+                  {' '}The tickets are in the queue — these values could not be placed, and nothing was
+                  guessed.
+                </div>
+                <ul className="xl-rows">
+                  {importResultWarnings.map((line, index) => (
+                    <li key={`${line}-${index}`}>{line}</li>
+                  ))}
+                </ul>
+              </>
             )}
           </div>
         )}

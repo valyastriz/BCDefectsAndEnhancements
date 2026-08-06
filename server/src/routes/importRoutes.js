@@ -11,6 +11,8 @@ const {
   collectMissingLookupIds,
   formatMissingLookupError,
   getDefectEnhancementStatuses,
+  getLevelsOfEffort,
+  getLookupIdByName,
   getSubmissionTypes,
   getCleanupStatuses,
   getCleanupTagTypes,
@@ -32,9 +34,18 @@ const {
   SUBMISSION_TYPE_REPORT,
   REPORT_DELIVERED_STATUS,
   REPORT_USAGE_FREQUENCIES,
+  statusesForRequestType,
 } = require('../constants');
 const { SUBMISSION_INSERT_COLUMNS, buildInsertPayload } = require('../helpers/submissionInsert');
 const { logStatusChange } = require('../services/submissionService');
+const {
+  addTimeEntry,
+  dayOf,
+  listAssignableUsers,
+  listPeopleForImport,
+  recordAssignment,
+  resolveImportedAssignee,
+} = require('../services/deliveryService');
 const { scheduleBatchEmbeddingRefresh } = require('../services/embeddingIndexService');
 const { tempUpload } = require('../middleware/upload');
 const { emitAdminNotification } = require('../socket');
@@ -91,7 +102,15 @@ router.post('/api/admin/submissions/import-xlsx/analyze', ensureAdmin, tempUploa
     const mappedApplicationHeader = normalizedSuggestedMappings.application_name || '';
     const hasApplicationColumn = Boolean(mappedApplicationHeader)
       || applicationAliases.some((alias) => normalizedHeaders.includes(alias));
-    const allowedStatuses = await withDb(async (db) => getDefectEnhancementStatuses(db, { includeRetired: true }));
+    // Scoped to what the admin has said the rows ARE. The dialog asks that before
+    // it will take a file, so this can be exact: on a report-request sheet
+    // 'Deployed' has to read as an unknown value needing a decision, and the
+    // "map it to" list must not offer a word the import would then refuse.
+    const analyzeMode = String(req.body?.importMode || req.query?.importMode || '').trim().toLowerCase();
+    const allowedStatuses = await withDb(async (db) => statusesForRequestType(
+      analyzeMode,
+      await getDefectEnhancementStatuses(db, { includeRetired: true }),
+    ));
 
     // How many rows carry each unrecognised status, not just which ones: the
     // dialog asks the admin to decide what one means, and "appears in 6 rows" is
@@ -180,15 +199,19 @@ router.post('/api/admin/submissions/import-xlsx', ensureAdmin, tempUpload.single
   }
 
   const requestedImportMode = String(req.body?.importMode || req.query?.importMode || '').trim().toLowerCase();
-  const importMode = ['defect', 'enhancement', 'cleanup'].includes(requestedImportMode)
+  // `report` is the fourth mode. Without it a sheet of report requests could not be
+  // imported at all: the mode FORCES the type of every row, so a report sheet came
+  // in as defects and its report columns were never even read.
+  const importMode = ['defect', 'enhancement', 'cleanup', SUBMISSION_TYPE_REPORT].includes(requestedImportMode)
     ? requestedImportMode
     : null;
   if (!importMode) {
     fs.rmSync(uploadedFile.path, { force: true });
     return res.status(400).json({
-      error: 'Choose import type: Defect, Enhancement, or Cleanup.',
+      error: 'Choose import type: Defect, Enhancement, Cleanup, or Report request.',
     });
   }
+  const isReportImport = importMode === SUBMISSION_TYPE_REPORT;
 
   let columnMappings = {};
   try {
@@ -219,10 +242,21 @@ router.post('/api/admin/submissions/import-xlsx', ensureAdmin, tempUpload.single
   }
 
   const dynamicImportOptions = await withDb(async (db) => ({
-    allowedStatusesWithRetired: await getDefectEnhancementStatuses(db, { includeRetired: true }),
+    // Scoped to what the rows ARE: a sheet of report requests may not carry a row
+    // that ends at 'Deployed', so that value has to read as unknown here rather
+    // than importing and then being refused on the next save.
+    allowedStatusesWithRetired: statusesForRequestType(
+      importMode,
+      await getDefectEnhancementStatuses(db, { includeRetired: true }),
+    ),
     allowedSubmissionTypes: await getSubmissionTypes(db),
     allowedCleanupStatuses: await getCleanupStatuses(db),
     allowedCleanupTagTypes: await getCleanupTagTypes(db),
+    // Report requests only, and one query each for the whole file rather than one
+    // per row: the levels of effort by name, everyone a spreadsheet might name as
+    // an assignee, and who may actually be handed work here.
+    levelsOfEffort: isReportImport ? await getLevelsOfEffort(db) : [],
+    people: isReportImport ? await listPeopleForImport() : [],
   }));
 
   const {
@@ -230,6 +264,8 @@ router.post('/api/admin/submissions/import-xlsx', ensureAdmin, tempUpload.single
     allowedSubmissionTypes,
     allowedCleanupStatuses,
     allowedCleanupTagTypes,
+    levelsOfEffort,
+    people,
   } = dynamicImportOptions;
 
   const normalizedStatusValueMappings = {};
@@ -307,7 +343,11 @@ router.post('/api/admin/submissions/import-xlsx', ensureAdmin, tempUpload.single
       });
     }
 
-    if (!hasAutoIdentifierMapping && !normalizedMappedCombinedHeader) {
+    // A policy or account number identifies where a DEFECT happened. A report
+    // request has neither — nothing about "the unapplied cash dashboard needs a
+    // write-off column" involves a policy — so demanding one of a report sheet
+    // would refuse every such file for a column it should not have.
+    if (!isReportImport && !hasAutoIdentifierMapping && !normalizedMappedCombinedHeader) {
       return res.status(400).json({
         error: 'Could not auto-map Policy/Account columns. Please choose the combined Policy/Account column and retry.',
         mappingRequired: true,
@@ -369,7 +409,9 @@ router.post('/api/admin/submissions/import-xlsx', ensureAdmin, tempUpload.single
 
       const rowCleanupTagType = normalizeCleanupTagType(getMappedImportValue(row, 'cleanup_tag_type', ['cleanup_tag_type', 'cleanup_type'], normalizedColumnMappings, null), allowedCleanupTagTypes);
       const inferredCleanup = parseImportBoolean(getMappedImportValue(row, 'is_cleanup', ['is_cleanup', 'cleanup'], normalizedColumnMappings, false), false) || Boolean(rowCleanupTagType);
-      const isCleanupRow = importMode === 'cleanup' ? true : inferredCleanup;
+      // A report request is never a cleanup task, whatever a stray Cleanup column
+      // in the sheet says — the two are different request types, not a flag.
+      const isCleanupRow = importMode === 'cleanup' ? true : (isReportImport ? false : inferredCleanup);
       const requestedCleanupStatus = String(getMappedImportValue(row, 'cleanup_status', ['cleanup_status'], normalizedColumnMappings, '') || '').trim();
       const cleanupStatus = isCleanupRow
         ? (allowedCleanupStatuses.includes(requestedCleanupStatus) ? requestedCleanupStatus : 'Not Started')
@@ -383,6 +425,8 @@ router.post('/api/admin/submissions/import-xlsx', ensureAdmin, tempUpload.single
         effectiveType = 'defect';
       } else if (importMode === 'enhancement') {
         effectiveType = 'enhancement';
+      } else if (isReportImport) {
+        effectiveType = SUBMISSION_TYPE_REPORT;
       } else if (isCleanupRow) {
         effectiveType = effectiveCleanupTagType === 'enhancement' ? 'enhancement' : 'defect';
       }
@@ -498,6 +542,25 @@ router.post('/api/admin/submissions/import-xlsx', ensureAdmin, tempUpload.single
           const value = importedText(row, 'completed_at', ['completed_at', 'complete_date', 'completed_date']);
           return value ? toIsoOrNow(value) : null;
         })(),
+
+        // ── The analyst's half ──────────────────────────────────────────────
+        // Matched against the offered levels of effort by name; anything the list
+        // does not have is dropped rather than invented, and reported below.
+        level_of_effort: (() => {
+          const value = importedText(row, 'level_of_effort', ['level_of_effort', 'loe', 'effort', 'complexity']);
+          if (!value) return null;
+          return levelsOfEffort.find((option) => option.toLowerCase() === value.toLowerCase()) || null;
+        })(),
+        level_of_effort_raw: importedText(row, 'level_of_effort', ['level_of_effort', 'loe', 'effort', 'complexity']),
+        assigned_to_raw: importedText(row, 'assigned_to', ['assigned_to', 'assignee', 'analyst', 'owner']),
+        hours_logged: parseImportNumber(
+          getMappedImportValue(row, 'hours_logged', ['hours_logged', 'hours', 'duration', 'time_spent'], normalizedColumnMappings, null),
+        ),
+        approved_at: (() => {
+          const value = importedText(row, 'approved_at', ['approved_at', 'approved_date', 'approval_date']);
+          return value ? toIsoOrNow(value) : null;
+        })(),
+        approved_by_name: importedText(row, 'approved_by_name', ['approved_by_name', 'approved_by', 'report_dashboard_approval']),
       });
     });
 
@@ -531,6 +594,22 @@ router.post('/api/admin/submissions/import-xlsx', ensureAdmin, tempUpload.single
       let insertedRows = 0;
       const insertedIds = [];
       const insertionErrors = [];
+      // Fields a row asked for and did not get. Not errors — the row imported, and
+      // saying nothing would leave an admin believing a column landed when it did
+      // not. Reported per row, with the value that could not be placed.
+      const insertionWarnings = [];
+      // application id → the set of user ids that application may hand work to.
+      // Cached because a sheet is usually one application, and resolving it per
+      // row would be a query per row.
+      const assignableByApplication = new Map();
+      const assignableFor = async (applicationId) => {
+        const key = Number(applicationId);
+        if (!assignableByApplication.has(key)) {
+          const users = await listAssignableUsers(key);
+          assignableByApplication.set(key, new Set(users.map((user) => Number(user.id))));
+        }
+        return assignableByApplication.get(key);
+      };
 
       if (!dryRun && preparedRows.length > 0) {
         for (const row of preparedRows) {
@@ -574,6 +653,34 @@ router.post('/api/admin/submissions/import-xlsx', ensureAdmin, tempUpload.single
             if (missingLookupFields.length > 0) {
               throw new Error(formatMissingLookupError(missingLookupFields));
             }
+            // ── The analyst's half, resolved now that the row's application is ──
+            // A name in a sheet becomes a user id here or not at all: unknown,
+            // ambiguous, or no grant on this application all mean unassigned, with
+            // the reason carried back to the admin.
+            let assignedTo = null;
+            if (isReportImport && row.assigned_to_raw) {
+              const resolved = resolveImportedAssignee(row.assigned_to_raw, {
+                people,
+                assignable: await assignableFor(lookupIds.application_id),
+              });
+              assignedTo = resolved.id;
+              if (!resolved.id) {
+                insertionWarnings.push({
+                  rowNumber: row.rowNumber,
+                  message: `Assigned To left empty — ${resolved.reason}.`,
+                });
+              }
+            }
+            if (isReportImport && row.level_of_effort_raw && !row.level_of_effort) {
+              insertionWarnings.push({
+                rowNumber: row.rowNumber,
+                message: `Level of Effort "${row.level_of_effort_raw}" is not one of the offered values — left unsized.`,
+              });
+            }
+            const levelOfEffortId = isReportImport && row.level_of_effort
+              ? await getLookupIdByName(db, 'levels_of_effort', row.level_of_effort)
+              : null;
+
             const insertColumns = SUBMISSION_INSERT_COLUMNS;
             const insertValues = [
               row.created_at,
@@ -635,6 +742,9 @@ router.post('/api/admin/submissions/import-xlsx', ensureAdmin, tempUpload.single
                     || (row.status === REPORT_DELIVERED_STATUS ? row.updated_at : null),
                 ]
                 : [null, null, null, null, null, null, null, null, null]),
+              ...(row.type === SUBMISSION_TYPE_REPORT
+                ? [levelOfEffortId, assignedTo, row.approved_at, row.approved_by_name]
+                : [null, null, null, null]),
             ];
             if (!Submission) {
               throw new Error('Submission model is not initialized');
@@ -648,6 +758,47 @@ router.post('/api/admin/submissions/import-xlsx', ensureAdmin, tempUpload.single
             }
             if (row.is_retired) {
               await logStatusChange(db, submissionId, 'Retired', changedBy, row.updated_at);
+            }
+
+            // The handover trail starts at whoever the sheet says holds it. It
+            // cannot be reconstructed later, so an imported assignee is written
+            // into it now rather than on the first reassignment in the portal.
+            if (assignedTo) {
+              await recordAssignment(submissionId, {
+                assignedTo,
+                // Whoever ran the import is who assigned it, as far as the trail is
+                // concerned — the sheet has no answer for that.
+                assignedBy: Number(req.session?.user?.id) || null,
+              });
+            }
+
+            // `Duration` becomes ONE time entry. Hours have to belong to a person
+            // and a day — that is why they are a child table rather than a column —
+            // so a sheet's single number is credited to the assignee on the day the
+            // request completed. With nobody to credit it stays out of the ledger:
+            // inventing an owner for somebody else's work is how throughput
+            // reporting stops being trustworthy.
+            if (isReportImport && Number(row.hours_logged) > 0) {
+              const workedOn = dayOf(row.completed_at || row.updated_at || row.created_at);
+              if (assignedTo && workedOn) {
+                const logged = await addTimeEntry(submissionId, {
+                  userId: assignedTo,
+                  hours: row.hours_logged,
+                  workedOn,
+                  note: 'Imported from a spreadsheet',
+                });
+                if (logged?.error) {
+                  insertionWarnings.push({
+                    rowNumber: row.rowNumber,
+                    message: `Hours Logged not recorded — ${logged.error}.`,
+                  });
+                }
+              } else {
+                insertionWarnings.push({
+                  rowNumber: row.rowNumber,
+                  message: `${row.hours_logged} hours not recorded — hours need somebody to credit them to, and this row has no assignee.`,
+                });
+              }
             }
 
             insertedRows += 1;
@@ -717,6 +868,10 @@ router.post('/api/admin/submissions/import-xlsx', ensureAdmin, tempUpload.single
         invalidRows,
         insertedRows,
         errors: combinedErrors,
+        // Rows that imported with something missing. Separate from `errors`, which
+        // are rows that did NOT import: "the ticket is in, its assignee is not" and
+        // "the ticket is not in" need different reactions from the admin.
+        warnings: insertionWarnings.slice(0, 100),
         historyEntry: mapExcelImportRun(historyEntry),
       });
     });

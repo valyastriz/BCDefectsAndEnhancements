@@ -22,6 +22,10 @@ export function useImportModal({ loadRows }) {
   const [importStatusText, setImportStatusText] = useState('');
   const [importStatusKind, setImportStatusKind] = useState('');
   const [importResultErrors, setImportResultErrors] = useState([]);
+  // Rows that imported minus one field, e.g. an assignee the sheet named that the
+  // portal could not place. Kept apart from the errors above, which are rows that
+  // did not import at all — the two need different reactions.
+  const [importResultWarnings, setImportResultWarnings] = useState([]);
   const [importSummary, setImportSummary] = useState(null);
   const [importAction, setImportAction] = useState('');
   const [importHistory, setImportHistory] = useState([]);
@@ -58,10 +62,6 @@ export function useImportModal({ loadRows }) {
   );
 
   const visibleImportMappingTargets = useMemo(() => {
-    if (importMode === 'cleanup') {
-      return sortedImportMappingTargets;
-    }
-
     const enhancementOnlyKeys = new Set([
       'enhancement_request_type',
       'priority_level',
@@ -78,14 +78,46 @@ export function useImportModal({ loadRows }) {
       'what_happened_exact_details',
       'date_time_of_error',
     ]);
+    // A report request's own columns. Offered on a report sheet and withheld
+    // everywhere else: the import writes them only on a report row, so mapping one
+    // on a defect sheet would map a column into nothing.
+    const reportOnlyKeys = new Set([
+      'is_new_dashboard', 'needed_data', 'measures_and_sources', 'primary_contact',
+      'existing_report_link', 'changes_requested', 'report_usage_frequency', 'department',
+      'completed_at', 'level_of_effort', 'assigned_to', 'hours_logged',
+      'approved_at', 'approved_by_name',
+    ]);
 
+    if (importMode === 'report') {
+      // Shared columns plus its own. What it drops is what a report request has no
+      // answer for: a screen and steps to reproduce, dollar impact, a release, and
+      // the Service Desk hand-off it never makes. `what_happened_exact_details` and
+      // `desired_completion_date` are NOT dropped — they are the columns the report
+      // form itself writes ("Describe what you need", "When do you need it by?").
+      const notOnAReport = new Set([
+        ...[...defectOnlyKeys].filter((key) => key !== 'what_happened_exact_details'),
+        ...[...enhancementOnlyKeys].filter((key) => key !== 'desired_completion_date'),
+        'is_cleanup', 'cleanup_status', 'cleanup_tag_type',
+        'release_number', 'release_notes',
+        'easyvista_ticket_id', 'easyvista_submitted_by',
+        'policy_premium_impact', 'direct_dollar_impact', 'policies_affected_count',
+      ]);
+      return sortedImportMappingTargets.filter((target) => !notOnAReport.has(target.key));
+    }
+
+    const withoutReportColumns = sortedImportMappingTargets
+      .filter((target) => !reportOnlyKeys.has(target.key));
+
+    if (importMode === 'cleanup') {
+      return withoutReportColumns;
+    }
     if (importMode === 'defect') {
-      return sortedImportMappingTargets.filter((target) => !enhancementOnlyKeys.has(target.key));
+      return withoutReportColumns.filter((target) => !enhancementOnlyKeys.has(target.key));
     }
     if (importMode === 'enhancement') {
-      return sortedImportMappingTargets.filter((target) => !defectOnlyKeys.has(target.key));
+      return withoutReportColumns.filter((target) => !defectOnlyKeys.has(target.key));
     }
-    return sortedImportMappingTargets;
+    return withoutReportColumns;
   }, [importMode, sortedImportMappingTargets]);
 
   const sortedImportAvailableHeaders = useMemo(
@@ -181,9 +213,15 @@ export function useImportModal({ loadRows }) {
       setImportStatusKind('');
       setImportSummary(null);
       setImportResultErrors([]);
+      setImportResultWarnings([]);
 
       const formData = new FormData();
       formData.append('file', file);
+      // What the rows are is answered before the file is chosen, and the analysis
+      // depends on it: the statuses a report-request sheet may carry are not the
+      // ones a defect sheet may carry, so the unknown-status list would otherwise
+      // be computed against the wrong vocabulary.
+      formData.append('importMode', importMode);
       const analysis = await api.analyzeAdminSubmissionsXlsx(formData);
 
       const suggested = analysis?.suggestedMappings && typeof analysis.suggestedMappings === 'object'
@@ -267,6 +305,7 @@ export function useImportModal({ loadRows }) {
       setImportStatusText('Importing rows...');
       setImportStatusKind('');
       setImportResultErrors([]);
+      setImportResultWarnings([]);
 
       const formData = new FormData();
       formData.append('file', file);
@@ -286,10 +325,16 @@ export function useImportModal({ loadRows }) {
       const total = Number(result?.totalRows || 0);
       const invalid = Number(result?.invalidRows || 0);
       const resultErrors = Array.isArray(result?.errors) ? result.errors : [];
+      // Rows that landed with something missing — an assignee the sheet named but
+      // the portal could not place, hours with nobody to credit. Kept apart from
+      // the errors above, which are rows that did not land at all.
+      const resultWarnings = (Array.isArray(result?.warnings) ? result.warnings : [])
+        .map((warning) => `Row ${warning.rowNumber}: ${warning.message}`);
       const summaryMessage = `Import complete: ${imported} of ${total} rows added.${invalid > 0 ? ` Skipped ${invalid} invalid row(s).` : ''}`;
 
-      setImportSummary({ imported, total, invalid });
+      setImportSummary({ imported, total, invalid, warned: resultWarnings.length });
       setImportResultErrors(resultErrors.slice(0, 20));
+      setImportResultWarnings(resultWarnings.slice(0, 20));
       setImportStatusText(summaryMessage);
       setImportStatusKind(invalid > 0 ? '' : 'success');
       if (result?.historyEntry) {
@@ -358,6 +403,7 @@ export function useImportModal({ loadRows }) {
     setImportStatusText('');
     setImportStatusKind('');
     setImportResultErrors([]);
+      setImportResultWarnings([]);
     setImportSummary(null);
     setImportAction('');
     setImportRequiresApplicationDefault(false);
@@ -409,6 +455,7 @@ export function useImportModal({ loadRows }) {
     importStatusKind,
     setImportStatusKind,
     importResultErrors,
+    importResultWarnings,
     importSummary,
     importAction,
     importHistory,

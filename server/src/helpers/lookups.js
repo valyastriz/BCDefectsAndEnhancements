@@ -443,6 +443,11 @@ async function getSubmissionSources(db) {
   return getActiveLookupNames('SubmissionSource', DEFAULT_SUBMISSION_SOURCES, { lowercase: true });
 }
 
+/** The offered levels of effort. No hardcoded fallback: the Metadata page owns them. */
+async function getLevelsOfEffort() {
+  return getActiveLookupNames('LevelOfEffort', []);
+}
+
 module.exports = {
   buildIdNameMap,
   buildAllLookupMaps,
@@ -467,4 +472,5 @@ module.exports = {
   getEnhancementRequestTypes,
   getPriorityLevels,
   getSubmissionSources,
+  getLevelsOfEffort,
 };

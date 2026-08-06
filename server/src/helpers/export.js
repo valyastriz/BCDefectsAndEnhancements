@@ -79,6 +79,15 @@ function buildAdminExportFields() {
     { key: 'department', label: 'Department', value: (row) => row.department },
     { key: 'completed_at', label: 'Complete Date', value: (row) => row.completed_at },
     { key: 'level_of_effort', label: 'Level of Effort', value: (row) => row.level_of_effort },
+    // `Duration` in the source field list. Never a stored column: it is SUM(hours)
+    // over `request_time_entries`, computed per list (see sumHoursBySubmission), so
+    // it cannot drift from the entries it adds up. Blank when nobody has logged
+    // anything, which is not the same as zero.
+    {
+      key: 'hours_logged',
+      label: 'Hours Logged',
+      value: (row) => (row.hours_logged == null ? '' : row.hours_logged),
+    },
     // The assignee as a NAME, resolved from the user id the column stores. The id
     // itself is not exported: a spreadsheet of ids is unreadable, and a name in a
     // sheet is not something the import side would be right to trust back into an
@@ -159,7 +168,8 @@ const EXPORT_FIELD_GROUPS = [
     fieldKeys: [
       'is_new_dashboard', 'existing_report_link', 'changes_requested', 'needed_data',
       'measures_and_sources', 'primary_contact', 'report_usage_frequency', 'department',
-      'assigned_to_name', 'level_of_effort', 'completed_at', 'approved_at', 'approved_by_name',
+      'assigned_to_name', 'level_of_effort', 'hours_logged', 'completed_at',
+      'approved_at', 'approved_by_name',
     ],
   },
   { key: UNGROUPED_FIELD_GROUP, label: 'Other fields', fieldKeys: [] },

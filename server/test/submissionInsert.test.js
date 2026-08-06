@@ -26,9 +26,12 @@ test('SUBMISSION_INSERT_COLUMNS has no duplicates', () => {
 // Both appended their report-request block at the end; this pins that.
 test('the report-request columns are appended, not inserted mid-list', () => {
   const REPORT_TAIL = [
+    // The requester's half…
     'is_new_dashboard', 'needed_data', 'measures_and_sources', 'primary_contact',
     'existing_report_link', 'changes_requested', 'report_usage_frequency', 'department',
     'completed_at',
+    // …then the analyst's, which the import fills from a history sheet.
+    'level_of_effort_id', 'assigned_to', 'approved_at', 'approved_by_name',
   ];
   assert.deepStrictEqual(SUBMISSION_INSERT_COLUMNS.slice(-REPORT_TAIL.length), REPORT_TAIL);
   // And the column the ten original defect/enhancement values ended on is still

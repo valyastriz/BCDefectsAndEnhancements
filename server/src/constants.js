@@ -247,6 +247,45 @@ const IMPORT_COLUMN_TARGETS = [
     label: 'Complete Date',
     aliases: ['completed_at', 'complete_date', 'completed_date', 'date_completed', 'delivered_date'],
   },
+  // ── The analyst's half of a report request ──────────────────────────────────
+  // A history sheet knows who worked a request, how big it was, who signed it off
+  // and how long it took. All four import; three of them are plain values, and the
+  // two that are not are the reason this block has its own note:
+  //
+  //   `assigned_to` arrives as a NAME and is stored as a user id. It is resolved
+  //   against the portal's own users and refused if it is unknown, ambiguous, or
+  //   somebody with no grant on the row's application — never stored as text, and
+  //   never guessed. What it could not place is reported per row.
+  //
+  //   `hours_logged` is `Duration`, which is not a column at all: it becomes ONE
+  //   time entry, credited to the resolved assignee on the day the request
+  //   completed. Hours have to belong to a person and a day, so a row with no
+  //   assignee keeps its number out of the ledger and says so.
+  {
+    key: 'level_of_effort',
+    label: 'Level of Effort',
+    aliases: ['level_of_effort', 'level_of_effort_id', 'loe', 'effort', 'complexity'],
+  },
+  {
+    key: 'assigned_to',
+    label: 'Assigned To',
+    aliases: ['assigned_to', 'assignee', 'assigned', 'analyst', 'owner'],
+  },
+  {
+    key: 'hours_logged',
+    label: 'Hours Logged',
+    aliases: ['hours_logged', 'hours', 'duration', 'time_spent'],
+  },
+  {
+    key: 'approved_at',
+    label: 'Approved Date',
+    aliases: ['approved_at', 'approved_date', 'approval_date', 'date_approved'],
+  },
+  {
+    key: 'approved_by_name',
+    label: 'Approved By',
+    aliases: ['approved_by_name', 'approved_by', 'report_dashboard_approval', 'approval'],
+  },
 ];
 
 const DEFAULT_CLEANUP_STATUSES = ['Not Started', 'In Progress', 'Completed'];

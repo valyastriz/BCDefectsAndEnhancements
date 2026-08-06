@@ -4411,6 +4411,13 @@ select.dm-prow-input { cursor: pointer; }
   background: var(--status-cleanup-only-bg); color: var(--status-cleanup-only-fg);
 }
 .xl-needs b { font-weight: 750; }
+/* A row that landed minus one field is not a skipped row. Same shape, quieter
+   colour, so the two cannot be mistaken for each other at a glance. */
+.xl-needs--soft {
+  background: color-mix(in srgb, var(--color-primary) 8%, var(--color-surface));
+  color: var(--color-text);
+  border: 1px solid color-mix(in srgb, var(--color-primary) 28%, transparent);
+}
 
 .xl-maps { display: flex; flex-direction: column; gap: 8px; }
 .xl-map {

@@ -229,6 +229,54 @@ async function listAssignments(submissionId) {
     .sort((left, right) => right.id - left.id);
 }
 
+/**
+ * May this person be handed work in this application?
+ *
+ * The same rule `listAssignableUsers` offers, asked about one id — so a write
+ * cannot assign somebody the dropdown would never have shown. Used by the ticket
+ * save and by the Excel import, which both accept an assignee from outside the
+ * dialog: the detail modal only ever offers the grant list, but neither endpoint
+ * was checking, so any user id was assignable.
+ */
+async function isAssignableTo(applicationId, userId) {
+  const id = Number(userId);
+  if (!id) return false;
+  const assignable = await listAssignableUsers(applicationId);
+  return assignable.some((user) => Number(user.id) === id);
+}
+
+/**
+ * A person named in a spreadsheet, resolved to the user id the column stores.
+ *
+ * A NAME is what a sheet carries and an ID is what the column takes, so this is
+ * the one place the two meet — and it fails closed rather than guessing. It
+ * matches a display name, a username or an email, case- and space-insensitively;
+ * an unknown name, an AMBIGUOUS one (two people, one spelling) or somebody
+ * without a grant on the row's application all resolve to null with a reason the
+ * import reports, because silently leaving work on the wrong person is worse than
+ * importing it unassigned.
+ *
+ * `people` and `assignable` are built once for the whole file by the caller —
+ * one query each, not one per row.
+ */
+function resolveImportedAssignee(value, { people, assignable }) {
+  const wanted = String(value ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+  if (!wanted) return { id: null, reason: '' };
+
+  const matches = people.filter((person) => (
+    person.keys.includes(wanted)
+  ));
+  if (matches.length === 0) return { id: null, reason: `no portal user matches "${String(value).trim()}"` };
+  if (matches.length > 1) {
+    return { id: null, reason: `"${String(value).trim()}" matches ${matches.length} portal users` };
+  }
+  const [person] = matches;
+  if (!assignable.has(person.id)) {
+    return { id: null, reason: `${person.name} has no grant on this application` };
+  }
+  return { id: person.id, reason: '' };
+}
+
 /** Everyone who could hold a request in this application: the grant list, not a new one. */
 async function listAssignableUsers(applicationId) {
   const models = dbApi.getModels() || {};
@@ -452,6 +500,27 @@ async function getThroughput({ applicationIds, from, to, onlyUserId = null, repo
   };
 }
 
+/**
+ * Every portal user, with the strings a spreadsheet might name them by.
+ *
+ * Built once per import: `resolveImportedAssignee` matches against `keys`, so the
+ * per-row cost is an array scan rather than a query.
+ */
+async function listPeopleForImport() {
+  const models = dbApi.getModels() || {};
+  if (!models.User) return [];
+  const rows = await models.User.findAll({
+    attributes: ['id', 'display_name', 'username', 'email'],
+    raw: true,
+  });
+  const key = (value) => String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
+  return rows.map((row) => ({
+    id: Number(row.id),
+    name: String(row.display_name || row.username || ''),
+    keys: [...new Set([key(row.display_name), key(row.username), key(row.email)].filter(Boolean))],
+  }));
+}
+
 module.exports = {
   listTimeEntries,
   summarizeTimeEntries,
@@ -460,6 +529,9 @@ module.exports = {
   recordAssignment,
   listAssignments,
   listAssignableUsers,
+  isAssignableTo,
+  listPeopleForImport,
+  resolveImportedAssignee,
   getThroughput,
   dayOf,
   normalizeHours,

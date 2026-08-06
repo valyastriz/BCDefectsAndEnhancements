@@ -1,3 +1,4 @@
+const { QueryTypes } = require('sequelize');
 const dbApi = require('../../db');
 const {
   CLEANUP_TO_SUBMISSION_STATUS,
@@ -38,7 +39,7 @@ const { SUBMISSION_INSERT_COLUMNS, buildInsertPayload } = require('../helpers/su
 const { mapSubmission, mapPublicSubmission } = require('../helpers/mappers');
 const { emitAdminNotification, emitPublicUpdate } = require('../socket');
 const { canReadSubmissionRow, canMutateApplication } = require('./viewerService');
-const { recordAssignment } = require('./deliveryService');
+const { recordAssignment, isAssignableTo } = require('./deliveryService');
 const { scheduleEmbeddingRefresh } = require('./embeddingIndexService');
 const {
   submitToEasyVista,
@@ -205,6 +206,36 @@ async function getSubmissionByIdWithLookups(db, submissionId, { publicOnly = fal
  * nothing rather than everything, so a new caller that forgets to resolve one
  * fails closed instead of leaking another team's queue.
  */
+/**
+ * Every request's logged hours, keyed by submission id.
+ *
+ * One GROUP BY for the whole list, never one per row: `Duration` on a report
+ * request is SUM(hours) over `request_time_entries` and is deliberately not stored
+ * anywhere, so it has to be computed on read — and a per-row query would be one
+ * per ticket on every queue load.
+ *
+ * A request nobody has logged time against is absent from the map rather than
+ * zero: "nobody has started" and "somebody logged nothing" are different facts,
+ * and the export writes an empty cell for the first.
+ */
+async function sumHoursBySubmission(dbModels) {
+  const sequelize = dbModels.Submission?.sequelize;
+  if (!sequelize || !dbModels.RequestTimeEntry) return new Map();
+  try {
+    const rows = await sequelize.query(
+      'SELECT submission_id, SUM(hours) AS total FROM request_time_entries GROUP BY submission_id',
+      { type: QueryTypes.SELECT },
+    );
+    return new Map(rows.map((row) => [
+      Number(row.submission_id),
+      Math.round(Number(row.total || 0) * 100) / 100,
+    ]));
+  } catch {
+    // The table is new; an environment without it must still list its tickets.
+    return new Map();
+  }
+}
+
 async function listFilteredAdminSubmissions(db, query = {}, scope) {
   const {
     status,
@@ -246,6 +277,8 @@ async function listFilteredAdminSubmissions(db, query = {}, scope) {
     priorityLevelIdToName,
     createdViaIdToName,
     occurrenceTimeframeIdToName,
+    levelOfEffortIdToName,
+    userIdToName,
   } = await buildAllLookupMaps(dbModels);
 
   const statusList = String(statuses || '')
@@ -282,8 +315,17 @@ async function listFilteredAdminSubmissions(db, query = {}, scope) {
   const visibleRows = rawRows.filter((row) => canReadSubmissionRow(scope, row));
 
   // Augment each row with text names resolved from _id FK columns
-  const maps = { statusIdToName, typeIdToName, cleanupTagTypeIdToName, cleanupStatusIdToName, applicationIdToName, enhancementRequestTypeIdToName, priorityLevelIdToName, createdViaIdToName, occurrenceTimeframeIdToName };
-  const rows = visibleRows.map((row) => hydrateRowFromMaps(row, maps));
+  const maps = { statusIdToName, typeIdToName, cleanupTagTypeIdToName, cleanupStatusIdToName, applicationIdToName, enhancementRequestTypeIdToName, priorityLevelIdToName, createdViaIdToName, occurrenceTimeframeIdToName, levelOfEffortIdToName, userIdToName };
+
+  // Hours logged, for the export's Duration column and anything else that needs a
+  // request's total. ONE grouped query for the whole list — `Duration` is
+  // SUM(hours) over a child table, and the alternative is a query per row.
+  const hoursBySubmission = await sumHoursBySubmission(dbModels);
+
+  const rows = visibleRows.map((row) => ({
+    ...hydrateRowFromMaps(row, maps),
+    hours_logged: hoursBySubmission.get(Number(row.id)) ?? null,
+  }));
 
   // Which application's queue to show. Purely a narrowing on top of the access
   // scope above — it can never widen what this returns, so an admin choosing an
@@ -643,6 +685,14 @@ async function createAdminSubmission(db, { body, username, viewer }) {
         ? toIsoOrNow(deliveredEvent?.changed_at || createdAt)
         : null))
     : null;
+  // An assignee has to be somebody the application would have offered. Checked
+  // rather than trusted, because this accepts an id from a payload and the dialog
+  // that normally supplies one only ever lists the grant holders.
+  const requestedAssignee = isReportRequest ? (Number(body.assigned_to) || null) : null;
+  if (requestedAssignee && !(await isAssignableTo(lookupIds.application_id, requestedAssignee))) {
+    return { error: 'That person cannot be assigned work in this application', status: 400 };
+  }
+  const assignedTo = requestedAssignee;
 
   const insertColumns = SUBMISSION_INSERT_COLUMNS;
   const insertValues = [
@@ -705,10 +755,28 @@ async function createAdminSubmission(db, { body, username, viewer }) {
         completedAt,
       ]
       : [null, null, null, null, null, null, null, null, null]),
+    // The analyst's half. The dialog does not offer these — an analyst fills them
+    // in on the Delivery pane — but the import does, and both paths build this
+    // array against the same column list.
+    ...(isReportRequest
+      ? [
+        await getLookupIdByName(db, 'levels_of_effort', textOrNull(body.level_of_effort)),
+        assignedTo,
+        body.approved_at ? toIsoOrNow(body.approved_at) : null,
+        textOrNull(body.approved_by_name),
+      ]
+      : [null, null, null, null]),
   ];
   const payload = buildInsertPayload(insertColumns, insertValues);
   const createdSubmission = await Submission.create(payload);
   const subId = Number(createdSubmission.id);
+
+  // A request created already assigned starts its handover trail here. The trail
+  // cannot be reconstructed afterwards, so the first holder has to be written
+  // when they become one — not on the next reassignment.
+  if (assignedTo) {
+    await recordAssignment(subId, { assignedTo, assignedBy: viewer?.user?.id ?? null });
+  }
 
   // Insert backdated status events in chronological order
   const eventsToInsert = rawEvents
@@ -1036,6 +1104,7 @@ async function updateAdminSubmission(db, { id, body, username, viewer }) {
     return { error: 'Invalid type', status: 400 };
   }
 
+
   const isEditingEnhancementRequestType = Object.prototype.hasOwnProperty.call(
     body,
     'enhancement_request_type',
@@ -1084,6 +1153,20 @@ async function updateAdminSubmission(db, { id, body, username, viewer }) {
   ]);
   if (missingLookupFields.length > 0) {
     return { error: formatMissingLookupError(missingLookupFields), status: 400 };
+  }
+
+  // The assignee must be somebody this application would have offered. The detail
+  // modal only ever lists the grant holders, but this endpoint took any user id —
+  // so work could be put on a person who cannot open the ticket. Asked against the
+  // RESOLVED application id, the same one the write uses, and only when the
+  // assignee actually changes: a save on a ticket whose holder has since lost
+  // their grant must not be blocked by somebody else's access change.
+  if (
+    Number(next.assigned_to || 0) !== Number(existing.assigned_to || 0)
+    && next.assigned_to
+    && !(await isAssignableTo(lookupIds.application_id, next.assigned_to))
+  ) {
+    return { error: 'That person cannot be assigned work in this application', status: 400 };
   }
 
   const updatedAt = new Date().toISOString();

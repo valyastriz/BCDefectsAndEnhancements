@@ -29,11 +29,14 @@ read this section, then §4 for the design decisions that govern the rest.
 **Merged and deployed:** PR #12 (schema, authorisation sweep, backend), PR #13
 (submit form), PR #14 (Delivery pane, handover trail, approval evidence).
 
-**Verified for the second pass (not yet merged):** 311 server tests, client lint
-and production build clean, and **229 browser checks** across five committed
-scripts at 1500/820/390 in both themes — 102 admin data entry, 52 throughput, 32
-submit form, 26 metadata, 17 public board. Every script that writes ended by
-printing the submission count back at **83**.
+**Verified:** 319 server tests, client lint and production build clean, and **248
+harness checks** across six committed scripts at 1500/820/390 in both themes — 102
+admin data entry, 52 throughput, 32 submit form, 26 metadata, 19 spreadsheet round
+trip, 17 public board. Every script that writes ended by printing the hosted
+submission count back at **83**.
+
+The second pass shipped as `dfd944f` on `main`. The spreadsheet round trip that
+followed it is the third pass — see "The spreadsheet round trip" below.
 
 ### The schema is APPLIED to the hosted database
 
@@ -96,11 +99,13 @@ entry in the account menu beside Manage metadata.
 one part that was not additive is settled: see the decision record below.
 
 **3. Admin add/import/export parity.** A fourth segment (`Report request`) in the
-Add-a-ticket dialog with its own two sub-branches, nine new
-`IMPORT_COLUMN_TARGETS` entries, thirteen new `ADMIN_EXPORT_FIELDS` entries in a
-new `Report request` group, and the nine report columns appended to
+Add-a-ticket dialog with its own two sub-branches, fourteen new
+`IMPORT_COLUMN_TARGETS` entries, fourteen new `ADMIN_EXPORT_FIELDS` entries in a
+new `Report request` group, and thirteen report columns appended to
 `SUBMISSION_INSERT_COLUMNS` — which the admin create path and the import row
-insert share, so both write them.
+insert share, so both write them. **The spreadsheet round trip is its own
+section below** — the import needed a fourth MODE before any of its columns could
+ever be read.
 
 **4. Three browser checks**, all committed, all against the real app:
 `verify-throughput-page.mjs` (new, 52 checks), `verify-public-board.mjs` (new, 17),
@@ -174,6 +179,55 @@ counts both types while a row track names only the one that ticket travels.
   width, invisibly, on every load — an 86px chip in an 84px track. The overflow
   probe caught it while the third type was being added; the track is 88px now.
 
+### The spreadsheet round trip, in both directions (2026-08-06, third pass)
+
+A sheet of report requests could not be imported at all before this: `importMode`
+accepted `defect | enhancement | cleanup` and **forces the type of every row**, so
+a report sheet came in as defects and its report columns were never read. The mode
+list has a fourth entry now, and with it:
+
+- **The type is the mode**, and a report request is never a cleanup task whatever a
+  stray Cleanup column says.
+- **Statuses are scoped by mode**, on the analyze step as well as the import: a
+  report sheet carrying `Deployed` comes back as an unknown value needing a
+  decision, and the "map it to" list offers the nine rather than the fourteen.
+- **The Policy/Account requirement is lifted for a report sheet.** It refused every
+  file that had no policy column — which is every report-request file, because
+  nothing about a dashboard involves a policy number.
+- **`Assigned To` arrives as a name and is stored as a user id, or not at all.**
+  `resolveImportedAssignee` matches a display name, username or email, and refuses
+  three ways: unknown, AMBIGUOUS (two people, one spelling), or somebody with no
+  grant on the row's application. Each refusal imports the row unassigned and says
+  why. Never stored as text, never guessed — `test/importAssignee.test.js` is the
+  net.
+- **`Duration` becomes ONE time entry**, credited to that assignee on the day the
+  request completed, because hours have to belong to a person and a day (that is
+  why they are a child table). With nobody to credit, the number stays out of the
+  ledger and the row says so: throughput reporting that invents an owner is worse
+  than throughput reporting with a gap.
+- **`Level of Effort` resolves against the offered values**; anything else leaves
+  the request unsized and is reported.
+- **A new `warnings` array on the import response**, rendered in the result step
+  under its own quieter banner. Rows that landed minus a field are not rows that
+  were skipped, and one list for both would make the difference invisible.
+- **Hours export as `Hours Logged`** — `SUM(hours)` from one grouped query per
+  list (`sumHoursBySubmission`), never a stored column and never a query per row.
+  Blank rather than 0 when nobody has logged anything.
+- **The assignee's grant is now checked on the ticket save too.** The detail modal
+  only ever offered the grant list, but `PUT /api/admin/submissions/:id` accepted
+  any user id — work could be put on somebody who cannot open the ticket. Both the
+  save and the create path ask `isAssignableTo` now, and an assignee set at
+  creation opens the handover trail rather than waiting for the first reassignment.
+
+**Verified end to end by export → re-import → compare**
+(`client/scripts/verify-report-import-export.mjs`, 19 checks): a fully-filled report
+request is exported, the file the portal itself wrote is imported back, and every
+column on the copy is compared against the original. That is the only test that can
+catch a header which does not round-trip — the two that never did ("Reported Date",
+"Request Details") are why the pattern exists. The same run asserts all three
+refusal paths and the `Deployed` rejection. `xlsx` is a client devDependency now, so
+the harness can build the fixture sheets it needs.
+
 ### Not done, on purpose
 
 - **§5 step 6** — screenshots and docs. Unstarted.
@@ -181,13 +235,14 @@ counts both types while a row track names only the one that ticket travels.
   impact and policies affected are defect/enhancement figures; the Add-a-ticket
   dialog now hides that fold for a report request, but the modal's tab was left
   alone rather than widened into this change.
-- **Import does not accept `assigned_to` or `level_of_effort`.** The assignee is a
-  user id and a name in a spreadsheet is not something to trust into an FK (it
-  exports as a name and never imports). Level of effort is a lookup and would need
-  the same id resolution the other lookups get — a small, separate addition.
-- **Hours are not an export column.** `Duration` is `SUM(hours)` over a child
-  table, so it needs an aggregate join in the list query rather than a field
-  definition.
+- **`approval_recorded_by` is not importable, deliberately.** That column is the id
+  of whoever entered an approval IN THIS PORTAL. Nobody did for an imported row, so
+  it stays null rather than borrowing the importer's name — `approved_by_name` and
+  `approved_at` carry what the sheet actually knows.
+- **An imported `Duration` cannot be split across people or days.** One number in
+  one cell becomes one entry; a request two analysts shared has to be corrected on
+  the Delivery pane afterwards. A per-person hours sheet would be a second import
+  shape, not a column.
 
 ### Both owner questions ANSWERED (2026-08-06)
 
@@ -349,6 +404,11 @@ branch). Two remain, both needing a decision:
    - `verify-public-board.mjs` — the per-type track, the parked state, the type
      chip and the stage tiles. **Writes** one public report request, walks it
      through its statuses, and removes it. 17 checks.
+   - `verify-report-import-export.mjs` — the spreadsheet round trip: export a
+     filled report request, re-import the portal's own file, compare every column,
+     and check all three refusal paths. **Writes** four report requests and removes
+     them. Needs no browser for most of it (it drives the API directly) and builds
+     its fixture sheets with `xlsx`, a client devDependency. 19 checks.
    - `lib/overflow-probe.mjs` — the per-container overflow probe every one of them
      uses. Read its header before changing it: each exclusion in it is there
      because a false positive buried a real finding.
