@@ -38,6 +38,8 @@ export function DetailActions({
   locked,
   readOnly,
   sendsDirectly,
+  // Withheld for a report request, which is finished here and never handed on.
+  hidesHandoff = false,
   onEasyVista,
 }) {
   const [confirmRetire, setConfirmRetire] = useState(false);
@@ -87,15 +89,20 @@ export function DetailActions({
             blocked send to fill the fields in, a Cleanup Only task to pick a
             type. The ellipsis tracks that: it is there only when the click
             opens something rather than sending. */}
-        <Button
-          kind="secondary"
-          onClick={onEasyVista}
-          disabled={working || locked}
-        >
-          {detail.easyvista_ticket_id
-            ? `Re-submit to ${TRACKER_LABEL_THE}…`
-            : `Submit to ${TRACKER_LABEL_THE}${sendsDirectly ? '' : '…'}`}
-        </Button>
+        {/* Withheld entirely for a report request: an analyst finishes it here
+            and it never goes downstream, so the button would either always fail
+            or — worse — succeed. A permanently disabled control is furniture. */}
+        {!hidesHandoff && (
+          <Button
+            kind="secondary"
+            onClick={onEasyVista}
+            disabled={working || locked}
+          >
+            {detail.easyvista_ticket_id
+              ? `Re-submit to ${TRACKER_LABEL_THE}…`
+              : `Submit to ${TRACKER_LABEL_THE}${sendsDirectly ? '' : '…'}`}
+          </Button>
+        )}
         <AdminMenu
           label="More actions"
           triggerClassName="bs-btn bs-btn-ghost"

@@ -98,6 +98,14 @@ export const ADMIN_META_CATEGORIES = [
     feeds: 'The Time Frame dropdown on the Impact tab — the "per" in "40 times per week".',
   },
   {
+    key: 'levelsOfEffort',
+    label: 'Levels of Effort',
+    endpointCategory: 'levels-of-effort',
+    optionsKey: 'levelsOfEffort',
+    supportsRetired: false,
+    feeds: 'The Level of Effort dropdown on a report request’s Delivery tab — how big a piece of work an analyst judged it to be.',
+  },
+  {
     key: 'submissionSources',
     label: 'Submission Sources',
     endpointCategory: 'submission-sources',
