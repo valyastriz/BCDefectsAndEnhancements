@@ -27,11 +27,14 @@ const SESSION_COOKIE = 'bc_sid';
  * is not in the store, so `req.session` alone cannot tell "never signed in" from
  * "signed in, and the session is gone". The cookie the browser sent can.
  *
- * That distinction is the whole point: sessions live in the default MemoryStore,
- * so every restart of this process — every deploy — drops all of them, while an
- * open tab goes on showing "Filing as …" from the viewer answer it fetched
- * before. Reporting that as "Requester Name is required" names a field the form
- * is not even showing, and the person cannot act on it.
+ * That distinction is the whole point. It was written for a deploy dropping every
+ * session at once — sessions used to live in the default MemoryStore — and
+ * sessions now persist (middleware/session.js), so that particular cause is gone.
+ * The branch is not: a session still lapses at 8 hours, gets pruned, or is lost
+ * outright on a local sql.js box where MemoryStore is still the store. An open tab
+ * goes on showing "Filing as …" from the viewer answer it fetched before, and
+ * reporting that as "Requester Name is required" names a field the form is not
+ * even showing, which the person cannot act on.
  */
 function arrivedWithASession(req) {
   return String(req?.headers?.cookie || '')

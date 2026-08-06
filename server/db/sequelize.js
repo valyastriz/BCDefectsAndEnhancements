@@ -16,6 +16,22 @@ function resolveProvider() {
   return (process.env.DB_PROVIDER || (dbMode === 'hosted' ? 'postgres' : 'sqljs')).toLowerCase();
 }
 
+// Strip the SSL query parameters and let the driver options below decide instead.
+// Supabase URLs carry `sslmode=require`, which `pg` reads as "verify the chain"
+// and then fails on the pooler's certificate. Anything else connecting with this
+// URL (the session store) needs the same treatment, hence the shared helper.
+function normalizeDatabaseUrl(rawUrl) {
+  const normalizedUrl = new URL(rawUrl);
+  normalizedUrl.searchParams.delete('sslmode');
+  normalizedUrl.searchParams.delete('ssl');
+  return normalizedUrl.toString();
+}
+
+const POSTGRES_SSL = {
+  require: true,
+  rejectUnauthorized: false,
+};
+
 function createSequelize() {
   const provider = resolveProvider();
 
@@ -24,19 +40,12 @@ function createSequelize() {
       throw new Error('DATABASE_URL is required when DB_PROVIDER=postgres');
     }
 
-    const normalizedUrl = new URL(process.env.DATABASE_URL);
-    normalizedUrl.searchParams.delete('sslmode');
-    normalizedUrl.searchParams.delete('ssl');
-
     return {
       provider,
-      sequelize: new Sequelize(normalizedUrl.toString(), {
+      sequelize: new Sequelize(normalizeDatabaseUrl(process.env.DATABASE_URL), {
         dialect: 'postgres',
         dialectOptions: {
-          ssl: {
-            require: true,
-            rejectUnauthorized: false,
-          },
+          ssl: POSTGRES_SSL,
         },
         logging: false,
       }),
@@ -55,4 +64,7 @@ function createSequelize() {
 
 module.exports = {
   createSequelize,
+  resolveProvider,
+  normalizeDatabaseUrl,
+  POSTGRES_SSL,
 };

@@ -17,6 +17,7 @@
     "migrate:easyvista-catalog-columns": "node scripts/migrateEasyVistaCatalogColumns.js",
     "migrate:report-requests": "node scripts/migrateReportRequests.js",
     "migrate:report-statuses": "node scripts/migrateReportStatuses.js",
+    "migrate:session-store": "node scripts/migrateSessionStore.js",
     "backfill:tracker-history": "node scripts/backfill-tracker-label-history.js",
     "grant:super-user": "node scripts/grantSuperUser.js",
     "remove:verification-tickets": "node scripts/removeVerificationSubmissions.js"
@@ -29,6 +30,7 @@
     "@anthropic-ai/sdk": "^0.112.4",
     "@huggingface/transformers": "^4.2.0",
     "bcrypt": "^6.0.0",
+    "connect-pg-simple": "^10.0.0",
     "cors": "^2.8.6",
     "dotenv": "^17.3.1",
     "express": "^5.2.1",

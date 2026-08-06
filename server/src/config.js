@@ -25,6 +25,16 @@ const SESSION_COOKIE_SAME_SITE = String(
 const SESSION_COOKIE_SECURE = String(process.env.SESSION_COOKIE_SECURE || (IS_PRODUCTION ? 'true' : 'false')).toLowerCase() === 'true';
 const SESSION_COOKIE_DOMAIN = String(process.env.SESSION_COOKIE_DOMAIN || '').trim() || null;
 
+// Where sessions are kept. express-session's default MemoryStore drops every
+// session when the process restarts, which on a deployed app means every deploy
+// signs everybody out mid-form. 'auto' uses the Postgres store whenever the app
+// is already talking to Postgres and MemoryStore otherwise, because local
+// development runs on sql.js where a Postgres store cannot work.
+//   auto   — Postgres when DB_PROVIDER=postgres, else memory (the default)
+//   pg     — force the Postgres store; refuses to start without DATABASE_URL
+//   memory — force MemoryStore, the escape hatch if the store misbehaves
+const SESSION_STORE = String(process.env.SESSION_STORE || 'auto').trim().toLowerCase();
+
 // ── Identity ─────────────────────────────────────────────────────────────────
 // 'local' = the username/password admin login this app ships with.
 // 'sso'   = an external identity provider (Active Directory) asserts who the
@@ -151,6 +161,7 @@ module.exports = {
   SESSION_COOKIE_SAME_SITE,
   SESSION_COOKIE_SECURE,
   SESSION_COOKIE_DOMAIN,
+  SESSION_STORE,
   AUTH_MODE,
   SUBMIT_REQUIRES_AUTH,
   DEV_IMPERSONATION_ENABLED,
