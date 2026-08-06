@@ -406,6 +406,16 @@ async function run() {
           && !offered.includes('Screen Title'),
         `${offered.length} options, report columns present=${offered.includes('Level of Effort')}, defect-only present=${offered.includes('Screen Title')}`,
       );
+      // The go-ahead, and what came out of it. Named individually because these
+      // are the two an owner migrating a back catalogue asks for by name, and
+      // "the report ones" above would still pass with either of them missing.
+      record(
+        'including the go-ahead it was given and what was delivered',
+        offered.includes('Approved By')
+          && offered.includes('Approved Date')
+          && offered.includes('Delivery Notes'),
+        `Approved By=${offered.includes('Approved By')} · Approved Date=${offered.includes('Approved Date')} · Delivery Notes=${offered.includes('Delivery Notes')}`,
+      );
       await page.keyboard.press('Escape');
     } finally {
       await browser.close();
