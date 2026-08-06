@@ -5,13 +5,97 @@ per-app details.
 
 ---
 
-# HANDOFF — pick this up cold (2026-08-05)
+# HANDOFF — pick this up cold (updated 2026-08-06)
 
 Everything below this line up to the `---` is the live work queue. It is written to
 be read by someone with no memory of the session that produced it. The dated
 sections after it are the historical record and unchanged.
 
-## Where this stands, in ten lines
+## PHASE 1 IS MOSTLY BUILT — start here (2026-08-06)
+
+**All three mockups were approved and three PRs are merged to `main` and
+deployed.** The ten-line orientation below is the *previous* session's and is now
+history; read this section instead, then §4 for the design decisions that still
+govern the remaining work.
+
+**Approved mockups — these are the build contract, not sketches:**
+1. Submit form, report branch (v3) — https://claude.ai/code/artifact/075982a2-0670-4d48-b02d-ba92b420b0b7
+2. Delivery pane (v3) — https://claude.ai/code/artifact/9d716633-70b6-45f0-94c4-44ad493be76c
+3. Throughput page (v2) — https://claude.ai/code/artifact/e6bffd90-c76a-49a4-b042-0aa2ba904835
+
+**Merged and deployed:** PR #12 (schema, authorisation sweep, backend), PR #13
+(submit form), PR #14 (Delivery pane, handover trail, approval evidence).
+294 server tests, client lint and build clean, 32/32 browser checks on the submit
+form at 1500/820/390 in both themes.
+
+### The schema is APPLIED to the hosted database
+
+`npm run migrate:report-requests` (dry-run by default, `-- --apply` to write).
+Verified non-destructive afterwards: 83 submissions before and after, both
+existing grants preserved, no existing row has a report field set, money columns
+untouched. Idempotent — a re-run reports everything already present.
+
+What landed: 14 nullable columns on `submissions`; `attachments.purpose`;
+`user_application_roles.request_type`; `levels_of_effort`,
+`request_time_entries`, `request_assignments`; the `report` submission type; four
+seeded effort values.
+
+**Two schema facts worth knowing before you touch this area:**
+- `user_application_roles.request_type` stores **`''`, not NULL**, for "covers
+  every type". Both dialects treat NULLs in a unique index as distinct, so a
+  nullable column would let one person hold two conflicting all-types grants. The
+  unique index is now `(user_id, application_id, request_type)` and the old
+  two-column one is dropped. Probed with real inserts, not reasoned about.
+- That table is synced **without `alter`** (SQLite would corrupt its composite
+  uniqueness), so a new column on it never arrives via the boot sync.
+  `ensureColumn` in `db/models/index.js` adds it explicitly. Any future column on
+  that table needs the same treatment.
+
+### The authorisation sweep is done
+
+- `canMutateApplication(viewer, applicationId, requestType)` — **the third
+  argument is load-bearing.** Omitting it asks the weaker question "may they work
+  in this queue at all", which is right for a queue-level check and wrong for a
+  write. All six call sites pass it: `can_edit`, both attachment routes, redirect,
+  create, update. A new write path MUST pass it too.
+- `manager` is a third rank above admin in `APPLICATION_ROLES`, per application.
+  It gates exactly one thing: seeing other people's throughput numbers.
+- `test/typeScopedAccess.test.js` is the regression net — 13 tests.
+
+### What is LEFT, in order
+
+1. **The throughput page** (mockup 3 v2). The backend is merged and working:
+   `GET /api/admin/throughput` takes `from`/`to`/`application_id`, decides
+   team-vs-personal from the caller's own rank, and **narrows the query** so a
+   non-manager's response never contains a colleague's name. `api.getThroughput`
+   already exists on the client. What is missing is `AdminThroughputPage.jsx`, the
+   `tp-` CSS (in the artifact, ready to transplant), the route, and a nav entry.
+   Chart colours are already decided and validated — see §4's chart-token note.
+2. **Admin add/import/export parity.** A fourth segment in the Add-a-ticket
+   dialog's segmented control, new `IMPORT_COLUMN_TARGETS` entries, new
+   `ADMIN_EXPORT_FIELDS` entries. **The export field needs a `group` or
+   `test/exportFields.test.js` fails — which is the point of that test.**
+3. **A browser check for the Delivery pane.** Surfaces 1 and 3 have committed
+   scripts; the Delivery pane is verified end-to-end through the API but not yet
+   through the UI at 1500/820/390 in both themes. Extend
+   `verify-admin-data-entry.mjs` rather than writing a throwaway.
+4. **§5 step 6** — screenshots and docs.
+
+### Still open, and needing the owner rather than code
+
+- **What is "Report/Dashboard Approval" approving?** Built as a gate before work
+  starts ("Approved to go ahead"). If it is really the requester signing off on
+  the finished report, it belongs below completion and means something different
+  in reporting.
+- **Do report requests need their own status words?** They share the defect list,
+  so a delivered report has to be filed as **Deployed**, and the public board's
+  four-stop track ends at *With Service Desk → Deployed* — it would draw a
+  delivered report as stuck at Reported. Either this type gets its own short list
+  (a second Metadata panel) or the board learns to draw its track differently.
+  **This is the one thing that should be settled before requesters see report
+  requests**, or the board will quietly lie to them.
+
+## Where this stands, in ten lines (2026-08-05 — now history, see above)
 
 **Done and on `main`:** the portal rename and the `TRACKER_LABEL` pass (§1), all
 three approved artifacts — Add-a-ticket/Import/Export, the Metadata page, the
@@ -648,7 +732,55 @@ be built with a fourth type in mind so this is an extension, not a rewrite.
 
 **Mockup first.** Per `.claude/skills/artifact-mockup-first`, the new submit-form
 branch, the detail-modal fields and the throughput page each need an approved
-Artifact before product code.
+Artifact before product code. **All three were approved on 2026-08-06** — links at
+the top of this handoff. They are the build contract; anything that departs from
+them is a deviation to raise, not a detail to decide.
+
+### Decisions made while building, that the rest of Phase 1 must honour
+
+- **Six of the requester's fields reuse existing columns.** Title is
+  `summary_of_issue`, Description is `what_happened_exact_details` (which the
+  import layer already labels "Description"), "what's not working" is `request`,
+  Requested Implementation Date is `desired_completion_date`, and Requestor /
+  Email are the existing reporter mechanism. A second column for any of them
+  would be the same defect the source list has with Complete / Completed /
+  Complete Date.
+- **A change request asks which report, and asks it FIRST** — added by the owner,
+  `existing_report_link`. It takes a link or, where there is none, wherever the
+  requester opens it from. **"What's not working" is change-only**: nothing is
+  broken about a report that does not exist yet.
+- **Required is deliberately minimal** — summary, description, and the one field
+  the chosen branch cannot do without (plus the link on a change). The field list
+  is a SAMPLE: somebody blocked by a question they cannot answer types anything to
+  get past it, and then the field is worse than absent.
+- **"How often will this be used" is a fixed six-value scale held as a module
+  constant**, mirrored in `REPORT_USAGE_FREQUENCIES` (server) and
+  `USAGE_FREQUENCIES` (client) — **keep the two in step**; the server refuses
+  anything else. Not a lookup: it is not a database-managed entity, and free text
+  would give "Daily", "daily" and "every day" as three answers.
+- **Department is plain text**, not a lookup — there is no department list to
+  seed, and a required select over an empty lookup blocks every submission.
+- **The approver is a typed NAME** (`approved_by_name`), because they are usually
+  not a portal user. `approval_recorded_by` is a user id the server fills in;
+  never accept it from a client. This is a deliberate, narrow exception to the
+  STOP rule against storing a name where an id exists — there is no id for an
+  external approver, and the accountability is the recorder.
+- **Hours are counted by `worked_on`, not by when the entry was typed.** That is
+  why the child table stores both dates.
+- **Chart tokens are validated, not chosen.** `--chart-1` / `--chart-2` in
+  `index.css`, one pair per theme, deliberately NOT the `--status-*` colours (a
+  status colour on a series makes a badge colour mean two things). Light
+  `#2563eb,#eb6834` on `#ffffff` and dark `#3b82f6,#e2622f` on `#1b2638` both pass
+  all six dataviz checks. **The dark steps are not the light ones brightened** —
+  the portal's dark primary `#60a5fa` has OKLCH L 0.714 and fails the dark
+  lightness band. Re-run the validator before changing either.
+- **Approval evidence never touches `/uploads`.** That path is `express.static`
+  with no authentication (`src/index.js:49`) — fine for screenshots, which are
+  public-board content, and not for an approval email. Documents go through
+  `approvalUpload` (extension AND mime checked together, `.svg`/`.html`/`.xml`
+  refused) and come back only through
+  `GET /api/admin/attachments/:id/file`, which re-checks the caller's grant and
+  sends `Content-Disposition: attachment`.
 
 ### Open questions for the owner
 
