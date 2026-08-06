@@ -14,7 +14,15 @@ const DEFAULT_DEFECT_ENHANCEMENT_STATUSES = [
   'Retired',
 ];
 
-const DEFAULT_SUBMISSION_TYPES = ['defect', 'enhancement'];
+// Kept in step with src/constants.js DEFAULT_SUBMISSION_TYPES, which this file
+// deliberately does not import (db/ has no dependency on src/).
+const DEFAULT_SUBMISSION_TYPES = ['defect', 'enhancement', 'report'];
+const DEFAULT_LEVELS_OF_EFFORT = [
+  'S — up to 2 days',
+  'M — up to a week',
+  'L — up to a month',
+  'XL — more than a month',
+];
 const DEFAULT_CLEANUP_STATUSES = ['Not Started', 'In Progress', 'Completed'];
 const DEFAULT_CLEANUP_TAG_TYPES = ['defect', 'enhancement', 'cleanup_only'];
 const DEFAULT_APPLICATIONS = ['Billing Center', 'Policy Center'];
@@ -173,6 +181,51 @@ function defineModels(sequelize) {
     occurrence_timeframe_count: { type: DataTypes.INTEGER, allowNull: true },
     occurrence_timeframe_id: { type: DataTypes.INTEGER, allowNull: true },
     occurrence_rate: { type: DataTypes.REAL, allowNull: true },
+
+    // ── Report requests (plan.md §4 Phase 1) ────────────────────────────────
+    // Every one of these is nullable and null on every existing row, so the
+    // migration cannot change what any current ticket means.
+    //
+    // Plain columns on purpose, not a JSON blob and not an EAV table: the
+    // confirmed field list is a SAMPLE and will move, so adding a field has to
+    // stay a one-line migration plus a form control. An EAV design buys
+    // flexibility nobody asked for and makes every read worse.
+    //
+    // Three of the requester's fields are NOT here because they already have a
+    // column: Title is `summary_of_issue`, Description is
+    // `what_happened_exact_details` (which the import layer already labels
+    // "Description"), "what's not working" is `request`, and Requested
+    // Implementation Date is `desired_completion_date`. A second column for any
+    // of them would be the same defect the source list has, where Complete,
+    // Completed and Complete Date are three fields for one fact.
+
+    // Requester's half.
+    is_new_dashboard: { type: DataTypes.INTEGER, allowNull: true },
+    needed_data: { type: DataTypes.TEXT, allowNull: true },
+    measures_and_sources: { type: DataTypes.TEXT, allowNull: true },
+    primary_contact: { type: DataTypes.TEXT, allowNull: true },
+    // Where to find the report a change is being asked for. Takes a link or, when
+    // there is no link, wherever the requester opens it from.
+    existing_report_link: { type: DataTypes.TEXT, allowNull: true },
+    changes_requested: { type: DataTypes.TEXT, allowNull: true },
+    report_usage_frequency: { type: DataTypes.TEXT, allowNull: true },
+    department: { type: DataTypes.TEXT, allowNull: true },
+
+    // Analyst's half.
+    // A user id, never a name: a rename must not silently unlink someone's work.
+    assigned_to: { type: DataTypes.INTEGER, allowNull: true },
+    level_of_effort_id: { type: DataTypes.INTEGER, allowNull: true },
+    // ONE timestamp. `Complete` and `Completed` are derived from it and are not
+    // stored — see mapSubmission.
+    completed_at: { type: DataTypes.TEXT, allowNull: true },
+    // Who said go, and when. The approver is a NAME rather than an id because
+    // they are usually not a portal user — a manager who replied to an email —
+    // so there is no id to hold. The accountability is `approval_recorded_by`,
+    // which IS an id and is filled in by the server, never by the client: a typed
+    // name with nobody behind it is a claim, not a record.
+    approved_at: { type: DataTypes.TEXT, allowNull: true },
+    approved_by_name: { type: DataTypes.TEXT, allowNull: true },
+    approval_recorded_by: { type: DataTypes.INTEGER, allowNull: true },
   }, {
     tableName: 'submissions',
     timestamps: false,
@@ -184,6 +237,10 @@ function defineModels(sequelize) {
       // applications the caller administers, and "my reports" filters by reporter.
       { name: 'idx_submissions_application_id', fields: ['application_id'] },
       { name: 'idx_submissions_reporter_user_id', fields: ['reporter_user_id'] },
+      // Both added for the throughput page: it groups by assignee and windows by
+      // completion date, and neither is a column the queue ever filtered on.
+      { name: 'idx_submissions_assigned_to', fields: ['assigned_to'] },
+      { name: 'idx_submissions_completed_at', fields: ['completed_at'] },
     ],
   });
 
@@ -195,6 +252,15 @@ function defineModels(sequelize) {
     file_path: { type: DataTypes.TEXT, allowNull: false },
     uploaded_at: { type: DataTypes.TEXT, allowNull: false },
     uploaded_by_role: { type: DataTypes.TEXT, allowNull: false },
+    // What this file IS, when it is not a screenshot. Null on every existing row
+    // and on every screenshot, so the Files tab keeps behaving exactly as it
+    // does; 'approval' marks the evidence behind a report request's go-ahead,
+    // which the Delivery pane lists separately.
+    //
+    // One nullable column on the table screenshots already use, rather than a
+    // second attachments table: one upload path, one delete path, one storage
+    // helper. Adding another purpose later stays a one-word change.
+    purpose: { type: DataTypes.TEXT, allowNull: true },
   }, {
     tableName: 'attachments',
     timestamps: false,
@@ -342,6 +408,76 @@ function defineModels(sequelize) {
     is_active: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 1 },
   }, { tableName: 'occurrence_timeframes', timestamps: false });
 
+  const LevelOfEffort = sequelize.define('LevelOfEffort', {
+    id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
+    name: { type: DataTypes.TEXT, allowNull: false, unique: true },
+    sort_order: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
+    is_active: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 1 },
+  }, { tableName: 'levels_of_effort', timestamps: false });
+
+  // ── Report request delivery ───────────────────────────────────────────────
+  // Analyst hours, one row per sitting.
+  //
+  // NOT a column on submissions, and the distinction is the whole design: hours
+  // accumulate across sittings AND across people, so a single number would be
+  // overwritten by whoever saved last, and "who actually did the work" would be
+  // unanswerable. `Duration` on a request is SUM(hours) computed on read — it
+  // cannot drift from these rows because it IS these rows.
+  //
+  // No unique constraint: many rows per submission is the point, and one person
+  // can legitimately log twice on the same day.
+  const RequestTimeEntry = sequelize.define('RequestTimeEntry', {
+    id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
+    submission_id: { type: DataTypes.INTEGER, allowNull: false },
+    // Whose hours these are. This is what the throughput page groups by, so it
+    // is an id: crediting work to a typed name would break on a rename.
+    user_id: { type: DataTypes.INTEGER, allowNull: false },
+    // DECIMAL for the same reason money is. This project has already had
+    // single-precision float silently corrupt stored values on the hosted
+    // database (see plan.md, "Money columns were single-precision floats") — 7.5
+    // is no safer than 7.55, and these numbers get summed.
+    hours: { type: DataTypes.DECIMAL(6, 2), allowNull: false },
+    // The day the work happened, not the day it was typed in. An analyst
+    // catching up on Friday for Tuesday's work belongs in Tuesday, and the
+    // throughput page windows on this.
+    worked_on: { type: DataTypes.TEXT, allowNull: false },
+    note: { type: DataTypes.TEXT, allowNull: true },
+    created_at: { type: DataTypes.TEXT, allowNull: false },
+  }, {
+    tableName: 'request_time_entries',
+    timestamps: false,
+    indexes: [
+      { name: 'idx_request_time_entries_submission_id', fields: ['submission_id'] },
+      { name: 'idx_request_time_entries_user_id', fields: ['user_id'] },
+      { name: 'idx_request_time_entries_worked_on', fields: ['worked_on'] },
+    ],
+  });
+
+  // Who has held a request, and who moved it.
+  //
+  // `submissions.assigned_to` is the CURRENT holder — cheap to query and to index
+  // for "my queue". This is the audit trail, and it cannot be reconstructed after
+  // the fact, which is why it ships with the feature rather than later. Without
+  // it, reassignment silently erases everyone who held a request before the last
+  // person.
+  const RequestAssignment = sequelize.define('RequestAssignment', {
+    id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
+    submission_id: { type: DataTypes.INTEGER, allowNull: false },
+    // Null records an UNASSIGNMENT — someone taking the request off a person
+    // without giving it to another — which is a real event and not the absence
+    // of one.
+    assigned_to: { type: DataTypes.INTEGER, allowNull: true },
+    assigned_by: { type: DataTypes.INTEGER, allowNull: true },
+    assigned_at: { type: DataTypes.TEXT, allowNull: false },
+  }, {
+    tableName: 'request_assignments',
+    timestamps: false,
+    indexes: [
+      { name: 'idx_request_assignments_submission_id', fields: ['submission_id'] },
+      { name: 'idx_request_assignments_assigned_to', fields: ['assigned_to'] },
+    ],
+  });
+
   // ── Access control ────────────────────────────────────────────────────────
   // Triage rights are per application: a row here is a grant, and NO ROW IS NO
   // ACCESS. The admin queue fails closed on that — an admin with no rows sees no
@@ -358,6 +494,21 @@ function defineModels(sequelize) {
     user_id: { type: DataTypes.INTEGER, allowNull: false },
     application_id: { type: DataTypes.INTEGER, allowNull: false },
     role: { type: DataTypes.TEXT, allowNull: false, defaultValue: 'admin' },
+    // Which request type this grant covers. '' means EVERY type, so every row
+    // that exists today keeps working untouched and the migration changes nobody's
+    // access. An analyst is simply an admin grant narrowed to one type
+    // (plan.md §4 open question 4) — one table, additive, no second place to ask
+    // the same question.
+    //
+    // '' RATHER THAN NULL, deliberately. The uniqueness below is now
+    // (user_id, application_id, request_type), and both SQLite and Postgres treat
+    // NULLs in a unique index as distinct from each other — so a nullable column
+    // here would let the same person hold two conflicting all-types grants on one
+    // application and silently lose the guarantee the index exists for.
+    //
+    // Read only through roleInApplication / canMutateApplication. Nothing else
+    // should be interpreting this column.
+    request_type: { type: DataTypes.TEXT, allowNull: false, defaultValue: '' },
     granted_at: { type: DataTypes.TEXT, allowNull: false },
     granted_by: { type: DataTypes.TEXT },
   }, {
@@ -445,6 +596,9 @@ function defineModels(sequelize) {
     PriorityLevel,
     SubmissionSource,
     OccurrenceTimeframe,
+    LevelOfEffort,
+    RequestTimeEntry,
+    RequestAssignment,
     UserApplicationRole,
     ApplicationAdGroup,
     SubmissionRouting,
@@ -498,9 +652,14 @@ const RAW_UNIQUE_INDEXES = [
   },
   {
     skipAlterModel: 'UserApplicationRole',
-    index: 'idx_user_application_roles_unique',
+    // A third column, so one person can hold an all-types grant AND a narrower
+    // one on the same application. `replaces` names the two-column index this
+    // supersedes: leaving it in place would keep rejecting the second row, and
+    // CREATE INDEX IF NOT EXISTS cannot notice that.
+    index: 'idx_user_application_roles_unique_v2',
+    replaces: ['idx_user_application_roles_unique'],
     table: 'user_application_roles',
-    columns: ['user_id', 'application_id'],
+    columns: ['user_id', 'application_id', 'request_type'],
   },
   {
     skipAlterModel: 'ApplicationAdGroup',
@@ -529,8 +688,34 @@ function uniqueIndexSql({ index, table, columns }) {
 
 async function ensureRawUniqueIndexes(sequelize) {
   for (const entry of RAW_UNIQUE_INDEXES) {
+    for (const stale of entry.replaces || []) {
+      await sequelize.query(`DROP INDEX IF EXISTS "${stale}"`);
+    }
     await sequelize.query(uniqueIndexSql(entry));
   }
+}
+
+/**
+ * Add a column to a table that is synced WITHOUT `alter`.
+ *
+ * The tables in NO_ALTER_MODEL_NAMES get a plain CREATE TABLE IF NOT EXISTS, so
+ * a new column on one of them never reaches a database that already has the
+ * table — the model would declare a column the rows do not have, and every read
+ * would fail. Postgres has ADD COLUMN IF NOT EXISTS and SQLite does not, so the
+ * portable form is to ask what is there first.
+ */
+async function ensureColumn(sequelize, table, column, definition) {
+  const queryInterface = sequelize.getQueryInterface();
+  let described;
+  try {
+    described = await queryInterface.describeTable(table);
+  } catch {
+    // No table yet — the model's own sync will create it with the column.
+    return false;
+  }
+  if (described[column]) return false;
+  await queryInterface.addColumn(table, column, definition);
+  return true;
 }
 
 // Kept as a named export because the embeddings backfill calls it directly after
@@ -557,6 +742,15 @@ async function migrateWithModels(sequelize, models) {
       await model.sync({ alter: true });
     }
   }
+  // user_application_roles is synced without `alter`, so its new type-scope
+  // column has to be added by hand — and BEFORE the unique index below, which
+  // now includes it.
+  await ensureColumn(sequelize, 'user_application_roles', 'request_type', {
+    type: DataTypes.TEXT,
+    allowNull: false,
+    defaultValue: '',
+  });
+
   await ensureRawUniqueIndexes(sequelize);
 
   await seedLookup(models.DefectEnhancementStatus, DEFAULT_DEFECT_ENHANCEMENT_STATUSES, { retiredValue: 'Retired' });
@@ -567,6 +761,7 @@ async function migrateWithModels(sequelize, models) {
   await seedLookup(models.EnhancementRequestType, DEFAULT_ENHANCEMENT_REQUEST_TYPES);
   await seedLookup(models.PriorityLevel, DEFAULT_PRIORITY_LEVELS);
   await seedLookup(models.SubmissionSource, DEFAULT_SUBMISSION_SOURCES);
+  await seedLookup(models.LevelOfEffort, DEFAULT_LEVELS_OF_EFFORT);
 
   // Seed occurrence timeframes with days_equivalent values
   for (let i = 0; i < DEFAULT_OCCURRENCE_TIMEFRAMES.length; i++) {

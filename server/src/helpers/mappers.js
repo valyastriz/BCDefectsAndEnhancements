@@ -72,6 +72,23 @@ function mapSubmission(row) {
     // ever shapes admin payloads.
     policy_premium_impact: toMoneyNumber(row.policy_premium_impact),
     direct_dollar_impact: toMoneyNumber(row.direct_dollar_impact),
+
+    // ── Report requests ─────────────────────────────────────────────────────
+    // `is_new_dashboard` stays TRI-STATE. Boolean() would turn "not a report
+    // request" into "a change to an existing report", which is a different
+    // answer, so null survives as null.
+    is_new_dashboard: row.is_new_dashboard === null || row.is_new_dashboard === undefined
+      ? null
+      : Boolean(row.is_new_dashboard),
+    level_of_effort: row.model_level_of_effort_name || row.level_of_effort || null,
+
+    // DERIVED, never stored. The source field list had `Complete`, `Completed`
+    // and `Complete Date` — three fields for one fact, which is three chances for
+    // them to disagree. There is one timestamp, and these read off it.
+    is_complete: Boolean(row.completed_at),
+    // Approval needs BOTH a name and a date to count: a name with no date is
+    // half-typed, not an approval.
+    is_approved: Boolean(row.approved_at && row.approved_by_name),
   };
 }
 

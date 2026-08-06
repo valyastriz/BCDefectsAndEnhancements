@@ -6,6 +6,7 @@ const { ensureAdmin, attachViewer } = require('../auth');
 const { canMutateApplication } = require('../services/viewerService');
 const { withDb } = require('../helpers/db');
 const { persistUploadedFiles, deleteSupabaseStoredFileByUrl } = require('../helpers/storage');
+const { getSubmissionTypeNameById } = require('../helpers/lookups');
 const { imageUpload } = require('../middleware/upload');
 const { emitAdminNotification } = require('../socket');
 
@@ -28,8 +29,12 @@ router.post(
         return res.status(404).json({ error: 'Submission not found' });
       }
       // Adding evidence to a ticket is editing it, so it follows the same
-      // current-ownership rule as the edit form.
-      if (!canMutateApplication(req.viewer, existing.application_id)) {
+      // current-ownership rule as the edit form — including its type scope.
+      if (!canMutateApplication(
+        req.viewer,
+        existing.application_id,
+        await getSubmissionTypeNameById(existing.type_id),
+      )) {
         return res.status(403).json({ error: 'You do not administer this application' });
       }
 
@@ -66,7 +71,11 @@ router.delete('/api/admin/attachments/:id', ensureAdmin, attachViewer, async (re
     // id — the file itself carries no application of its own. A missing parent
     // is refused rather than treated as unowned.
     const parent = await Submission.findByPk(Number(attachment.submission_id), { raw: true });
-    if (!canMutateApplication(req.viewer, parent?.application_id)) {
+    if (!canMutateApplication(
+      req.viewer,
+      parent?.application_id,
+      await getSubmissionTypeNameById(parent?.type_id),
+    )) {
       return res.status(403).json({ error: 'You do not administer this application' });
     }
 

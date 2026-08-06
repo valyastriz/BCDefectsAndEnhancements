@@ -8,6 +8,13 @@ const {
   canMutateApplication,
 } = require('../services/viewerService');
 const { redirectSubmission, listRoutings } = require('../services/redirectService');
+const {
+  listTimeEntries,
+  summarizeTimeEntries,
+  listAssignments,
+  listAssignableUsers,
+} = require('../services/deliveryService');
+const { SUBMISSION_TYPE_REPORT } = require('../constants');
 const { withDb } = require('../helpers/db');
 const { isBlank } = require('../helpers/utils');
 const { mapSubmission, mapPublicSubmission, toExportCellValue } = require('../helpers/mappers');
@@ -117,14 +124,35 @@ router.get('/api/admin/submissions/:id', ensureAdmin, attachViewer, async (req, 
     // only. The public detail route gets the stripped version.
     const routings = await listRoutings(dbModels, submissionId);
 
+    // The Delivery pane's three lists. Only fetched for a report request: on a
+    // defect they would be three empty arrays and three pointless queries.
+    const isReportRequest = String(submission.model_type_name || '').toLowerCase()
+      === SUBMISSION_TYPE_REPORT;
+    const timeEntries = isReportRequest ? await listTimeEntries(submissionId) : [];
+    const assignments = isReportRequest ? await listAssignments(submissionId) : [];
+    const assignableUsers = isReportRequest
+      ? await listAssignableUsers(submission.application_id)
+      : [];
+
     return res.json({
       ...mapSubmission(submission),
       attachments,
       status_events: timeline,
       routings,
+      time_entries: timeEntries,
+      // SUM(hours) and the per-person split, computed here and stored nowhere.
+      ...summarizeTimeEntries(timeEntries),
+      assignments,
+      assignable_users: assignableUsers,
       // Whether THIS caller may still change it. A ticket they handed on stays
       // readable and must render read-only rather than offering dead controls.
-      can_edit: canMutateApplication(req.viewer, submission.application_id),
+      // Type-scoped: an analyst granted only report requests reads a defect and
+      // gets the same read-only form as a past owner.
+      can_edit: canMutateApplication(
+        req.viewer,
+        submission.application_id,
+        submission.model_type_name || submission.type,
+      ),
     });
   });
 });

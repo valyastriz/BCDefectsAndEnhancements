@@ -2,6 +2,13 @@ const express = require('express');
 const dbApi = require('../../db');
 const { withDb } = require('../helpers/db');
 const { isBlank, toIsoOrNow, defectDateTimeIso, parseBooleanFlag } = require('../helpers/utils');
+const { SUBMISSION_TYPE_REPORT, REPORT_USAGE_FREQUENCIES } = require('../constants');
+
+/** '' and whitespace are "not given", which is null in the database, not ''. */
+const blankToNull = (value) => {
+  const text = String(value ?? '').trim();
+  return text === '' ? null : text;
+};
 const {
   resolveSubmissionLookupIds,
   collectMissingLookupIds,
@@ -39,6 +46,17 @@ router.post('/api/submissions', imageUpload.array('attachments', 3), async (req,
     time_of_error,
     desired_completion_date,
     needs_workaround,
+    // Report requests. Title is `summary_of_issue`, Description is
+    // `what_happened_exact_details` and "what's not working" is `request`, so
+    // those three arrive above rather than here.
+    is_new_dashboard,
+    needed_data,
+    measures_and_sources,
+    primary_contact,
+    existing_report_link,
+    changes_requested,
+    report_usage_frequency,
+    department,
   } = req.body;
 
   const allowedSubmissionTypes = await withDb(async (db) => getSubmissionTypes(db));
@@ -95,6 +113,58 @@ router.post('/api/submissions', imageUpload.array('attachments', 3), async (req,
       request: normalized.request || '-',
       date_time_of_error: defectDateTime,
       desired_completion_date: null,
+    };
+  }
+
+  // ── Report requests ─────────────────────────────────────────────────────
+  // Five of the submission columns are NOT NULL and mean nothing for a report
+  // request, so they are filled with '-' exactly as the enhancement branch below
+  // does. Required is deliberately minimal — summary, description, and the one
+  // field the chosen branch cannot do without — because the confirmed field list
+  // is a sample: somebody blocked by a required question they cannot answer types
+  // anything to get past it, and then the field is worse than absent.
+  if (normalizedType === SUBMISSION_TYPE_REPORT) {
+    const wantsNew = parseBooleanFlag(is_new_dashboard);
+    const branchField = wantsNew ? measures_and_sources : changes_requested;
+    const branchLabel = wantsNew
+      ? 'Measures and where they come from'
+      : 'What should change';
+
+    if (isBlank(summary_of_issue) || isBlank(what_happened_exact_details) || isBlank(branchField)) {
+      return res.status(400).json({
+        error: `Summary, Description and ${branchLabel} are required for report requests`,
+      });
+    }
+    // A change request has to say WHICH report: an analyst cannot change one they
+    // cannot find. The field takes any answer, because plenty of reports have no
+    // link — a share drive path or "the menu I open it from" is a valid answer.
+    if (!wantsNew && isBlank(existing_report_link)) {
+      return res.status(400).json({ error: 'Say which report this is about' });
+    }
+    if (!isBlank(report_usage_frequency)
+      && !REPORT_USAGE_FREQUENCIES.includes(String(report_usage_frequency).trim())) {
+      return res.status(400).json({ error: 'That is not one of the usage frequencies' });
+    }
+
+    normalized = {
+      ...normalized,
+      screen_title: '-',
+      steps_to_reproduce: '-',
+      // `request` carries "what's not working", which is only asked of a change.
+      request: wantsNew ? '-' : (normalized.request || '-'),
+      date_time_of_error: toIsoOrNow(date_time_of_error),
+      desired_completion_date: desired_completion_date ? toIsoOrNow(desired_completion_date) : null,
+      is_new_dashboard: wantsNew ? 1 : 0,
+      needed_data: blankToNull(needed_data),
+      // Only the chosen branch's fields are stored. Sending both — which a
+      // hand-rolled request can do — must not leave the other branch's answer
+      // sitting on the row contradicting the one that was asked for.
+      measures_and_sources: wantsNew ? blankToNull(measures_and_sources) : null,
+      primary_contact: wantsNew ? blankToNull(primary_contact) : null,
+      existing_report_link: wantsNew ? null : blankToNull(existing_report_link),
+      changes_requested: wantsNew ? null : blankToNull(changes_requested),
+      report_usage_frequency: blankToNull(report_usage_frequency),
+      department: blankToNull(department),
     };
   }
 
@@ -192,6 +262,17 @@ router.post('/api/submissions', imageUpload.array('attachments', 3), async (req,
       // only offers the box on a defect — so a value sent with an enhancement is
       // dropped here rather than trusted.
       needs_workaround: normalized.type === 'defect' && parseBooleanFlag(needs_workaround) ? 1 : 0,
+      // Report-request fields, null for every other type by construction: they
+      // are only ever set inside the report branch above, so a defect payload
+      // carrying them writes nothing.
+      is_new_dashboard: normalized.is_new_dashboard ?? null,
+      needed_data: normalized.needed_data ?? null,
+      measures_and_sources: normalized.measures_and_sources ?? null,
+      primary_contact: normalized.primary_contact ?? null,
+      existing_report_link: normalized.existing_report_link ?? null,
+      changes_requested: normalized.changes_requested ?? null,
+      report_usage_frequency: normalized.report_usage_frequency ?? null,
+      department: normalized.department ?? null,
     };
 
     const createdSubmission = await Submission.create(createPayload);

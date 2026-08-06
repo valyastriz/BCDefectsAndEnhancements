@@ -20,7 +20,7 @@
 //      work, so it never reaches the reporter — see mapPublicRouting.
 const { canMutateApplication } = require('./viewerService');
 const { logStatusChange } = require('./submissionService');
-const { getLookupIdByName } = require('../helpers/lookups');
+const { getLookupIdByName, getSubmissionTypeNameById } = require('../helpers/lookups');
 
 const HANDOFF_STATUS = 'New';
 const NOTE_MAX_LENGTH = 4000;
@@ -76,9 +76,14 @@ async function redirectSubmission(db, {
     return { error: 'Submission not found', status: 404 };
   }
 
-  // You may only hand on a ticket you currently administer. A viewer seat, or an
-  // admin of the RECEIVING application, cannot pull a ticket across.
-  if (!canMutateApplication(viewer, submission.application_id)) {
+  // You may only hand on a ticket you currently administer, of a type your grant
+  // covers. A viewer seat, an admin of the RECEIVING application, or an analyst
+  // scoped to a different request type cannot pull a ticket across.
+  if (!canMutateApplication(
+    viewer,
+    submission.application_id,
+    await getSubmissionTypeNameById(submission.type_id),
+  )) {
     return { error: 'You do not administer this application', status: 403 };
   }
 
