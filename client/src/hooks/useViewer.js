@@ -49,12 +49,18 @@ const ANONYMOUS = {
   impersonating: false,
   user: null,
   isSuperUser: false,
-  // What this caller may do per application: { [applicationId]: 'viewer' | 'admin' }.
-  // The two id lists below are derived from it server-side; they are here so a
-  // consumer can ask the common questions without walking the map.
+  // What this caller may do per application:
+  // { [applicationId]: 'viewer' | 'admin' | 'manager' }. The id lists below are
+  // derived from it server-side; they are here so a consumer can ask the common
+  // questions without walking the map — and so a failed /api/viewer answers every
+  // one of them with "nothing" rather than with undefined.
   applicationRoles: {},
   adminApplicationIds: [],
   readableApplicationIds: [],
+  // The manager rank, which gates exactly one thing: seeing other people's
+  // throughput numbers.
+  managerApplicationIds: [],
+  canManageAnyApplication: false,
   // Which applications this person WORKS IN, per their Active Directory groups.
   // Not a grant — it prefills the submit form and scopes their own board.
   memberApplicationIds: [],

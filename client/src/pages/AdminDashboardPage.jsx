@@ -715,6 +715,7 @@ export function AdminDashboardPage({ user, onLogout }) {
         onOpenExport={openExportModal}
         onOpenAddTicket={openAddTicketModal}
         onNavigateMetadata={() => navigate('/admin/metadata')}
+        onNavigateThroughput={() => navigate('/admin/throughput')}
         onNavigateAccess={() => navigate('/admin/access')}
         canManageAccess={viewer.isSuperUser}
         onLogout={logout}

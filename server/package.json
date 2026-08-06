@@ -14,8 +14,10 @@
     "migrate:money-columns": "node scripts/migrateMoneyColumns.js",
     "migrate:easyvista-catalog-columns": "node scripts/migrateEasyVistaCatalogColumns.js",
     "migrate:report-requests": "node scripts/migrateReportRequests.js",
+    "migrate:report-statuses": "node scripts/migrateReportStatuses.js",
     "backfill:tracker-history": "node scripts/backfill-tracker-label-history.js",
-    "grant:super-user": "node scripts/grantSuperUser.js"
+    "grant:super-user": "node scripts/grantSuperUser.js",
+    "remove:verification-tickets": "node scripts/removeVerificationSubmissions.js"
   },
   "keywords": [],
   "author": "",

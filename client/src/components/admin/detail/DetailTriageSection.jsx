@@ -1,6 +1,7 @@
 import { Input, Select, Textarea } from '../../bite-size/BitsizeUI';
 import { DetailGroup } from './DetailPane';
 import { CLEANUP_ONLY_STATUS, STATUS_TO_CLEANUP } from '../../../constants/adminConstants';
+import { SUBMISSION_TYPE_REPORT, statusesForRequestType } from '../../../constants/statusConstants';
 import { formatMetaTypeLabel } from '../../../utils/formatUtils';
 
 const cleanupOnlyStatus = CLEANUP_ONLY_STATUS;
@@ -21,9 +22,20 @@ export function DetailTriageSection({
   dynamicCleanupTagTypes,
   runtimeStatusOptions,
 }) {
+  const isReport = String(edit.type || '').trim().toLowerCase() === SUBMISSION_TYPE_REPORT;
+
   return (
     <div className="dm-groups">
       <DetailGroup label="Classification">
+        {/* A report request is neither a cleanup task nor one of the three
+            cleanup tag types, so it gets its type stated rather than offered:
+            the select below is fed by `dynamicCleanupTagTypes`, and a value
+            outside its own option list would silently rewrite the ticket's type
+            the first time the control was touched. */}
+        {isReport ? (
+          <p className="bs-field-hint">Report request. The type cannot be changed here.</p>
+        ) : (
+          <>
         <label className="dm-check">
           <input
             type="checkbox"
@@ -71,9 +83,11 @@ export function DetailTriageSection({
             return <option key={option} value={option}>{formatMetaTypeLabel(option)}</option>;
           })}
         </Select>
+          </>
+        )}
 
         <Select
-          label="Defect/Enhancement Status"
+          label={isReport ? 'Status' : 'Defect/Enhancement Status'}
           value={edit.is_cleanup && edit.cleanup_tag_type === 'cleanup_only' ? cleanupOnlyStatus : edit.status}
           disabled={edit.is_retired}
           onChange={(e) =>
@@ -97,7 +111,12 @@ export function DetailTriageSection({
             }))
           }
         >
-          {runtimeStatusOptions.map((s) => <option key={s} value={s}>{s}</option>)}
+          {/* Scoped to the ticket's own type. A report request is offered its
+              nine words — 'In progress', 'Delivered', 'On hold' among them — and
+              never 'Submitted' or 'Deployed', which are the Service Desk
+              hand-off it does not make. */}
+          {statusesForRequestType(edit.type, runtimeStatusOptions)
+            .map((s) => <option key={s} value={s}>{s}</option>)}
         </Select>
         {edit.is_retired && (
           <p className="bs-field-hint">Unretire the item to change its status.</p>

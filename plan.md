@@ -11,12 +11,15 @@ Everything below this line up to the `---` is the live work queue. It is written
 be read by someone with no memory of the session that produced it. The dated
 sections after it are the historical record and unchanged.
 
-## PHASE 1 IS MOSTLY BUILT — start here (2026-08-06)
+## PHASE 1 IS BUILT — start here (2026-08-06, second pass)
 
-**All three mockups were approved and three PRs are merged to `main` and
-deployed.** The ten-line orientation below is the *previous* session's and is now
-history; read this section instead, then §4 for the design decisions that still
-govern the remaining work.
+**All three mockups were approved, three PRs are merged and deployed, and the
+four items that were left are now built too** — the throughput page, the
+report-request status vocabulary, admin add/import/export parity, and the browser
+checks for the Delivery pane and the public board. What remains is §5 step 6
+(screenshots + docs) and the short "not done, on purpose" list at the end of this
+section. The ten-line orientation further down is two sessions old and is history;
+read this section, then §4 for the design decisions that govern the rest.
 
 **Approved mockups — these are the build contract, not sketches:**
 1. Submit form, report branch (v3) — https://claude.ai/code/artifact/075982a2-0670-4d48-b02d-ba92b420b0b7
@@ -25,8 +28,12 @@ govern the remaining work.
 
 **Merged and deployed:** PR #12 (schema, authorisation sweep, backend), PR #13
 (submit form), PR #14 (Delivery pane, handover trail, approval evidence).
-294 server tests, client lint and build clean, 32/32 browser checks on the submit
-form at 1500/820/390 in both themes.
+
+**Verified for the second pass (not yet merged):** 311 server tests, client lint
+and production build clean, and **229 browser checks** across five committed
+scripts at 1500/820/390 in both themes — 102 admin data entry, 52 throughput, 32
+submit form, 26 metadata, 17 public board. Every script that writes ended by
+printing the submission count back at **83**.
 
 ### The schema is APPLIED to the hosted database
 
@@ -62,24 +69,125 @@ seeded effort values.
   It gates exactly one thing: seeing other people's throughput numbers.
 - `test/typeScopedAccess.test.js` is the regression net — 13 tests.
 
-### What is LEFT, in order
+### What the second pass built (2026-08-06)
 
-1. **The throughput page** (mockup 3 v2). The backend is merged and working:
-   `GET /api/admin/throughput` takes `from`/`to`/`application_id`, decides
-   team-vs-personal from the caller's own rank, and **narrows the query** so a
-   non-manager's response never contains a colleague's name. `api.getThroughput`
-   already exists on the client. What is missing is `AdminThroughputPage.jsx`, the
-   `tp-` CSS (in the artifact, ready to transplant), the route, and a nav entry.
-   Chart colours are already decided and validated — see §4's chart-token note.
-2. **Admin add/import/export parity.** A fourth segment in the Add-a-ticket
-   dialog's segmented control, new `IMPORT_COLUMN_TARGETS` entries, new
-   `ADMIN_EXPORT_FIELDS` entries. **The export field needs a `group` or
-   `test/exportFields.test.js` fails — which is the point of that test.**
-3. **A browser check for the Delivery pane.** Surfaces 1 and 3 have committed
-   scripts; the Delivery pane is verified end-to-end through the API but not yet
-   through the UI at 1500/820/390 in both themes. Extend
-   `verify-admin-data-entry.mjs` rather than writing a throwaway.
-4. **§5 step 6** — screenshots and docs.
+**1. The throughput page** — `pages/AdminThroughputPage.jsx`, `hooks/useThroughput.js`,
+the `tp-` CSS transplanted from the artifact verbatim, the route at
+`/admin/throughput` (RequireAdmin, no further gate), and a `Reporting throughput`
+entry in the account menu beside Manage metadata.
+
+- **The server picks the view.** `scope` comes back on the response ('team' or
+  'self') and the page draws the composition it names. The analyst's view is a
+  different composition, not the manager's with rows hidden: four tiles about
+  them, two column charts, and **no `.tp-bars` at all**, so there is no
+  per-colleague mark anywhere on it. "All applications" is offered only to
+  someone who manages every application they can read — the same rule the
+  endpoint applies when it chooses between the two answers.
+- **One additive server change:** `hours_by_month` on the throughput response,
+  grouped from the same `worked_on` rows the total already used. The personal view
+  needs hours over time; the team view carries it unused.
+- **`--chart-1` / `--chart-2` were NOT in `index.css`** despite the earlier note —
+  they existed only in the mockup. They are in now, one pair per theme, and the
+  validator was re-run on both: light `#2563eb,#eb6834` on `#ffffff` and dark
+  `#3b82f6,#e2622f` on `#1b2638`, all six checks PASS.
+- Deliberately **not live-updating**, and it says when it was built.
+
+**2. Report-request statuses — the nine words, confirmed by the owner**, and the
+one part that was not additive is settled: see the decision record below.
+
+**3. Admin add/import/export parity.** A fourth segment (`Report request`) in the
+Add-a-ticket dialog with its own two sub-branches, nine new
+`IMPORT_COLUMN_TARGETS` entries, thirteen new `ADMIN_EXPORT_FIELDS` entries in a
+new `Report request` group, and the nine report columns appended to
+`SUBMISSION_INSERT_COLUMNS` — which the admin create path and the import row
+insert share, so both write them.
+
+**4. Three browser checks**, all committed, all against the real app:
+`verify-throughput-page.mjs` (new, 52 checks), `verify-public-board.mjs` (new, 17),
+and the Delivery pane inside `verify-admin-data-entry.mjs` (102 checks total).
+
+### The status decision: ONE table, scoped per type
+
+`submissions.status_id` points at `defect_enhancement_statuses`. The two options
+this file framed were a second status column or a resolver that picks the table by
+type. **Neither was taken, and that is deliberate:**
+
+- A second column is two columns for one fact — the same defect the source field
+  list has with Complete / Completed / Complete Date, and something every read and
+  every write would have to branch on.
+- A resolver makes `status_id` an id whose MEANING depends on another column. It
+  cannot be joined or foreign-keyed, and two tables would both hold a row called
+  `Retired`.
+- Six of a report request's nine statuses are already rows in that table and mean
+  the same thing on both types — "Approved" is "Approved", which is what the owner
+  meant by "most statuses can transfer".
+
+So the table keeps one vocabulary, three rows were added for the words report
+requests needed (`In progress`, `Delivered`, `On hold`), and
+**`statusesForRequestType(type, statuses)`** decides which words each type may
+hold: a report request gets its nine in registry order, every other type gets the
+list minus those three. A status an admin adds on the Metadata page still reaches
+defects exactly as it does today, and switching one off removes it from both.
+
+What a requester sees is identical to a separate table. What a maintainer sees is
+one column, one FK, one join.
+
+- Server: `REPORT_REQUEST_STATUSES`, `REPORT_ONLY_STATUSES`,
+  `REPORT_DELIVERED_STATUS`, `statusesForRequestType` in `src/constants.js`.
+  Mirrored in `client/src/constants/statusConstants.js` — **change both**, the same
+  arrangement as `TRACKER_LABEL` and the usage-frequency scale.
+- Enforced on **create, update and backdated history**, and the Service Desk send
+  now **refuses a report request outright** (it would have set `Submitted`, a word
+  outside the nine — a vocabulary enforced on one path and not another is not
+  enforced).
+- Offered per type in the queue's inline select, the detail modal's status select
+  (whose label is `Status`, not `Defect/Enhancement Status`, on a report request)
+  and the Add-a-ticket dialog's historical status + timeline stops.
+- The Metadata page marks the three with `Report requests only`, because one list
+  otherwise gives an admin no way to know which dropdown a value appears in.
+- **Applied to the hosted database** with `npm run migrate:report-statuses`
+  (dry-run by default). 13 statuses → 16, sort orders 14/15/16 so nothing existing
+  moved; a re-run reports all three already present. Until this code deploys, the
+  three words are also offered in the live app's defect dropdown — if that matters
+  before the merge, switch them off on the Metadata page (the registry reads the
+  live list, so a switched-off value disappears from both types).
+
+### The public board draws a report request on its own track
+
+Owner's call: report requests get their own track rather than staying off the
+board. `Reported → Approved → In progress → Delivered`, chosen per type in
+`StatusBoardRow.jsx`; the two tracks agree on what each POSITION means, so one
+`STATUS_STAGE` map and one set of pip colours cover both. `On hold` joins
+`HOLDING`, so it reads as parked rather than as a track that stopped. Two derived
+timestamps (`in_progress_status_at`, `delivered_status_at`) come from the same
+status history the other four stops use, added to `PUBLIC_SUBMISSION_FIELDS`.
+
+The stage tiles name both vocabularies at the two positions where the words differ
+— "With Service Desk / In progress" and "Deployed / Delivered" — because a tile
+counts both types while a row track names only the one that ticket travels.
+
+**Two real defects found while doing it, both fixed:**
+- The type chip read `type === 'enhancement' ? 'Enhancement' : 'Defect'`, so a
+  report request was **called a Defect on the one surface its requester reads**.
+  It is now named from the type, and `Report` has its own chip colour.
+- Every **enhancement** row overflowed its own type column by 2px at desktop
+  width, invisibly, on every load — an 86px chip in an 84px track. The overflow
+  probe caught it while the third type was being added; the track is 88px now.
+
+### Not done, on purpose
+
+- **§5 step 6** — screenshots and docs. Unstarted.
+- **The detail modal still shows an Impact tab on a report request.** Dollar
+  impact and policies affected are defect/enhancement figures; the Add-a-ticket
+  dialog now hides that fold for a report request, but the modal's tab was left
+  alone rather than widened into this change.
+- **Import does not accept `assigned_to` or `level_of_effort`.** The assignee is a
+  user id and a name in a spreadsheet is not something to trust into an FK (it
+  exports as a name and never imports). Level of effort is a lookup and would need
+  the same id resolution the other lookups get — a small, separate addition.
+- **Hours are not an export column.** `Duration` is `SUM(hours)` over a child
+  table, so it needs an aggregate join in the list query rather than a field
+  definition.
 
 ### Both owner questions ANSWERED (2026-08-06)
 
@@ -102,8 +210,10 @@ consequences worth carrying:
 **2. Report requests get their own status list.** Owner: "we probably aren't
 submitting to easyvista, but I imagine most statuses can transfer."
 
-PROPOSED list — **confirm with the owner before building**, because the words are
-what a requester reads on the public board:
+**CONFIRMED 2026-08-06** — the nine below, as proposed, are the words. Built as a
+per-type scope over the one status table rather than a second table; see "The
+status decision" above for why, and "The public board draws a report request on its
+own track" for the board work the owner also approved.
 
 | Report request status | From the defect list? |
 |---|---|
@@ -120,20 +230,17 @@ what a requester reads on the public board:
 Dropped: **Submitted** and **Deployed**, both of which are the Service Desk
 hand-off a report request never makes.
 
-What this implies, and none of it is drawn yet:
-- A new lookup, so a new Metadata panel — the 11th. One `ADMIN_META_CATEGORIES`
-  entry plus its `LOOKUP_TABLES` row, which is the pattern §2a made cheap.
-- `submissions.status_id` currently points at `defect_enhancement_statuses`. A
-  second status table means either a second column or a resolver that picks the
-  table by type. **Decide that deliberately** — it is the one part of this that is
-  not additive.
-- **The public board's four-stop track.** It is hard-coded to
-  Reported → Approved → With Service Desk → Deployed
-  (`client/src/components/public/StatusBoardRow.jsx:13`,
-  `constants/publicConstants.js:33`). A report request needs its own:
-  Reported → Approved → In progress → Delivered. Until that lands the board draws
-  a finished report as stuck at Reported, so **this blocks showing report requests
-  to requesters** even though nothing else does.
+What this implied, and how each part landed:
+- ~~A new lookup, so an 11th Metadata panel.~~ **No new panel.** One table serves
+  every type, so the existing Statuses panel gained three values, each marked
+  `Report requests only`. A second panel over the same table would have let a
+  rename in one change the other silently.
+- ~~`submissions.status_id` → a second column or a resolver.~~ **Neither** — see
+  "The status decision" above. One column, one FK, one join, and a code registry
+  for the per-type scope.
+- ~~The public board's four-stop track.~~ **Built**, per type, plus the two
+  defects that were hiding behind it (a report request labelled "Defect"; every
+  enhancement row overflowing its type column by 2px).
 
 ## Where this stands, in ten lines (2026-08-05 — now history, see above)
 
@@ -226,22 +333,50 @@ branch). Two remain, both needing a decision:
    defects portal. **Named for the destination deliberately** — the alternative
    was re-shooting 43+ desktop screenshots a second time when the other request
    types land. Do not narrow it again.
-3. **The verification harness is committed now.** `client/scripts/` holds three
-   Playwright scripts and one shared module; they are the record of what has been
+3. **The verification harness is committed now.** `client/scripts/` holds five
+   Playwright scripts and two shared probes; they are the record of what has been
    checked by eye and by measurement, and they run against the real app:
-   - `verify-admin-data-entry.mjs` — the three §2c dialogs plus the redirect
-     dialog. Read-only.
+   - `verify-admin-data-entry.mjs` — the three §2c dialogs, the redirect dialog,
+     and the report-request Delivery pane. **Writes** one report request through
+     the dialog and removes it. 102 checks.
    - `verify-metadata-page.mjs` — the §2a page. Makes ONE reversible write and
-     proves it undid it.
-   - `verify-submit-form.mjs` — the §2b form. Read-only.
+     proves it undid it. 26 checks.
+   - `verify-submit-form.mjs` — the §2b form. Read-only. 32 checks.
+   - `verify-throughput-page.mjs` — both views of the throughput page, in two real
+     sessions (`admin` is a manager, `lead_admin` is not). **Writes** two delivered
+     report requests with hours logged by two people, and removes all of it. 52
+     checks.
+   - `verify-public-board.mjs` — the per-type track, the parked state, the type
+     chip and the stage tiles. **Writes** one public report request, walks it
+     through its statuses, and removes it. 17 checks.
    - `lib/overflow-probe.mjs` — the per-container overflow probe every one of them
      uses. Read its header before changing it: each exclusion in it is there
      because a false positive buried a real finding.
+   - `lib/chart-scale-probe.mjs` — does every bar sit where its own axis says? Read
+     its header too: it exists because a chart drew 27 above the line marked 30
+     while passing every other check.
 
-   All three need the server on :4000 and Vite on :5173 already running, and take
+   All five need the server on :4000 and Vite on :5173 already running, and take
    an optional `--shots <dir>`. If Vite has been running across a lot of edits its
    module graph can go stale and a page will fail to mount with a bogus "does not
    provide an export named …" — restart it rather than debugging the source.
+
+   **A script that writes ends by proving it put the data back.** The three that
+   write print the submission count from
+   `server/scripts/removeVerificationSubmissions.js`
+   (`npm run remove:verification-tickets -- <ids> --apply`, dry-run without
+   `--apply`), which refuses any id whose summary does not start with `VERIFY` —
+   there is no submission DELETE endpoint, on purpose, so this is the only way a
+   fixture leaves. Ticket ids advance permanently (a sequence does not roll back);
+   the COUNT returning to 83 is the invariant, not the ids.
+
+   **Do not pipe these scripts through `head`.** SIGPIPE kills the run before its
+   cleanup, which is how #89 and #90 were left behind mid-session and had to be
+   removed by hand. Redirect to a file and read the file.
+
+   `/api/auth/login` allows **10 attempts per 15 minutes per IP**. One full pass of
+   all five is six logins, so a burst of re-runs starts answering 429 — and a 429
+   mid-run looks exactly like a broken check.
 
 ## 1. Landed and verified (2026-08-05, first pass)
 
@@ -807,8 +942,10 @@ them is a deviation to raise, not a detail to decide.
   external approver, and the accountability is the recorder.
 - **Hours are counted by `worked_on`, not by when the entry was typed.** That is
   why the child table stores both dates.
-- **Chart tokens are validated, not chosen.** `--chart-1` / `--chart-2` in
-  `index.css`, one pair per theme, deliberately NOT the `--status-*` colours (a
+- **Chart tokens are validated, not chosen.** `--chart-1` / `--chart-2` — in
+  `index.css` as of the second pass; this line previously claimed they were there
+  when they existed only in the mockup. One pair per theme, deliberately NOT the
+  `--status-*` colours (a
   status colour on a series makes a badge colour mean two things). Light
   `#2563eb,#eb6834` on `#ffffff` and dark `#3b82f6,#e2622f` on `#1b2638` both pass
   all six dataviz checks. **The dark steps are not the light ones brightened** —

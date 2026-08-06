@@ -2,6 +2,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'rea
 import { useNavigate } from 'react-router-dom';
 import { Button, Notice } from '../components/bite-size/BitsizeUI';
 import { ADMIN_META_CATEGORIES } from '../constants/adminConstants';
+import { REPORT_ONLY_STATUSES } from '../constants/statusConstants';
 import { isProtectedRetiredStatusMetaItem } from '../utils/metaUtils';
 import { formatCreatedViaLabel } from '../utils/formatUtils';
 import { metaDraftKey, useMetaManagement } from '../hooks/useMetaManagement';
@@ -26,6 +27,23 @@ function lockReason(category, item) {
 function displayNameFor(category, item) {
   if (category.key !== 'submissionSources') return null;
   return formatCreatedViaLabel(item.name);
+}
+
+/**
+ * Which request types a value is offered on, when it is not all of them.
+ *
+ * Only the status list has a scope today: `submissions.status_id` points at one
+ * table for every request type, and `statusesForRequestType` narrows what each
+ * type may hold. Three of these values are the report-request vocabulary's own
+ * words, so the row says so.
+ */
+function scopeNote(category, item) {
+  if (category.key !== 'statuses') return null;
+  const name = String(item?.name || '').trim().toLowerCase();
+  if (REPORT_ONLY_STATUSES.some((status) => status.toLowerCase() === name)) {
+    return 'Report requests only';
+  }
+  return null;
 }
 
 function pluralTickets(count) {
@@ -290,6 +308,13 @@ export function AdminMetadataPage({ user }) {
                         />
                         {display && <span className="md-name-raw">{item.name}</span>}
                         {locked && <span className="md-name-lock">{locked}</span>}
+                        {/* One status table serves every request type, and three
+                            of its values belong to report requests alone. Said on
+                            the row because otherwise the list gives an admin no
+                            way to know which dropdown a value appears in. */}
+                        {scopeNote(category, item) && (
+                          <span className="md-name-lock">{scopeNote(category, item)}</span>
+                        )}
                         {isDirty && (
                           <span className="md-name-dirty">Press Enter to rename · Esc to undo</span>
                         )}

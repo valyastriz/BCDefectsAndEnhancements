@@ -104,6 +104,12 @@ router.get('/api/public/submissions', async (req, res) => {
         approved_status_at: maxByStatus('Approved'),
         submitted_status_at: maxByStatus('Submitted'),
         deployed_status_at: maxByStatus('Deployed'),
+        // The report-request track's own two stops. Same shape and same source as
+        // the four above — a report request never reaches Submitted or Deployed,
+        // and a defect never reaches these, so every row carries the two its own
+        // track needs and null for the others.
+        in_progress_status_at: maxByStatus('In progress'),
+        delivered_status_at: maxByStatus('Delivered'),
         duplicate_status_at: maxByStatus('Duplicate'),
         retired_status_at: maxByStatus('Retired'),
       };

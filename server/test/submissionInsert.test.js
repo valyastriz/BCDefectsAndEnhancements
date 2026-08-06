@@ -20,6 +20,25 @@ test('SUBMISSION_INSERT_COLUMNS has no duplicates', () => {
   assert.strictEqual(unique.size, SUBMISSION_INSERT_COLUMNS.length);
 });
 
+// The two call sites (adminSubmissionRoutes' create and importRoutes' per-row
+// insert) each build a values array positionally, so a column inserted in the
+// MIDDLE of this list silently shifts every value after it into the wrong column.
+// Both appended their report-request block at the end; this pins that.
+test('the report-request columns are appended, not inserted mid-list', () => {
+  const REPORT_TAIL = [
+    'is_new_dashboard', 'needed_data', 'measures_and_sources', 'primary_contact',
+    'existing_report_link', 'changes_requested', 'report_usage_frequency', 'department',
+    'completed_at',
+  ];
+  assert.deepStrictEqual(SUBMISSION_INSERT_COLUMNS.slice(-REPORT_TAIL.length), REPORT_TAIL);
+  // And the column the ten original defect/enhancement values ended on is still
+  // where it was, so no existing value moved.
+  assert.strictEqual(
+    SUBMISSION_INSERT_COLUMNS[SUBMISSION_INSERT_COLUMNS.length - REPORT_TAIL.length - 1],
+    'logged_defect',
+  );
+});
+
 test('buildInsertPayload over the shared columns produces one key per column', () => {
   const values = SUBMISSION_INSERT_COLUMNS.map((_, i) => i);
   const payload = buildInsertPayload(SUBMISSION_INSERT_COLUMNS, values);

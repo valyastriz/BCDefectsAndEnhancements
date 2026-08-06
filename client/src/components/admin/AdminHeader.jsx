@@ -80,6 +80,7 @@ export function AdminHeader({
   onOpenExport,
   onOpenAddTicket,
   onNavigateMetadata,
+  onNavigateThroughput,
   onNavigateAccess,
   // Only a portal super user can manage access, so the entry point is hidden
   // rather than shown-and-refused. The route and every endpoint behind it check
@@ -151,6 +152,9 @@ export function AdminHeader({
           {({ close }) => (
             <>
               <MenuItem onClick={() => { close(); onNavigateMetadata(); }}>Manage metadata</MenuItem>
+              {/* Not gated: every admin may open it, and the server decides
+                  whether they see the team's numbers or only their own. */}
+              <MenuItem onClick={() => { close(); onNavigateThroughput(); }}>Reporting throughput</MenuItem>
               {canManageAccess && (
                 <MenuItem onClick={() => { close(); onNavigateAccess(); }}>Manage access</MenuItem>
               )}

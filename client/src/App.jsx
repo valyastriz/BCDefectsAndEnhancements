@@ -7,6 +7,7 @@ import { AdminAccessPage } from './pages/AdminAccessPage';
 import { AdminDashboardPage } from './pages/AdminDashboardPage';
 import { AdminLoginPage } from './pages/AdminLoginPage';
 import { AdminMetadataPage } from './pages/AdminMetadataPage';
+import { AdminThroughputPage } from './pages/AdminThroughputPage';
 import { PublicUpdatesPage } from './pages/PublicUpdatesPage';
 import { RepSubmitPage } from './pages/RepSubmitPage';
 
@@ -87,6 +88,16 @@ function App() {
           element={
             <RequireAdmin user={user}>
               <AdminMetadataPage user={user} />
+            </RequireAdmin>
+          }
+        />
+        {/* Open to any admin. Which of its two views they get is the server's
+            decision, not this route's — a non-manager sees their own numbers. */}
+        <Route
+          path="/admin/throughput"
+          element={
+            <RequireAdmin user={user}>
+              <AdminThroughputPage />
             </RequireAdmin>
           }
         />

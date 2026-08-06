@@ -2,10 +2,11 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../lib/api';
 import {
   ADD_TICKET_CREATED_VIA,
-  ADD_TICKET_STATUS_STOPS,
+  addTicketStatusStops,
   defaultAddTicketForm,
 } from '../utils/formDefaults';
 import { TRACKER_LABEL_THE } from '../constants/tracker';
+import { SUBMISSION_TYPE_REPORT, statusesForRequestType } from '../constants/statusConstants';
 
 /**
  * Which field set the dialog is asking for.
@@ -18,10 +19,19 @@ import { TRACKER_LABEL_THE } from '../constants/tracker';
  */
 export function addTicketBranch(form) {
   const type = String(form?.type || '').trim().toLowerCase();
-  if (type === 'defect' || type === 'enhancement') return type;
+  if (type === 'defect' || type === 'enhancement' || type === SUBMISSION_TYPE_REPORT) return type;
   const tag = String(form?.cleanup_tag_type || 'cleanup_only').trim().toLowerCase();
   if (tag === 'defect' || tag === 'enhancement') return tag;
   return 'none';
+}
+
+/**
+ * A report request's own sub-branch: something new, or a change to one that
+ * exists. Mirrors the submit form, where the same choice reshapes the same card —
+ * a change asks WHICH report first, and a new one asks for measures and sources.
+ */
+export function addTicketReportBranch(form) {
+  return form?.is_new_dashboard === false ? 'change' : 'new';
 }
 
 /**
@@ -37,6 +47,8 @@ export function buildAddTicketPayload(form) {
   const isHistorical = form.mode === 'hist';
   const isDefectBranch = branch === 'defect';
   const isEnhancementBranch = branch === 'enhancement';
+  const isReportBranch = branch === SUBMISSION_TYPE_REPORT;
+  const isNewDashboard = addTicketReportBranch(form) === 'new';
   // An internal-only cleanup has no defect/enhancement narrative, so its one
   // Description field fills both — the same shape the cleanup modal used, so
   // existing internal cleanup rows and new ones read identically.
@@ -51,7 +63,9 @@ export function buildAddTicketPayload(form) {
     if (form.reported_at) {
       statusEvents.push({ status: 'New', changed_at: form.reported_at });
     }
-    for (const stop of ADD_TICKET_STATUS_STOPS) {
+    // The stops this type actually has: a report request's timeline reaches
+    // In progress and Delivered, never Submitted or Deployed.
+    for (const stop of addTicketStatusStops(form.type)) {
       const changedAt = form.status_dates?.[stop];
       if (changedAt) statusEvents.push({ status: stop, changed_at: changedAt });
     }
@@ -61,8 +75,10 @@ export function buildAddTicketPayload(form) {
     created_via: String(form.created_via || '').trim()
       || ADD_TICKET_CREATED_VIA[isHistorical ? 'hist' : 'new'],
     // The stored type stays defect/enhancement; "cleanup" is the is_cleanup flag
-    // plus the tag, which is what every query in the app already reads.
-    type: isEnhancementBranch ? 'enhancement' : 'defect',
+    // plus the tag, which is what every query in the app already reads. A report
+    // request IS its own stored type — it is not a cleanup tag and never becomes
+    // one, which is why it is the one branch that changes this line.
+    type: isReportBranch ? SUBMISSION_TYPE_REPORT : (isEnhancementBranch ? 'enhancement' : 'defect'),
     is_cleanup: isCleanup,
     cleanup_status: isCleanup ? (form.cleanup_status || null) : null,
     cleanup_tag_type: isCleanup ? (branch === 'none' ? 'cleanup_only' : branch) : null,
@@ -75,10 +91,15 @@ export function buildAddTicketPayload(form) {
 
     screen_title: isDefectBranch ? (String(form.screen_title || '').trim() || '-') : '-',
     steps_to_reproduce: isDefectBranch ? (String(form.steps_to_reproduce || '').trim() || '-') : '-',
-    what_happened_exact_details: isDefectBranch
+    // Six of a report request's fields reuse existing columns rather than adding
+    // their own — "Describe what you need" is what_happened_exact_details, which
+    // the import layer already labels Description, and "what's not working" is
+    // `request`. A second column for either would be the same defect the source
+    // field list has with Complete / Completed / Complete Date.
+    what_happened_exact_details: (isDefectBranch || isReportBranch)
       ? (String(form.what_happened_exact_details || '').trim() || '-')
       : (branch === 'none' ? (internalDescription || '-') : '-'),
-    request: isEnhancementBranch
+    request: (isEnhancementBranch || (isReportBranch && !isNewDashboard))
       ? (String(form.request || '').trim() || '-')
       : (branch === 'none' ? (internalDescription || '-') : '-'),
     policy_num: isDefectBranch ? (String(form.policy_num || '').trim() || null) : null,
@@ -87,9 +108,31 @@ export function buildAddTicketPayload(form) {
     date_time_of_error: defectDateTime || null,
 
     enhancement_request_type: isEnhancementBranch ? (form.enhancement_request_type || null) : null,
-    desired_completion_date: isEnhancementBranch ? (form.desired_completion_date || null) : null,
+    // Shared with the report branch: "When do you need it by?" is the same column
+    // as an enhancement's desired completion date.
+    desired_completion_date: (isEnhancementBranch || isReportBranch)
+      ? (form.desired_completion_date || null)
+      : null,
     priority_level: isEnhancementBranch ? (form.priority_level || null) : null,
     impact_details: isEnhancementBranch ? (String(form.impact_details || '').trim() || null) : null,
+
+    // ── The report-request branch ─────────────────────────────────────────────
+    // Each sub-branch sends only its own fields: a change request has no measures
+    // and sources, and a new dashboard has nothing that is not working yet.
+    ...(isReportBranch ? {
+      is_new_dashboard: isNewDashboard,
+      needed_data: String(form.needed_data || '').trim() || null,
+      measures_and_sources: isNewDashboard
+        ? (String(form.measures_and_sources || '').trim() || null)
+        : null,
+      primary_contact: isNewDashboard ? (String(form.primary_contact || '').trim() || null) : null,
+      existing_report_link: isNewDashboard
+        ? null
+        : (String(form.existing_report_link || '').trim() || null),
+      changes_requested: isNewDashboard ? null : (String(form.changes_requested || '').trim() || null),
+      report_usage_frequency: String(form.report_usage_frequency || '').trim() || null,
+      department: String(form.department || '').trim() || null,
+    } : {}),
 
     // Historical only. A new ticket has not been anywhere yet, and recording a
     // hand-off number against one would be a claim about work nobody did.
@@ -144,6 +187,19 @@ export function missingAddTicketFields(form, { requiresHandoffFields = false } =
     if (requiresHandoffFields && blank(form.impact_details)) missing.push('Impact details');
   }
 
+  // Deliberately the same short list the submit form requires, and no longer:
+  // the field set is a SAMPLE, and somebody blocked by a question they cannot
+  // answer types anything to get past it — which is worse than a blank.
+  if (branch === SUBMISSION_TYPE_REPORT) {
+    if (blank(form.what_happened_exact_details)) missing.push('Describe what they need');
+    if (addTicketReportBranch(form) === 'new') {
+      if (blank(form.measures_and_sources)) missing.push('Measures, and where they come from');
+    } else {
+      if (blank(form.existing_report_link)) missing.push('Which report is it?');
+      if (blank(form.changes_requested)) missing.push('What should change?');
+    }
+  }
+
   return missing;
 }
 
@@ -189,6 +245,7 @@ export function useAddTicketModal({ user, applications = [], loadRows, setNotice
   );
 
   const branch = addTicketBranch(addTicketForm);
+  const reportBranch = addTicketReportBranch(addTicketForm);
 
   // Ticking the hand-off makes the branch's Service-Desk-required fields
   // mandatory. Only a NEW, tagged cleanup task can offer it at all.
@@ -241,13 +298,27 @@ export function useAddTicketModal({ user, applications = [], loadRows, setNotice
     }));
   }
 
-  /** Leaving Cleanup drops the tag's hand-off offer with it. */
+  /**
+   * Leaving Cleanup drops the tag's hand-off offer with it.
+   *
+   * And the historical status has to survive the switch only if the new type can
+   * hold it: 'Deployed' picked as a defect's end state is not a word a report
+   * request has, and leaving it in the form would submit a status the select is no
+   * longer showing. Asked by passing the one status to the same registry the
+   * dropdown uses, so there is no second rule to keep in step.
+   */
   function setAddTicketType(type) {
     setAddTicketForm((prev) => ({
       ...prev,
       type,
+      status: statusesForRequestType(type, [prev.status]).length > 0 ? prev.status : 'New',
       submit_to_easyvista: type === 'cleanup' ? prev.submit_to_easyvista : false,
     }));
+  }
+
+  /** A report request's sub-branch. Held as the boolean the column stores. */
+  function setAddTicketReportBranch(next) {
+    setAddTicketForm((prev) => ({ ...prev, is_new_dashboard: next !== 'change' }));
   }
 
   /** Untagging a cleanup task removes the only route to a hand-off. */
@@ -269,7 +340,7 @@ export function useAddTicketModal({ user, applications = [], loadRows, setNotice
     const isHandoffRequested = requiresHandoffFields;
     const noun = String(addTicketForm.type || '').toLowerCase() === 'cleanup'
       ? 'Cleanup task'
-      : 'Ticket';
+      : (branch === SUBMISSION_TYPE_REPORT ? 'Report request' : 'Ticket');
 
     try {
       setAddTicketWorking(true);
@@ -373,10 +444,12 @@ export function useAddTicketModal({ user, applications = [], loadRows, setNotice
     addTicketPreviewUrl,
     setAddTicketPreviewUrl,
     addTicketBranch: branch,
+    addTicketReportBranch: reportBranch,
     requiresHandoffFields,
     setAddTicketMode,
     setAddTicketType,
     setAddTicketTag,
+    setAddTicketReportBranch,
     createAddTicket,
     openAddTicketModal,
     closeAddTicketModal,

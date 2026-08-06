@@ -1,5 +1,6 @@
 import { useId, useState } from 'react';
 import { TRACKER_LABEL } from '../../constants/tracker';
+import { SUBMISSION_TYPE_REPORT } from '../../constants/statusConstants';
 
 // The four stops every ticket travels, in order. Status became POSITION on this
 // board: a reporter reads "where is this" off the track rather than decoding a
@@ -16,6 +17,36 @@ const TRACK = [
   { key: 'submitted', label: `With ${TRACKER_LABEL}`, at: (item) => item.submitted_status_at },
   { key: 'deployed', label: 'Deployed', at: (item) => item.deployed_status_at },
 ];
+
+// A report request never leaves the portal — it is built here — so its last two
+// stops are different words and different dates. The first two are shared, and
+// the POSITIONS line up, which is why one STATUS_STAGE map covers both tracks and
+// the pip colours (STAGE_MODIFIER) need no second set.
+//
+// Without this, the board drew a delivered report request as stuck at Reported:
+// its status was not on the defect track at all, so nothing after stop one could
+// ever be reached.
+const REPORT_TRACK = [
+  { key: 'reported', label: 'Reported', at: (item) => item.created_at },
+  { key: 'approved', label: 'Approved', at: (item) => item.approved_status_at },
+  { key: 'in-progress', label: 'In progress', at: (item) => item.in_progress_status_at },
+  { key: 'delivered', label: 'Delivered', at: (item) => item.delivered_status_at },
+];
+
+// What the type chip says. Short on purpose: the chip shares a fixed 88px column
+// with "Enhancement", which is the widest label the column can carry.
+const TYPE_LABELS = {
+  defect: 'Defect',
+  enhancement: 'Enhancement',
+  [SUBMISSION_TYPE_REPORT]: 'Report',
+};
+
+/** Which track this ticket travels. The type decides, never the status. */
+function trackFor(item) {
+  return String(item?.type || '').trim().toLowerCase() === SUBMISSION_TYPE_REPORT
+    ? REPORT_TRACK
+    : TRACK;
+}
 
 // Statuses that end a ticket somewhere other than Deployed. The track would be
 // a lie for these — nothing further is coming — so they get an outcome pill on
@@ -63,6 +94,9 @@ const HOLDING = {
   'Backlog - Monitoring Impact': 'Monitoring impact',
   'Future Consideration': 'Future consideration',
   'Deferred – Not in Current Scope': 'Deferred',
+  // A report request's single parked state. It collapses the three above, which
+  // read as one thing to a requester: not now.
+  'On hold': 'On hold',
 };
 
 function shortDate(value) {
@@ -108,7 +142,16 @@ function ticketRef(item) {
 
 // Where each live status sits on the track. This, not the timestamps, decides
 // how far along a ticket is.
-const STATUS_STAGE = { New: 0, Approved: 1, Submitted: 2, Deployed: 3 };
+// Both vocabularies, in one map: the two tracks agree on what each POSITION
+// means, and no word appears on both, so there is nothing to disambiguate.
+const STATUS_STAGE = {
+  New: 0,
+  Approved: 1,
+  Submitted: 2,
+  Deployed: 3,
+  'In progress': 2,
+  Delivered: 3,
+};
 const STAGE_MODIFIER = ['new', 'approved', 'submitted', 'deployed'];
 
 /**
@@ -127,9 +170,10 @@ function reachedIndex(item) {
   const byStatus = STATUS_STAGE[item.status];
   if (byStatus !== undefined) return byStatus;
 
+  const track = trackFor(item);
   let reached = 0; // Reported is true by definition — the ticket exists.
-  for (let index = 1; index < TRACK.length; index += 1) {
-    if (TRACK[index].at(item)) reached = index;
+  for (let index = 1; index < track.length; index += 1) {
+    if (track[index].at(item)) reached = index;
   }
   return reached;
 }
@@ -138,21 +182,21 @@ function applicationModifier(name) {
   return `sb-app--${String(name || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'none'}`;
 }
 
-/** Four pips and the name of the stop the ticket is on. */
-function StageCell({ reached }) {
+/** Four pips and the name of the stop the ticket is on, on its own track. */
+function StageCell({ reached, track }) {
   const pips = [];
-  for (let index = 0; index < TRACK.length; index += 1) {
+  for (let index = 0; index < track.length; index += 1) {
     if (index > 0) {
-      pips.push(<b key={`bar-${TRACK[index].key}`} className={index <= reached ? 'on' : undefined} />);
+      pips.push(<b key={`bar-${track[index].key}`} className={index <= reached ? 'on' : undefined} />);
     }
     const state = index < reached ? 'on' : (index === reached ? 'on now' : '');
-    pips.push(<i key={TRACK[index].key} className={state || undefined} />);
+    pips.push(<i key={track[index].key} className={state || undefined} />);
   }
 
   return (
     <span className={`sb-stage sb-stage--${STAGE_MODIFIER[reached]}`}>
       <span className="sb-pips" aria-hidden="true">{pips}</span>
-      <span className="sb-stage-lbl">{TRACK[reached].label}</span>
+      <span className="sb-stage-lbl">{track[reached].label}</span>
     </span>
   );
 }
@@ -172,6 +216,7 @@ export function StatusBoardRow({ item, isMine = false }) {
   const status = String(item.status || 'New');
   const outcome = OUTCOMES[status];
   const holdingLabel = HOLDING[status];
+  const track = trackFor(item);
   const reached = reachedIndex(item);
   const description = String(item.what_happened_exact_details || item.request || '').trim();
   const updated = timeAgo(item.latest_status_changed_at || item.updated_at);
@@ -202,8 +247,11 @@ export function StatusBoardRow({ item, isMine = false }) {
           <span className="sb-ref">{ticketRef(item)}</span>
         </span>
         <span className="c-type">
+          {/* Named from the type, not inferred from one comparison: the old
+              `enhancement ? … : 'Defect'` called a report request a Defect on the
+              one surface its requester reads. */}
           <span className={`sb-type sb-type--${String(item.type || '').toLowerCase()}`}>
-            {item.type === 'enhancement' ? 'Enhancement' : 'Defect'}
+            {TYPE_LABELS[String(item.type || '').toLowerCase()] || 'Defect'}
           </span>
         </span>
         <span className="c-sum">
@@ -212,7 +260,7 @@ export function StatusBoardRow({ item, isMine = false }) {
         <span className="c-stage">
           {outcome && <span className={`sb-out sb-out--${outcome.tone}`}><b aria-hidden="true">{outcome.glyph}</b>{outcome.label}</span>}
           {!outcome && holdingLabel && <span className="sb-out sb-out--holding"><b aria-hidden="true">◷</b>{holdingLabel}</span>}
-          {!outcome && !holdingLabel && <StageCell reached={reached} />}
+          {!outcome && !holdingLabel && <StageCell reached={reached} track={track} />}
         </span>
         <span className="c-who">
           <span className={`sb-who${isMine ? ' sb-who--you' : ''}`}>{reporter}</span>
@@ -307,9 +355,9 @@ export function StatusBoardRow({ item, isMine = false }) {
               ) : (
                 <ol
                   className={`sb-track sb-stage--${STAGE_MODIFIER[reached]}`}
-                  aria-label={`Stage ${reached + 1} of ${TRACK.length} — ${TRACK[reached].label}`}
+                  aria-label={`Stage ${reached + 1} of ${track.length} — ${track[reached].label}`}
                 >
-                  {TRACK.map((stop, index) => {
+                  {track.map((stop, index) => {
                     const done = index <= reached;
                     return (
                       <li

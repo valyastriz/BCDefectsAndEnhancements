@@ -22,6 +22,9 @@
  */
 import { chromium } from 'playwright';
 import { mkdirSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
 import { OVERFLOW_PROBE } from './lib/overflow-probe.mjs';
 
 const BASE = process.env.VERIFY_BASE_URL || 'http://localhost:5173';
@@ -32,6 +35,12 @@ const PASS = process.env.ADMIN_PASS || 'admin123';
 const shotsIndex = process.argv.indexOf('--shots');
 const SHOTS = shotsIndex === -1 ? null : (process.argv[shotsIndex + 1] || './verify-shots');
 if (SHOTS) mkdirSync(SHOTS, { recursive: true });
+
+// The Delivery-pane section creates one report request and then removes it. The
+// marker is what removeVerificationSubmissions refuses to work without, so a
+// mistyped id cannot delete a real ticket.
+const DELIVERY_MARKER = 'VERIFY delivery pane';
+const SERVER_DIR = path.resolve(fileURLToPath(new URL('../../server', import.meta.url)));
 
 const VIEWPORTS = [
   { name: 'desktop', width: 1500, height: 950 },
@@ -181,6 +190,9 @@ async function run() {
     { label: 'cleanup-internal', type: 'Cleanup', tag: 'Internal only', expectBranch: 'none' },
     { label: 'cleanup-defect', type: 'Cleanup', tag: 'Defect', expectBranch: 'defect' },
     { label: 'cleanup-enhancement', type: 'Cleanup', tag: 'Enhancement', expectBranch: 'enhancement' },
+    // The fourth type. Its own branch rather than a cleanup tag, because a report
+    // request is a stored type and is never handed to the Service Desk.
+    { label: 'report', type: 'Report request', tag: null, expectBranch: 'report' },
   ];
 
   for (const mode of ['New ticket', 'Historical ticket']) {
@@ -217,6 +229,86 @@ async function run() {
       );
     }
   }
+
+  // ── The report-request branch's own two shapes ───────────────────────────
+  // A change asks WHICH report first — you cannot describe what should happen to
+  // one before saying which it is — and a new one asks for measures and their
+  // sources. Each sub-branch must show its own fields and hide the other's.
+  await page.click('.at-modes .at-seg button:has-text("New ticket")');
+  await page.click('.at-grouprow .at-seg button:text-is("Report request")');
+  for (const [pick, expected] of [['Something new', 'new'], ['A change to one they already use', 'change']]) {
+    await page.click(`.at-only-report .at-seg button:text-is("${pick}")`);
+    const shape = await page.evaluate(() => {
+      const shown = (selector) => [...document.querySelectorAll(selector)]
+        .filter((node) => node.offsetParent !== null).length;
+      const labels = [...document.querySelectorAll('.at-only-report .at-f')]
+        .filter((node) => node.offsetParent !== null)
+        .map((node) => node.querySelector('.at-f-lbl')?.textContent?.replace(/\*|optional/g, '').trim());
+      return {
+        report: document.querySelector('.at-body')?.getAttribute('data-report'),
+        newFields: shown('.at-report-new .at-f'),
+        changeFields: shown('.at-report-change .at-f'),
+        labels,
+      };
+    });
+    record(
+      `the report branch asks its own questions — ${expected}`,
+      shape.report === expected
+        && (expected === 'new' ? shape.newFields > 0 && shape.changeFields === 0
+          : shape.changeFields > 0 && shape.newFields === 0)
+        && shape.labels.includes('Describe what they need')
+        && shape.labels.includes(expected === 'new' ? 'Measures, and where they come from' : 'Which report is it?'),
+      `data-report=${shape.report}, ${shape.newFields} new / ${shape.changeFields} change fields | ${shape.labels.join(' · ')}`,
+    );
+  }
+
+  // The figures a report request has no use for, and the hand-off it never makes.
+  const reportExclusions = await page.evaluate(() => ({
+    impactFold: [...document.querySelectorAll('.at-fold')]
+      .filter((node) => node.offsetParent !== null)
+      .map((node) => node.querySelector('summary')?.textContent?.trim().split(' ')[0]),
+    handoff: document.querySelector('.at-flag')?.offsetParent !== null,
+    defectSections: [...document.querySelectorAll('.at-only-def, .at-only-enh')]
+      .filter((node) => node.offsetParent !== null).length,
+  }));
+  record(
+    'a report request is not offered dollar impact, a hand-off, or the other types’ fields',
+    !reportExclusions.impactFold.includes('Impact')
+      && reportExclusions.handoff === false
+      && reportExclusions.defectSections === 0,
+    JSON.stringify(reportExclusions),
+  );
+
+  // Its historical status list is its own nine words, and its timeline its own
+  // stops — the two that differ are In progress and Delivered.
+  await page.click('.at-modes .at-seg button:has-text("Historical ticket")');
+  const reportStatuses = await page.evaluate(() => {
+    const select = [...document.querySelectorAll('.at-body select')]
+      .find((node) => node.previousElementSibling?.textContent?.includes('Current status')
+        || node.closest('.at-f')?.textContent?.includes('Current status'));
+    const stops = [...document.querySelectorAll('.at-fold-body .at-f-lbl')]
+      .map((node) => node.textContent.replace(/optional/g, '').trim());
+    return {
+      options: select ? [...select.options].map((option) => option.value) : [],
+      stops,
+    };
+  });
+  record(
+    'a historical report request ends at one of its own statuses, never Submitted or Deployed',
+    reportStatuses.options.includes('In progress')
+      && reportStatuses.options.includes('Delivered')
+      && reportStatuses.options.includes('On hold')
+      && !reportStatuses.options.includes('Submitted')
+      && !reportStatuses.options.includes('Deployed'),
+    reportStatuses.options.join(' · '),
+  );
+  record(
+    'and its status timeline offers its own stops',
+    reportStatuses.stops.includes('In progress')
+      && reportStatuses.stops.includes('Delivered')
+      && !reportStatuses.stops.includes('Deployed'),
+    reportStatuses.stops.join(' · '),
+  );
 
   // Reset to the plain new/defect shape for the responsive pass.
   await page.click('.at-modes .at-seg button:has-text("New ticket")');
@@ -392,6 +484,168 @@ async function run() {
   await page.setViewportSize(VIEWPORTS[0]);
   await page.keyboard.press('Escape');
   await page.waitForTimeout(200);
+
+  // ── The Delivery pane, on a report request this run creates ──────────────
+  // Verified through the UI rather than only through the API, because the pane is
+  // where an analyst records everything the throughput page counts: the assignee,
+  // the level of effort, the approval and the hours. Creating the ticket through
+  // the dialog rather than the API is deliberate — it is the same act an admin
+  // performs, so the fourth segment is checked end to end.
+  //
+  // IT WRITES. The ticket is removed at the end through
+  // server/scripts/removeVerificationSubmissions.js, and the count is printed.
+  let createdId = null;
+  try {
+    await page.setViewportSize(VIEWPORTS[0]);
+    await setTheme(page, 'light');
+    await page.click('button:has-text("Add a ticket")');
+    await page.waitForSelector('.at-body');
+    await page.click('.at-grouprow .at-seg button:text-is("Report request")');
+    await page.fill('.at-body input[placeholder^="e.g. Renewal"]', `${DELIVERY_MARKER} — safe to delete`);
+    await page.fill('.at-body input[placeholder="First and last name"]', 'Verification harness');
+    await page.fill(
+      '.at-only-report textarea[placeholder^="What it should show"]',
+      'Created by scripts/verify-admin-data-entry.mjs. Removed by the same run.',
+    );
+    await page.fill('.at-report-new textarea[placeholder^="e.g. Unapplied cash"]', 'One measure, from one place.');
+    await page.click('.bs-modal-foot .bs-btn-primary');
+    await page.waitForSelector('.bs-success, .at-body .bs-notice');
+
+    const notice = await page.textContent('.bs-success, .at-body .bs-notice');
+    createdId = Number((notice.match(/#(\d+)/) || [])[1]) || null;
+    record(
+      'a report request can be added through the dialog',
+      Boolean(createdId) && /Report request/i.test(notice),
+      notice.replace(/\s+/g, ' ').trim().slice(0, 120),
+    );
+
+    if (createdId) {
+      // What the server actually stored, before looking at any of it on screen.
+      const stored = await page.request.get(`${API}/api/admin/submissions/${createdId}`)
+        .then((response) => response.json());
+      const row = stored.submission || stored;
+      record(
+        'it is stored as a report request, with the branch it was filled in as',
+        row.type === 'report' && row.is_new_dashboard === true && row.status === 'New',
+        `type=${row.type} is_new_dashboard=${row.is_new_dashboard} status=${row.status} measures="${String(row.measures_and_sources || '').slice(0, 40)}"`,
+      );
+
+      // Open it in the queue by searching for it, rather than trusting sort order.
+      await page.fill('.admin-cmdbar input[type="search"], input[placeholder^="Search ID"]', String(createdId));
+      await page.waitForTimeout(400);
+      await page.click('.admin-submissions-table tbody tr:first-of-type td:nth-of-type(2)');
+      await page.waitForSelector('.dm-modal');
+
+      const tabs = await page.$$eval('.dm-tab', (nodes) => nodes.map((node) => node.textContent.trim()));
+      record(
+        'the detail modal carries a Delivery tab where the hand-off would be',
+        tabs.includes('Delivery') && !tabs.some((tab) => /Service Desk|EasyVista/i.test(tab)),
+        tabs.join(' · '),
+      );
+
+      await page.click('.dm-tab:has-text("Delivery")');
+      await page.waitForSelector('.dm-hrs');
+
+      const pane = await page.evaluate(() => {
+        const labels = [...document.querySelectorAll('.dm-group-label')].map((node) => node.textContent.trim());
+        const fields = [...document.querySelectorAll('.bs-field > span')].map((node) => node.textContent.trim());
+        const selectFor = (text) => [...document.querySelectorAll('.bs-field')]
+          .find((field) => field.querySelector('span')?.textContent?.includes(text))
+          ?.querySelector('select');
+        return {
+          groups: labels,
+          fields,
+          // Not just "the select is there": the list behind it comes through the
+          // metadata load, and it arrived empty for a while because the client's
+          // normalizer dropped the whole lookup. A select with only its
+          // placeholder is a dropdown that cannot be used.
+          effortOptions: [...(selectFor('Level of effort')?.options || [])].map((option) => option.textContent.trim()),
+          assigneeOptions: [...(selectFor('Assigned to')?.options || [])].length,
+          hoursFoldOpen: document.querySelector('.dm-fold-btn')?.getAttribute('aria-expanded'),
+          hoursSummary: document.querySelector('.dm-fold-sum')?.textContent?.replace(/\s+/g, ' ').trim(),
+        };
+      });
+      record(
+        'the pane groups assignment, sizing, go-ahead and hours',
+        pane.groups.includes('Assignment')
+          && pane.groups.includes('Sizing')
+          && pane.groups.includes('Go-ahead')
+          && pane.groups.includes('Hours logged')
+          && pane.fields.some((field) => /Assigned to/i.test(field))
+          && pane.fields.some((field) => /Level of effort/i.test(field)),
+        `${pane.groups.join(' · ')} | hours fold open=${pane.hoursFoldOpen} (${pane.hoursSummary})`,
+      );
+      record(
+        'the hours ledger is drawn closed, with its total on the label',
+        pane.hoursFoldOpen === 'false' && /0/.test(pane.hoursSummary || ''),
+        `aria-expanded=${pane.hoursFoldOpen} summary="${pane.hoursSummary}"`,
+      );
+      record(
+        'its two dropdowns are populated, not just present',
+        pane.effortOptions.length > 1 && pane.assigneeOptions > 1,
+        `level of effort: ${pane.effortOptions.join(' · ')} | ${pane.assigneeOptions} assignee options`,
+      );
+
+      // Log an hour through the pane, which is the one write this section makes
+      // beyond the ticket itself — and it comes back out with the ticket.
+      await page.click('.dm-fold-btn');
+      await page.waitForSelector('.dm-hrs-add');
+      const today = new Date();
+      const workedOn = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+      await page.fill('.dm-hrs-add input[type="date"]', workedOn);
+      await page.fill('.dm-hrs-add input[type="number"]', '1.5');
+      await page.click('.dm-hrs-add button:has-text("Log")');
+      await page.waitForSelector('.dm-hrs-row');
+      const logged = await page.evaluate(() => ({
+        rows: document.querySelectorAll('.dm-hrs-row').length,
+        amount: document.querySelector('.dm-hrs-amt')?.textContent?.trim(),
+        who: document.querySelector('.dm-hrs-who')?.textContent?.trim(),
+        summary: document.querySelector('.dm-fold-sum')?.textContent?.replace(/\s+/g, ' ').trim(),
+      }));
+      record(
+        'logging hours records who, when and how many, and the total follows',
+        logged.rows === 1 && /1\.5/.test(logged.amount || '') && /1\.5/.test(logged.summary || ''),
+        JSON.stringify(logged),
+      );
+
+      for (const theme of THEMES) {
+        for (const viewport of VIEWPORTS) {
+          await page.setViewportSize({ width: viewport.width, height: viewport.height });
+          await setTheme(page, theme);
+          await page.waitForTimeout(140);
+          const offenders = await page.evaluate(OVERFLOW_PROBE, '.dm-modal');
+          record(
+            `delivery pane has no clipped overflow — ${viewport.name} ${theme}`,
+            offenders.length === 0,
+            offenders.length ? JSON.stringify(offenders.slice(0, 3)) : '',
+          );
+          await shoot(page, `delivery-${viewport.name}-${theme}`);
+        }
+      }
+
+      await page.setViewportSize(VIEWPORTS[0]);
+      await setTheme(page, 'light');
+      await page.keyboard.press('Escape');
+      await page.waitForTimeout(200);
+      await page.fill('.admin-cmdbar input[type="search"], input[placeholder^="Search ID"]', '');
+      await page.waitForTimeout(300);
+    }
+  } finally {
+    if (createdId) {
+      const output = execFileSync(
+        process.execPath,
+        ['scripts/removeVerificationSubmissions.js', String(createdId), '--apply'],
+        { cwd: SERVER_DIR, encoding: 'utf8' },
+      );
+      console.log(output.trim().split('\n').map((line) => `      ${line}`).join('\n'));
+      const gone = await page.request.get(`${API}/api/admin/submissions/${createdId}`);
+      record(
+        'the report request this run created is gone again',
+        gone.status() === 404,
+        `GET /api/admin/submissions/${createdId} -> ${gone.status()}`,
+      );
+    }
+  }
 
   // ── The page itself, behind the dialogs ──────────────────────────────────
   for (const viewport of VIEWPORTS) {

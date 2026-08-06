@@ -27,7 +27,12 @@ const {
   parseImportNumber,
   parsePolicyAndAccountNumbers,
 } = require('../helpers/importUtils');
-const { IMPORT_COLUMN_TARGETS } = require('../constants');
+const {
+  IMPORT_COLUMN_TARGETS,
+  SUBMISSION_TYPE_REPORT,
+  REPORT_DELIVERED_STATUS,
+  REPORT_USAGE_FREQUENCIES,
+} = require('../constants');
 const { SUBMISSION_INSERT_COLUMNS, buildInsertPayload } = require('../helpers/submissionInsert');
 const { logStatusChange } = require('../services/submissionService');
 const { scheduleBatchEmbeddingRefresh } = require('../services/embeddingIndexService');
@@ -316,6 +321,19 @@ router.post('/api/admin/submissions/import-xlsx', ensureAdmin, tempUpload.single
     const errors = [];
     const unknownStatusesDetected = new Set();
 
+    /**
+     * A mapped text column, trimmed, or null when the sheet does not say.
+     *
+     * The rows above spell this out per field because each one has its own
+     * default ('-', 'Unknown', a computed value). The report columns are all the
+     * same shape — a nullable string — so they share one reader rather than
+     * repeating the same three calls nine times.
+     */
+    const importedText = (row, key, aliases) => {
+      const value = getMappedImportValue(row, key, aliases, normalizedColumnMappings, null);
+      return isBlank(value) ? null : String(value).trim();
+    };
+
     rawRows.forEach((rawRow, index) => {
       const rowNumber = index + 2;
       const row = normalizeImportRow(rawRow);
@@ -449,6 +467,37 @@ router.post('/api/admin/submissions/import-xlsx', ensureAdmin, tempUpload.single
         is_public: parseImportBoolean(getMappedImportValue(row, 'is_public', ['is_public', 'public'], normalizedColumnMappings, null), !finalIsCleanup),
         is_retired: importedIsRetired,
         imported_status_label: importedStatus,
+        // ── Report requests ─────────────────────────────────────────────────
+        // Read for every row and written only for a report one (see the insert
+        // below), so a mis-mapped column on a defect sheet loads nothing rather
+        // than half a report request.
+        //
+        // `is_new_dashboard` stays TRI-STATE: a blank column means "the sheet
+        // does not say", which is not the same answer as "a change to one that
+        // exists". Boolean-ing it would invent the second.
+        is_new_dashboard: parseImportBoolean(
+          getMappedImportValue(row, 'is_new_dashboard', ['is_new_dashboard', 'new_dashboard_request', 'new_dashboard'], normalizedColumnMappings, null),
+          null,
+        ),
+        needed_data: importedText(row, 'needed_data', ['needed_data', 'list_needed_data']),
+        measures_and_sources: importedText(row, 'measures_and_sources', ['measures_and_sources', 'list_of_measures_data_sources']),
+        primary_contact: importedText(row, 'primary_contact', ['primary_contact', 'primary_contact_for_dashboard']),
+        existing_report_link: importedText(row, 'existing_report_link', ['existing_report_link', 'existing_report']),
+        changes_requested: importedText(row, 'changes_requested', ['changes_requested', 'list_changes_requested']),
+        // Refused rather than stored when the sheet says something outside the
+        // scale — six answers must not become ten because a column was free text.
+        report_usage_frequency: (() => {
+          const value = importedText(row, 'report_usage_frequency', ['report_usage_frequency', 'how_often_will_this_be_used']);
+          if (!value) return null;
+          return REPORT_USAGE_FREQUENCIES.find(
+            (frequency) => frequency.toLowerCase() === value.toLowerCase(),
+          ) || null;
+        })(),
+        department: importedText(row, 'department', ['department', 'what_dept_is_this_for']),
+        completed_at: (() => {
+          const value = importedText(row, 'completed_at', ['completed_at', 'complete_date', 'completed_date']);
+          return value ? toIsoOrNow(value) : null;
+        })(),
       });
     });
 
@@ -563,6 +612,29 @@ router.post('/api/admin/submissions/import-xlsx', ensureAdmin, tempUpload.single
               toBooleanSql(row.is_public),
               toBooleanSql(row.is_retired),
               toBooleanSql(row.logged_defect),
+              // ── Report requests ───────────────────────────────────────────
+              // Parallel to SUBMISSION_INSERT_COLUMNS, and only for the type that
+              // has them: a spreadsheet's report columns on a defect row are a
+              // mapping mistake, and writing them anyway would make the row lie.
+              ...(row.type === SUBMISSION_TYPE_REPORT
+                ? [
+                  row.is_new_dashboard === null || row.is_new_dashboard === undefined
+                    ? null
+                    : toBooleanSql(row.is_new_dashboard),
+                  row.needed_data,
+                  row.measures_and_sources,
+                  row.primary_contact,
+                  row.existing_report_link,
+                  row.changes_requested,
+                  row.report_usage_frequency,
+                  row.department,
+                  // A row imported as Delivered is complete, whatever date column
+                  // the sheet used — otherwise the throughput page cannot see the
+                  // history that was just loaded into it.
+                  row.completed_at
+                    || (row.status === REPORT_DELIVERED_STATUS ? row.updated_at : null),
+                ]
+                : [null, null, null, null, null, null, null, null, null]),
             ];
             if (!Submission) {
               throw new Error('Submission model is not initialized');

@@ -53,6 +53,39 @@ function buildAdminExportFields() {
     { key: 'occurrence_timeframe_count', label: 'Occurrence Timeframe #', value: (row) => row.occurrence_timeframe_count },
     { key: 'occurrence_timeframe', label: 'Occurrence Timeframe', value: (row) => row.occurrence_timeframe },
     { key: 'occurrence_rate', label: 'Occurrence Rate (per month)', value: (row) => row.occurrence_rate != null ? Number(row.occurrence_rate).toFixed(2) : '' },
+
+    // ── Report requests ─────────────────────────────────────────────────────
+    // Null on every other type, which is what an empty cell means. Every one of
+    // these labels normalises onto an alias in IMPORT_COLUMN_TARGETS, so a sheet
+    // exported from here re-imports — the two headers that did not used to
+    // ("Reported Date", "Request Details") are why `exportFields.test.js` checks
+    // every label rather than trusting the pairing.
+    {
+      key: 'is_new_dashboard',
+      label: 'New Dashboard Request?',
+      // Yes/No like every other boolean here, and the shape parseImportBoolean
+      // reads back. Blank for a ticket that is not a report request at all —
+      // "No" there would answer a question nobody asked.
+      value: (row) => (row.is_new_dashboard === null || row.is_new_dashboard === undefined
+        ? ''
+        : (row.is_new_dashboard ? 'Yes' : 'No')),
+    },
+    { key: 'needed_data', label: 'Needed Data', value: (row) => row.needed_data },
+    { key: 'measures_and_sources', label: 'Measures & Data Sources', value: (row) => row.measures_and_sources },
+    { key: 'primary_contact', label: 'Primary Contact', value: (row) => row.primary_contact },
+    { key: 'existing_report_link', label: 'Existing Report', value: (row) => row.existing_report_link },
+    { key: 'changes_requested', label: 'Changes Requested', value: (row) => row.changes_requested },
+    { key: 'report_usage_frequency', label: 'Usage Frequency', value: (row) => row.report_usage_frequency },
+    { key: 'department', label: 'Department', value: (row) => row.department },
+    { key: 'completed_at', label: 'Complete Date', value: (row) => row.completed_at },
+    { key: 'level_of_effort', label: 'Level of Effort', value: (row) => row.level_of_effort },
+    // The assignee as a NAME, resolved from the user id the column stores. The id
+    // itself is not exported: a spreadsheet of ids is unreadable, and a name in a
+    // sheet is not something the import side would be right to trust back into an
+    // FK — so this one travels out and never in.
+    { key: 'assigned_to_name', label: 'Assigned To', value: (row) => row.assigned_to_name },
+    { key: 'approved_at', label: 'Approved Date', value: (row) => row.approved_at },
+    { key: 'approved_by_name', label: 'Approved By', value: (row) => row.approved_by_name },
   ];
 }
 
@@ -118,6 +151,15 @@ const EXPORT_FIELD_GROUPS = [
     fieldKeys: [
       'created_at', 'status_update_at', 'latest_status_update', 'latest_status_update_at',
       'duplicate_reference', 'fingerprint',
+    ],
+  },
+  {
+    key: 'reportRequest',
+    label: 'Report request',
+    fieldKeys: [
+      'is_new_dashboard', 'existing_report_link', 'changes_requested', 'needed_data',
+      'measures_and_sources', 'primary_contact', 'report_usage_frequency', 'department',
+      'assigned_to_name', 'level_of_effort', 'completed_at', 'approved_at', 'approved_by_name',
     ],
   },
   { key: UNGROUPED_FIELD_GROUP, label: 'Other fields', fieldKeys: [] },

@@ -4,6 +4,10 @@ const {
   SUBMISSION_TO_CLEANUP_STATUS,
   UNASSIGNED_APPLICATION,
   TRACKER_LABEL,
+  SUBMISSION_TYPE_REPORT,
+  REPORT_DELIVERED_STATUS,
+  REPORT_USAGE_FREQUENCIES,
+  statusesForRequestType,
 } = require('../constants');
 const {
   buildAllLookupMaps,
@@ -564,7 +568,12 @@ async function createAdminSubmission(db, { body, username, viewer }) {
     ? (allowedCleanupStatuses.includes(requestedCleanupStatus) ? requestedCleanupStatus : 'New')
     : null;
   const requestedFinalStatus = String(body.status || '').trim();
-  const finalStatus = allowedStatuses.includes(requestedFinalStatus) ? requestedFinalStatus : 'New';
+  // Scoped to the type being created: a report request may hold exactly its own
+  // nine words, and 'Delivered' is not one a defect can be filed as. An
+  // out-of-type status falls back to New here rather than erroring, which is the
+  // behaviour this path has always had for an unrecognised one.
+  const statusesForType = statusesForRequestType(effectiveType, allowedStatuses);
+  const finalStatus = statusesForType.includes(requestedFinalStatus) ? requestedFinalStatus : 'New';
 
   const createdAt = body.created_at ? toIsoOrNow(body.created_at) : new Date().toISOString();
   const updatedAt = new Date().toISOString();
@@ -614,6 +623,27 @@ async function createAdminSubmission(db, { body, username, viewer }) {
     return { error: 'You do not administer this application', status: 403 };
   }
 
+  // ── The report-request half of the payload ────────────────────────────────
+  const isReportRequest = effectiveType === SUBMISSION_TYPE_REPORT;
+  const textOrNull = (value) => (String(value ?? '').trim() || null);
+  // The same fixed scale the submit form offers, refused rather than stored when
+  // it is anything else — the server is what keeps six answers from becoming ten.
+  const requestedFrequency = textOrNull(body.report_usage_frequency);
+  if (isReportRequest && requestedFrequency && !REPORT_USAGE_FREQUENCIES.includes(requestedFrequency)) {
+    return { error: 'Invalid usage frequency', status: 400 };
+  }
+  const reportUsageFrequency = isReportRequest ? requestedFrequency : null;
+  const deliveredEvent = rawEvents.find(
+    (event) => String(event?.status || '').trim().toLowerCase() === REPORT_DELIVERED_STATUS.toLowerCase(),
+  );
+  const completedAt = isReportRequest
+    ? (body.completed_at
+      ? toIsoOrNow(body.completed_at)
+      : (finalStatus === REPORT_DELIVERED_STATUS
+        ? toIsoOrNow(deliveredEvent?.changed_at || createdAt)
+        : null))
+    : null;
+
   const insertColumns = SUBMISSION_INSERT_COLUMNS;
   const insertValues = [
     createdAt,
@@ -652,6 +682,29 @@ async function createAdminSubmission(db, { body, username, viewer }) {
     resolveCreateVisibility({ isCleanup, is_public: body.is_public }),
     0,
     toBooleanSql(body.logged_defect),
+    // ── Report requests ─────────────────────────────────────────────────────
+    // Only for the type that has them: a defect carrying a
+    // `report_usage_frequency` would be a field with no meaning on the row.
+    ...(isReportRequest
+      ? [
+        body.is_new_dashboard === undefined || body.is_new_dashboard === null
+          ? null
+          : toBooleanSql(body.is_new_dashboard),
+        textOrNull(body.needed_data),
+        textOrNull(body.measures_and_sources),
+        textOrNull(body.primary_contact),
+        textOrNull(body.existing_report_link),
+        textOrNull(body.changes_requested),
+        reportUsageFrequency,
+        textOrNull(body.department),
+        // A report request whose recorded end state is Delivered IS complete, and
+        // the throughput page counts by this timestamp — so a historical one added
+        // as Delivered with no date would be invisible to the page that exists to
+        // count it. Prefers the date given, then the Delivered event's own date,
+        // then the reported date.
+        completedAt,
+      ]
+      : [null, null, null, null, null, null, null, null, null]),
   ];
   const payload = buildInsertPayload(insertColumns, insertValues);
   const createdSubmission = await Submission.create(payload);
@@ -670,7 +723,9 @@ async function createAdminSubmission(db, { body, username, viewer }) {
         changed_at: toIsoOrNow(e.changed_at),
       };
     })
-    .filter((e) => historicalStatuses.includes(e.status))
+    // Backdated history obeys the same per-type vocabulary as the ticket itself:
+    // a report request's timeline cannot claim it was 'Deployed'.
+    .filter((e) => statusesForRequestType(effectiveType, historicalStatuses).includes(e.status))
     .sort((a, b) => new Date(a.changed_at) - new Date(b.changed_at));
 
   // Always ensure the "created" / initial New event is present at the start
@@ -953,8 +1008,28 @@ async function updateAdminSubmission(db, { id, body, username, viewer }) {
   const normalizedNextStatus = String(next.status || '').trim() || normalizedExistingStatusValue;
   next.status = normalizedNextStatus;
 
-  if (!allowedStatuses.includes(normalizedNextStatus) && normalizedNextStatus !== normalizedExistingStatusValue) {
+  // Scoped to the type this save leaves the ticket as, so a defect cannot be
+  // moved to 'Delivered' and a report request cannot be moved to 'Deployed'.
+  // Whatever the ticket already holds stays permitted — a ticket is never made
+  // unsaveable by a vocabulary change underneath it.
+  if (
+    !statusesForRequestType(nextType, allowedStatuses).includes(normalizedNextStatus)
+    && normalizedNextStatus !== normalizedExistingStatusValue
+  ) {
     return { error: 'Invalid status', status: 400 };
+  }
+
+  // Delivered IS the completion, and the throughput page counts by
+  // `completed_at` — so a report request moved to Delivered with no completion
+  // date would be finished on the board and absent from the numbers. Filled here
+  // when it is empty; never cleared here, because reopening one is the analyst's
+  // explicit act on the Delivery pane, not a side effect of a status change.
+  if (
+    String(nextType || '').trim().toLowerCase() === SUBMISSION_TYPE_REPORT
+    && normalizedNextStatus === REPORT_DELIVERED_STATUS
+    && !next.completed_at
+  ) {
+    next.completed_at = new Date().toISOString();
   }
 
   if (!allowedSubmissionTypes.includes(String(next.type || '').trim().toLowerCase())) {
@@ -1395,6 +1470,14 @@ async function submitSubmissionToEasyVista(db, { id, body, username, viewer, dry
     rawSubmission.model_type_name,
   )) {
     return { error: 'You do not administer this application', status: 403 };
+  }
+  // A report request never makes this hand-off (owner, 2026-08-06: "we probably
+  // aren't submitting to easyvista"), and the send would put it in 'Submitted' —
+  // a status outside its own nine. Refused here rather than only hidden in the
+  // UI, because a status vocabulary enforced on one path and not another is not
+  // enforced.
+  if (String(rawSubmission.model_type_name || '').trim().toLowerCase() === SUBMISSION_TYPE_REPORT) {
+    return { error: `Report requests are not sent to the ${TRACKER_LABEL}`, status: 400 };
   }
   const submission = mapSubmission(rawSubmission);
 

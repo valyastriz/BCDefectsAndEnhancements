@@ -11,6 +11,25 @@ export const ADD_TICKET_STATUS_STOPS = [
   'Retired',
 ];
 
+/** The same six positions for a report request, in its own words: it is built in
+ *  the portal rather than handed to the Service Desk, so the two middle stops are
+ *  In progress and Delivered. */
+export const ADD_TICKET_REPORT_STATUS_STOPS = [
+  'Approved',
+  'In progress',
+  'Delivered',
+  'Rejected',
+  'Duplicate',
+  'Retired',
+];
+
+/** Which set of stops a type's timeline offers. */
+export function addTicketStatusStops(type) {
+  return String(type || '').trim().toLowerCase() === 'report'
+    ? ADD_TICKET_REPORT_STATUS_STOPS
+    : ADD_TICKET_STATUS_STOPS;
+}
+
 /** What `created_via` a ticket added through the dialog is recorded as. New tickets
  *  are indistinguishable from a rep's in every other way, so the source is the only
  *  record that an admin typed it. */
@@ -66,6 +85,19 @@ export function defaultAddTicketForm(defaultRequester = '', defaultApplication =
     desired_completion_date: '',
     priority_level: '',
     impact_details: '',
+
+    // Report-request branch. `is_new_dashboard` is the sub-branch switch and
+    // defaults to true, the same way the submit form opens on "something new".
+    // `request` and `what_happened_exact_details` above are reused rather than
+    // duplicated — they are the same two columns the submit form writes.
+    is_new_dashboard: true,
+    needed_data: '',
+    measures_and_sources: '',
+    primary_contact: '',
+    existing_report_link: '',
+    changes_requested: '',
+    report_usage_frequency: '',
+    department: '',
 
     // Historical only — where the ticket already went
     easyvista_ticket_id: '',

@@ -22,6 +22,24 @@ async function buildIdNameMap(Model) {
   } catch { return new Map(); }
 }
 
+/**
+ * People, by id — for `assigned_to`, which is the one FK on a submission that
+ * points at a user rather than a lookup.
+ *
+ * Separate from buildIdNameMap because a user has no `name`: it is display_name,
+ * falling back to username, exactly as every other surface reads it.
+ */
+async function buildUserNameMap(Model) {
+  if (!Model) return new Map();
+  try {
+    const rows = await Model.findAll({ attributes: ['id', 'display_name', 'username'], raw: true });
+    return new Map(rows.map((row) => [
+      Number(row.id),
+      String(row.display_name || row.username || '').trim(),
+    ]));
+  } catch { return new Map(); }
+}
+
 // Load all lookup id→name maps in parallel from DB models
 async function buildAllLookupMaps(dbModels) {
   const [
@@ -34,6 +52,8 @@ async function buildAllLookupMaps(dbModels) {
     priorityLevelIdToName,
     createdViaIdToName,
     occurrenceTimeframeIdToName,
+    levelOfEffortIdToName,
+    userIdToName,
   ] = await Promise.all([
     buildIdNameMap(dbModels.DefectEnhancementStatus),
     buildIdNameMap(dbModels.SubmissionType),
@@ -44,6 +64,11 @@ async function buildAllLookupMaps(dbModels) {
     buildIdNameMap(dbModels.PriorityLevel),
     buildIdNameMap(dbModels.SubmissionSource),
     buildIdNameMap(dbModels.OccurrenceTimeframe),
+    // Report requests. Without these two the queue and the export could show a
+    // report request's level of effort and assignee only as raw ids — which is to
+    // say, not at all.
+    buildIdNameMap(dbModels.LevelOfEffort),
+    buildUserNameMap(dbModels.User),
   ]);
   return {
     statusIdToName,
@@ -55,6 +80,8 @@ async function buildAllLookupMaps(dbModels) {
     priorityLevelIdToName,
     createdViaIdToName,
     occurrenceTimeframeIdToName,
+    levelOfEffortIdToName,
+    userIdToName,
   };
 }
 
@@ -70,6 +97,8 @@ function hydrateRowFromMaps(row, maps) {
     priorityLevelIdToName,
     createdViaIdToName,
     occurrenceTimeframeIdToName,
+    levelOfEffortIdToName,
+    userIdToName,
   } = maps;
   return {
     ...row,
@@ -82,6 +111,14 @@ function hydrateRowFromMaps(row, maps) {
     priority_level: priorityLevelIdToName.get(Number(row.priority_level_id)) || '',
     created_via: createdViaIdToName.get(Number(row.created_via_id)) || '',
     occurrence_timeframe: occurrenceTimeframeIdToName.get(Number(row.occurrence_timeframe_id)) || '',
+    // Report requests. Null rather than '' when there is nothing to resolve: a
+    // defect has no level of effort and no assignee, and an empty string would
+    // read as "set to nothing".
+    level_of_effort: levelOfEffortIdToName?.get(Number(row.level_of_effort_id)) || null,
+    // The assignee's NAME, alongside the id the column stores — never instead of
+    // it. Every write still goes through `assigned_to`, so a rename cannot
+    // silently unlink the work.
+    assigned_to_name: userIdToName?.get(Number(row.assigned_to)) || null,
   };
 }
 

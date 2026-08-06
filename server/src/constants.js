@@ -31,9 +31,84 @@ const DEFAULT_DEFECT_ENHANCEMENT_STATUSES = [
   'Duplicate',
   'Submitted',
   'Deployed',
+  // ── Report requests (appended, and appended on purpose) ───────────────────
+  // These three are the report-request vocabulary's own words. They are seeded
+  // into the SAME table as the ten above, and `statusesForRequestType` below is
+  // what keeps them apart. Appended rather than slotted in beside their
+  // defect-side equivalents so `seedLookup` gives them sort orders after every
+  // existing value — an existing row keeps whatever order it already has, so
+  // inserting mid-list would only collide.
+  'In progress',
+  'Delivered',
+  'On hold',
 ];
 const RETIRED_STATUS = 'Retired';
 const DEFAULT_DEFECT_ENHANCEMENT_STATUSES_WITH_RETIRED = [...DEFAULT_DEFECT_ENHANCEMENT_STATUSES, RETIRED_STATUS];
+
+// ── Report-request statuses ──────────────────────────────────────────────────
+//
+// The nine words a requester reads on a report request, in the order they are
+// offered (owner-confirmed 2026-08-06). Six of them are the defect list's own
+// rows — "Approved" means the same thing on both, which is what the owner meant
+// by "most statuses can transfer" — and three are new.
+//
+// WHY THIS IS A REGISTRY AND NOT A SECOND TABLE. `submissions.status_id` points
+// at `defect_enhancement_statuses`. A second status table would mean either a
+// second status column on `submissions` (two columns for one fact — the exact
+// defect the source field list has with Complete / Completed / Complete Date) or
+// an id whose meaning depends on the row's type, which cannot be joined or
+// foreign-keyed. Scoping the OFFERED SET instead keeps one column, one FK and one
+// join, and costs three seeded rows. The requester's experience is identical: a
+// report request offers exactly these nine and nothing else.
+//
+// Kept in step with client/src/constants/statusConstants.js, which mirrors both
+// lists and the same function for the dropdowns.
+const REPORT_REQUEST_STATUSES = [
+  'New',
+  'Approved',
+  'In progress',
+  'Delivered',
+  'On hold',
+  'Rejected',
+  'Duplicate',
+  'Redirected',
+  RETIRED_STATUS,
+];
+
+// The three that belong to report requests ALONE. Everything else in the status
+// table is offered to every type, including a value an admin adds on the Metadata
+// page — so adding one keeps working exactly as it does today.
+const REPORT_ONLY_STATUSES = ['In progress', 'Delivered', 'On hold'];
+
+/** The status a delivered report request holds. The throughput page's own word. */
+const REPORT_DELIVERED_STATUS = 'Delivered';
+
+const lowerSet = (values) => new Set(values.map((value) => String(value).trim().toLowerCase()));
+
+/**
+ * Which statuses this request type may hold, out of the ones the table has.
+ *
+ * Takes the live list rather than reaching for the database, so it is a pure
+ * function both a route and a test can call, and so a switched-off value stays
+ * switched off for both types.
+ *
+ * A report request gets the nine in REGISTRY order — the order they read in, not
+ * the table's sort order, which is a defect-side sequence. Every other type gets
+ * the table minus the three report-only words.
+ */
+function statusesForRequestType(type, statuses) {
+  const list = (Array.isArray(statuses) ? statuses : [])
+    .map((value) => String(value || '').trim())
+    .filter(Boolean);
+  if (String(type || '').trim().toLowerCase() !== SUBMISSION_TYPE_REPORT) {
+    const reportOnly = lowerSet(REPORT_ONLY_STATUSES);
+    return list.filter((name) => !reportOnly.has(name.toLowerCase()));
+  }
+  const present = new Map(list.map((name) => [name.toLowerCase(), name]));
+  return REPORT_REQUEST_STATUSES
+    .map((name) => present.get(name.toLowerCase()))
+    .filter(Boolean);
+}
 // `report` is the third request type (plan.md §4 Phase 1). It is a lookup value
 // like the other two, not an enum: the Metadata page manages this list, and
 // server/src/routes/submissionRoutes.js validates against it at run time.
@@ -126,6 +201,52 @@ const IMPORT_COLUMN_TARGETS = [
   { key: 'created_at', label: 'Created At', aliases: ['created_at', 'reported_at', 'reported_date', 'submitted_at', 'date_submitted'] },
   { key: 'closed_date', label: 'Closed Date', aliases: ['closed_date', 'closed_at', 'date_closed'] },
   { key: 'updated_at', label: 'Updated At', aliases: ['updated_at', 'status_update_at', 'last_updated_at'] },
+  // ── Report requests ─────────────────────────────────────────────────────────
+  // Written only on a row whose Type is `report` (importRoutes), so mapping one of
+  // these onto a sheet of defects loads nothing rather than nonsense. The aliases
+  // include the source field list's own column names, since that spreadsheet is
+  // where a sheet of historical report requests would come from.
+  {
+    key: 'is_new_dashboard',
+    label: 'New Dashboard Request?',
+    aliases: ['is_new_dashboard', 'new_dashboard_request', 'new_dashboard', 'new_or_change'],
+  },
+  { key: 'needed_data', label: 'Needed Data', aliases: ['needed_data', 'list_needed_data', 'data_needed'] },
+  {
+    key: 'measures_and_sources',
+    label: 'Measures & Data Sources',
+    aliases: ['measures_and_sources', 'list_of_measures_data_sources', 'measures_data_sources', 'measures'],
+  },
+  {
+    key: 'primary_contact',
+    label: 'Primary Contact',
+    aliases: ['primary_contact', 'primary_contact_for_dashboard', 'dashboard_contact'],
+  },
+  {
+    key: 'existing_report_link',
+    label: 'Existing Report',
+    aliases: ['existing_report_link', 'existing_report', 'report_link', 'which_report'],
+  },
+  {
+    key: 'changes_requested',
+    label: 'Changes Requested',
+    aliases: ['changes_requested', 'list_changes_requested', 'requested_changes'],
+  },
+  {
+    key: 'report_usage_frequency',
+    label: 'Usage Frequency',
+    aliases: ['report_usage_frequency', 'how_often_will_this_be_used', 'usage_frequency', 'frequency'],
+  },
+  {
+    key: 'department',
+    label: 'Department',
+    aliases: ['department', 'what_dept_is_this_for', 'dept', 'requesting_department'],
+  },
+  {
+    key: 'completed_at',
+    label: 'Complete Date',
+    aliases: ['completed_at', 'complete_date', 'completed_date', 'date_completed', 'delivered_date'],
+  },
 ];
 
 const DEFAULT_CLEANUP_STATUSES = ['Not Started', 'In Progress', 'Completed'];
@@ -340,5 +461,9 @@ module.exports = {
   LOOKUP_TABLES,
   SUBMISSION_TYPE_REPORT,
   REPORT_USAGE_FREQUENCIES,
+  REPORT_REQUEST_STATUSES,
+  REPORT_ONLY_STATUSES,
+  REPORT_DELIVERED_STATUS,
+  statusesForRequestType,
   DEFAULT_LEVELS_OF_EFFORT,
 };

@@ -12,6 +12,13 @@ const DEFAULT_DEFECT_ENHANCEMENT_STATUSES = [
   'Submitted',
   'Deployed',
   'Retired',
+  // The report-request words. One status table for every request type — which
+  // set a type may hold is `statusesForRequestType` in src/constants.js, and
+  // these three belong to report requests alone. Appended so seedLookup gives
+  // them sort orders after every existing value.
+  'In progress',
+  'Delivered',
+  'On hold',
 ];
 
 // Kept in step with src/constants.js DEFAULT_SUBMISSION_TYPES, which this file

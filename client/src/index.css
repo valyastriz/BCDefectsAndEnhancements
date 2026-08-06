@@ -3965,7 +3965,10 @@ select.dm-prow-input { cursor: pointer; }
    drops one, about whether they exist. */
 .sb-head, .sb-row {
   display: grid;
-  grid-template-columns: 104px 84px minmax(0, 1fr) 178px 104px 118px 78px 26px;
+  /* The type column is 88px because "Enhancement" is an 86px chip: at 84px every
+     enhancement row overflowed its own column by 2px, invisibly, on every desktop
+     load. Found by the overflow probe while adding the third type, not by eye. */
+  grid-template-columns: 104px 88px minmax(0, 1fr) 178px 104px 118px 78px 26px;
   grid-template-areas: "ref type sum stage who app when exp";
   align-items: center; gap: 10px;
 }
@@ -4040,6 +4043,12 @@ select.dm-prow-input { cursor: pointer; }
 .sb-type--enhancement {
   color: var(--status-approved-fg); background: color-mix(in srgb, var(--status-approved-fg) 9%, var(--color-surface));
   border-color: color-mix(in srgb, var(--status-approved-fg) 26%, transparent);
+}
+/* The third type. Its own hue, from the status palette's reserved set like the
+   other two — a chip is state, not a chart series. */
+.sb-type--report {
+  color: var(--status-submitted-fg); background: color-mix(in srgb, var(--status-submitted-fg) 9%, var(--color-surface));
+  border-color: color-mix(in srgb, var(--status-submitted-fg) 26%, transparent);
 }
 .sb-sum { display: block; font-size: 13.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* Reported by — scanning for a colleague's ticket is a real job on this board,
@@ -4144,14 +4153,14 @@ select.dm-prow-input { cursor: pointer; }
    expansion. Both stay in the expansion at every width. */
 @media (max-width: 1180px) {
   .sb-head, .sb-row {
-    grid-template-columns: 102px 84px minmax(0, 1fr) 172px 100px 78px 26px;
+    grid-template-columns: 102px 88px minmax(0, 1fr) 172px 100px 78px 26px;
     grid-template-areas: "ref type sum stage who when exp";
   }
   .c-app { display: none; }
 }
 @media (max-width: 1000px) {
   .sb-head, .sb-row {
-    grid-template-columns: 98px 82px minmax(0, 1fr) 166px 76px 26px;
+    grid-template-columns: 98px 88px minmax(0, 1fr) 166px 76px 26px;
     grid-template-areas: "ref type sum stage when exp";
   }
   .c-who { display: none; }
@@ -4307,6 +4316,14 @@ select.dm-prow-input { cursor: pointer; }
 .at-body:not([data-branch='defect']) .at-only-def { display: none; }
 .at-body:not([data-branch='enhancement']) .at-only-enh { display: none; }
 .at-body:not([data-type='cleanup']) .at-only-clean { display: none; }
+/* The fourth type. A report request cannot be a cleanup task and is never handed
+   off, so it is a branch of its own rather than a tag — and its own two sub-
+   branches (something new / a change to one you already use) key off
+   data-report, the same way the cleanup tag keys off data-branch. */
+.at-body:not([data-branch='report']) .at-only-report { display: none; }
+.at-body[data-branch='report'] .at-not-report { display: none; }
+.at-body:not([data-report='new']) .at-report-new { display: none; }
+.at-body:not([data-report='change']) .at-report-change { display: none; }
 /* Internal-only cleanup: no downstream hand-off, so it asks for a description
    instead of a defect/enhancement branch. */
 .at-body:not([data-branch='none']) .at-only-internal { display: none; }
@@ -4758,5 +4775,243 @@ select.dm-prow-input { cursor: pointer; }
 @media (prefers-reduced-motion: reduce) {
   .md-skel { animation: none; }
   .md-track, .md-track::after, .md-name-input, .md-obtn { transition: none; }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   tp- — the reporting throughput page (pages/AdminThroughputPage.jsx)
+   Lifted from the approved mockup so the built page and the artifact are
+   literally the same CSS:
+   https://claude.ai/code/artifact/e6bffd90-c76a-49a4-b042-0aa2ba904835
+   The summary tiles are shared with the Metadata and Access pages — see
+   .md-tile / .access-tile above.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Chart tokens ─────────────────────────────────────────────────────────
+   The portal has no chart palette yet, so this is it: two categorical slots,
+   assigned in fixed order and never cycled. Slot 1 is the portal's own primary
+   (--blue-600 light, --blue-500 dark); slot 2 is the warm counterpart, and it
+   is NOT one of the --status-* colours — those have reserved meaning on badges
+   and must never impersonate a series.
+   Both modes were validated, not eyeballed:
+     light #2563eb,#eb6834 on #ffffff  -> all six checks PASS (worst CVD dE 29.9)
+     dark  #3b82f6,#e2622f on #1b2638  -> all six checks PASS (worst CVD dE 28.6)
+   The dark steps are NOT the light ones brightened: --color-primary in dark is
+   #60a5fa, whose OKLCH L is 0.714 and fails the dark lightness band (0.48-0.67),
+   so the dark slots step down rather than up. Re-run the validator before
+   changing either. */
+:root { --chart-1: #2563eb; --chart-2: #eb6834; --chart-grid: var(--slate-200); }
+:root[data-theme='dark'] { --chart-1: #3b82f6; --chart-2: #e2622f; --chart-grid: #2d3f56; }
+
+.tp-page { max-width: 1240px; margin: 0 auto; display: flex; flex-direction: column; gap: 18px; }
+.tp-page .bs-header { margin-bottom: 0; }
+
+/* ── One filter row, above everything it scopes ───────────────────────────
+   Never per-chart: every tile, bar and table row below re-reads the same slice,
+   so the numbers can never disagree with each other. */
+.tp-filters {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px;
+  padding: 12px 14px; border-radius: var(--radius);
+  background: var(--color-surface); border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-sm);
+}
+.tp-filter { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.tp-filter > span {
+  font-size: 10.5px; font-weight: 800; letter-spacing: .085em; text-transform: uppercase;
+  color: var(--color-muted); flex: none;
+}
+.tp-range { display: inline-flex; gap: 3px; padding: 3px; border-radius: 999px; background: var(--color-bg); border: 1px solid var(--color-border); flex-wrap: wrap; }
+.tp-range button {
+  font: inherit; font-size: 12.5px; font-weight: 650; cursor: pointer;
+  border: 0; background: transparent; color: var(--color-muted);
+  padding: 5px 12px; border-radius: 999px;
+}
+.tp-range button:hover { color: var(--color-text); }
+.tp-range button[aria-pressed='true'] {
+  background: var(--color-surface); color: var(--color-primary);
+  box-shadow: var(--shadow-sm);
+  border: 1px solid color-mix(in srgb, var(--color-primary) 40%, transparent);
+}
+.tp-range button:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+.tp-scope { font: inherit; font-size: 13px; padding: 6px 10px; border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text); }
+
+/* Three presets in a pill group wrap onto two rows on a phone, and whichever one
+   lands alone stretches and reads as selected. Below the breakpoint the group
+   becomes a select — the same swap the detail modal's tab strip
+   (index.css:2570) and the Metadata page's list rail already make. Both controls
+   are always in the DOM and always in step; CSS picks one. */
+.tp-rangeselect { display: none; }
+@media (max-width: 560px) {
+  .tp-range { display: none; }
+  .tp-rangeselect { display: block; }
+  .tp-filters { flex-direction: column; align-items: stretch; }
+  .tp-filter { justify-content: space-between; }
+  .tp-asof { margin-left: 0; }
+}
+.tp-asof { margin-left: auto; font-size: 12px; color: var(--color-muted); }
+
+/* ── Charts ───────────────────────────────────────────────────────────── */
+/* Three equal cards. Two notes:
+   `min(340px, 100%)` rather than a bare 340px, because a minimum wider than the
+   container makes the track overflow instead of collapsing to one column — the
+   overflow probe caught that at 390px. And `align-items: start`, because
+   stretching a three-bar card to the height of a six-bar one fills the
+   difference with nothing. */
+.tp-charts {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(min(340px, 100%), 1fr));
+  gap: 14px; align-items: start;
+}
+.tp-card {
+  background: var(--color-surface); border: 1px solid var(--color-border);
+  border-radius: var(--radius); box-shadow: var(--shadow-sm);
+  padding: 15px 17px 17px; display: flex; flex-direction: column; gap: 12px; min-width: 0;
+}
+.tp-cardhead { display: flex; flex-direction: column; gap: 3px; }
+.tp-cardhead h3 { font-size: 14px; font-weight: 700; }
+.tp-cardhead p { margin: 0; font-size: 12.5px; color: var(--color-muted); line-height: 1.5; }
+
+/* A legend is present for every chart carrying two or more series, and absent
+   for one — a box with a single swatch just restates the title. */
+.tp-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; }
+.tp-legend-item { display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--color-muted); }
+.tp-key { width: 12px; height: 12px; border-radius: 3px; flex: none; }
+.tp-key--1 { background: var(--chart-1); }
+.tp-key--2 { background: var(--chart-2); }
+
+/* Horizontal bars. No gridlines and no value axis: every bar carries its own
+   number at the tip, and direct labels come before gridlines. */
+.tp-bars { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.tp-row {
+  display: grid; grid-template-columns: minmax(84px, 132px) minmax(0, 1fr);
+  align-items: center; gap: 4px 12px;
+  /* The hit target is the whole row, not the painted bar. */
+  padding: 5px 4px; border-radius: var(--radius-sm); min-height: 34px;
+  border: 0; background: transparent; width: 100%; text-align: left; font: inherit; color: inherit;
+  cursor: default;
+}
+.tp-row:hover, .tp-row:focus-visible { background: color-mix(in srgb, var(--color-text) 4%, transparent); }
+.tp-row:focus-visible { outline: 2px solid var(--color-primary); outline-offset: -2px; }
+.tp-name { font-size: 13px; font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
+.tp-track { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+/* A plot column and a label gutter, not one flex row. A percentage width inside
+   a flex row is a percentage of the row INCLUDING the label, so a 100% bar and
+   its own value could not both fit — the longest bar pushed its number out of
+   the card. The plot area is what the percentage is a percentage of. */
+.tp-bar { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; }
+.tp-plot { min-width: 0; display: flex; }
+/* Capped at 24px and square where it leaves the baseline, rounded at the data
+   end — the shape says which end is the value. */
+.tp-fill { height: 14px; max-height: 24px; border-radius: 0 4px 4px 0; flex: none; min-width: 2px; }
+.tp-fill--1 { background: var(--chart-1); }
+.tp-fill--2 { background: var(--chart-2); }
+/* Values never wear the series colour: the mark beside them carries identity. */
+.tp-val { font-size: 12.5px; font-weight: 650; font-variant-numeric: tabular-nums; color: var(--color-text); white-space: nowrap; }
+.tp-val small { font-weight: 500; color: var(--color-muted); }
+
+/* Columns. This one keeps an axis, because only the last month is labelled. */
+.tp-cols { display: flex; align-items: flex-end; gap: 10px; height: 168px; padding-left: 34px; position: relative; }
+.tp-grid { position: absolute; inset: 0 0 22px 34px; pointer-events: none; }
+.tp-gridline { position: absolute; left: 0; right: 0; border-top: 1px solid var(--chart-grid); }
+.tp-gridlabel {
+  position: absolute; right: calc(100% + 8px); transform: translateY(-50%);
+  font-size: 11px; color: var(--color-muted); font-variant-numeric: tabular-nums;
+}
+/* The column is a plot row plus a label row, and `.tp-grid` above is inset by
+   exactly the label row's height — so a bar's percentage and a gridline's
+   percentage are percentages of the SAME box. Measuring the fill against the
+   whole column instead put 27 above the line marked 30: the bars and the axis
+   were on different scales, which is a chart that lies. */
+.tp-col {
+  flex: 1 1 0; min-width: 0; height: 100%;
+  display: flex; flex-direction: column; gap: 5px;
+  border: 0; background: transparent; font: inherit; color: inherit; padding: 0; cursor: default;
+}
+.tp-colplot { flex: 1; min-height: 0; display: flex; align-items: flex-end; justify-content: center; }
+.tp-col:hover .tp-colfill, .tp-col:focus-visible .tp-colfill { filter: brightness(1.08); }
+.tp-col:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; border-radius: var(--radius-sm); }
+.tp-colfill {
+  position: relative; width: 100%; max-width: 24px; min-height: 2px;
+  background: var(--chart-1); border-radius: 4px 4px 0 0;
+}
+.tp-collabel { font-size: 11px; color: var(--color-muted); height: 17px; line-height: 17px; }
+/* On the cap, out of the plot's flow, so a full-height bar still has room for it. */
+.tp-colval {
+  position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%);
+  margin-bottom: 3px; font-size: 12px; font-weight: 700;
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+
+/* ── Tooltip ──────────────────────────────────────────────────────────────
+   Enhances, never gates: every number it shows is also a direct label or a row
+   in the table below. */
+.tp-tip {
+  position: fixed; z-index: 60; pointer-events: none; opacity: 0;
+  transition: opacity .1s; max-width: 260px;
+  padding: 8px 10px; border-radius: var(--radius-sm);
+  background: var(--color-surface); border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-md); font-size: 12.5px;
+}
+.tp-tip[data-open='true'] { opacity: 1; }
+.tp-tip-cat { font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--color-muted); display: block; margin-bottom: 4px; }
+.tp-tip-row { display: flex; align-items: baseline; gap: 8px; }
+.tp-tip-row + .tp-tip-row { margin-top: 3px; }
+/* A short stroke, not a filled box — at tooltip density a box is data-weight ink. */
+.tp-tip-key { width: 14px; height: 2px; border-radius: 1px; flex: none; align-self: center; }
+.tp-tip-val { font-weight: 700; font-variant-numeric: tabular-nums; }
+.tp-tip-lbl { color: var(--color-muted); }
+
+/* ── The table twin ───────────────────────────────────────────────────────
+   Drawn closed. Every value in every chart is in here, so nothing on this page
+   is reachable only by hovering. */
+.tp-table-toggle {
+  appearance: none; align-self: flex-start; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 8px;
+  font: inherit; font-size: 12.5px; font-weight: 650; color: var(--color-primary);
+  border: 1px solid color-mix(in srgb, var(--color-primary) 35%, transparent);
+  background: var(--color-surface); border-radius: 999px; padding: 6px 13px;
+}
+.tp-table-toggle:hover { background: color-mix(in srgb, var(--color-primary) 9%, var(--color-surface)); }
+.tp-table-toggle:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+.tp-table-toggle[aria-expanded='true'] .dm-caret::after { content: '\25b4'; }
+.tp-tablewrap { overflow-x: auto; border: 1px solid var(--color-border); border-radius: var(--radius); background: var(--color-surface); }
+.tp-table { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 520px; }
+.tp-table th, .tp-table td { padding: 9px 13px; border-bottom: 1px solid var(--color-border); text-align: right; }
+.tp-table th:first-child, .tp-table td:first-child { text-align: left; }
+.tp-table thead th {
+  font-size: 10.5px; font-weight: 800; letter-spacing: .07em; text-transform: uppercase;
+  color: var(--color-muted); background: var(--color-bg);
+}
+.tp-table td { font-variant-numeric: tabular-nums; }
+.tp-table tbody tr:last-child td { border-bottom: 0; }
+.tp-table tfoot td { font-weight: 700; border-top: 1px solid var(--color-border); background: var(--color-bg); }
+
+/* ── The honesty note ─────────────────────────────────────────────────────
+   Not decoration. Two of the three numbers on this page can be read as a league
+   table, and the difference between them is the whole reason the hours are a
+   child table rather than a column. */
+.tp-note {
+  display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 3px 11px;
+  padding: 12px 14px; border-radius: var(--radius);
+  border: 1px solid color-mix(in srgb, var(--color-primary) 28%, transparent);
+  background: color-mix(in srgb, var(--color-primary) 5%, var(--color-surface));
+}
+.tp-note-glyph { grid-row: 1 / span 2; font-size: 13px; margin-top: 1px; color: var(--color-primary); }
+.tp-note b { font-size: 13px; font-weight: 700; }
+.tp-note span { font-size: 12.5px; line-height: 1.55; color: color-mix(in srgb, var(--color-text) 78%, transparent); }
+
+.tp-empty { padding: 26px 20px; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.tp-empty-icon { font-size: 20px; color: var(--color-muted); }
+.tp-empty h4 { font-size: 14.5px; font-weight: 650; }
+.tp-empty p { margin: 0; font-size: 13px; color: var(--color-muted); max-width: 46ch; }
+
+/* The page's own skeleton, matching .md-skel so the two admin pages load the
+   same way. */
+.tp-skel { background: var(--color-border); border-radius: var(--radius-sm); animation: md-pulse 1.4s ease-in-out infinite; }
+.tp-skel-tile { height: 78px; border-radius: var(--radius); }
+.tp-skel-card { height: 232px; border-radius: var(--radius); }
+
+@media (prefers-reduced-motion: reduce) {
+  .tp-skel { animation: none; }
+  .tp-tip { transition: none; }
 }
 

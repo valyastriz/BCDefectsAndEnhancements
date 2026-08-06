@@ -115,10 +115,14 @@ const PUBLIC_SUBMISSION_FIELDS = [
   'latest_status_value',
   // The board's four-stop track needs a date under each stop reached. These are
   // derived timestamps, not new information — every one of them is already
-  // implied by the status history the board renders.
+  // implied by the status history the board renders. The last two belong to the
+  // report-request track (Reported → Approved → In progress → Delivered), which
+  // shares its first two stops with the defect one.
   'approved_status_at',
   'submitted_status_at',
   'deployed_status_at',
+  'in_progress_status_at',
+  'delivered_status_at',
   'duplicate_status_at',
   'retired_status_at',
 ];

@@ -2,6 +2,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../lib/api';
 import { ADMIN_META_CATEGORIES } from '../constants/adminConstants';
 
+// The lists this hook carries. `normalizeMetaResponse` uses these keys as an
+// allow-list, so a list missing from here is DROPPED from the response — which is
+// exactly what happened to levelsOfEffort: the Metadata page drew its panel with
+// 0 values and the Delivery pane's "Level of effort" select offered nothing but
+// "Not sized", because the rows never survived the load. One entry per
+// ADMIN_META_CATEGORIES optionsKey; `verify-metadata-page.mjs` now compares the
+// page's own count against the server's list count so a new lookup cannot arrive
+// half-wired again.
 const EMPTY_META_OPTIONS = {
   statuses: [],
   types: [],
@@ -12,6 +20,7 @@ const EMPTY_META_OPTIONS = {
   priorityLevels: [],
   submissionSources: [],
   occurrenceTimeframes: [],
+  levelsOfEffort: [],
 };
 
 function normalizeMetaResponse(meta) {

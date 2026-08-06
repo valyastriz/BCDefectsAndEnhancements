@@ -1,8 +1,10 @@
 import { Button, Modal, Notice } from '../bite-size/BitsizeUI';
 import { ScreenshotDropZone } from '../public/ScreenshotDropZone';
 import { formatCreatedViaLabel } from '../../utils/formatUtils';
-import { ADD_TICKET_STATUS_STOPS } from '../../utils/formDefaults';
+import { addTicketStatusStops } from '../../utils/formDefaults';
 import { TRACKER_LABEL, TRACKER_LABEL_THE } from '../../constants/tracker';
+import { SUBMISSION_TYPE_REPORT, statusesForRequestType } from '../../constants/statusConstants';
+import { USAGE_FREQUENCIES } from '../../constants/reportConstants';
 
 // What each mode actually does, said once, above the form. The two are different
 // acts — one files a ticket, the other records one that already happened — and an
@@ -44,6 +46,15 @@ const TYPE_SEGMENTS = [
   { value: 'defect', label: 'Defect' },
   { value: 'enhancement', label: 'Enhancement' },
   { value: 'cleanup', label: 'Cleanup' },
+  // The fourth segment §2c was built to expect. It is a stored TYPE, not a tag,
+  // so it is the only one of the four that changes what `type` the payload sends.
+  { value: SUBMISSION_TYPE_REPORT, label: 'Report request' },
+];
+
+// A report request's own two shapes, the same choice the submit form opens with.
+const REPORT_SEGMENTS = [
+  { value: 'new', label: 'Something new' },
+  { value: 'change', label: 'A change to one they already use' },
 ];
 
 const TAG_SEGMENTS = [
@@ -114,10 +125,12 @@ export function AddTicketModal({
   addTicketPreviewUrl,
   setAddTicketPreviewUrl,
   addTicketBranch,
+  addTicketReportBranch,
   requiresHandoffFields,
   setAddTicketMode,
   setAddTicketType,
   setAddTicketTag,
+  setAddTicketReportBranch,
   createAddTicket,
   // Meta options
   dynamicStatuses,
@@ -129,14 +142,16 @@ export function AddTicketModal({
 }) {
   const { mode, type } = addTicketForm;
   const isCleanup = type === 'cleanup';
+  const isReport = type === SUBMISSION_TYPE_REPORT;
   const branch = addTicketBranch;
+  const reportBranch = addTicketReportBranch;
   const set = (key) => (event) => setAddTicketForm((prev) => ({ ...prev, [key]: event.target.value }));
   const setStop = (stop) => (event) => setAddTicketForm((prev) => ({
     ...prev,
     status_dates: { ...prev.status_dates, [stop]: event.target.value },
   }));
 
-  const noun = isCleanup ? 'cleanup task' : 'ticket';
+  const noun = isCleanup ? 'cleanup task' : (isReport ? 'report request' : 'ticket');
   const submitLabel = mode === 'new' ? `Add ${noun}` : `Add historical ${noun}`;
   const footNote = isCleanup && branch === 'none'
     ? 'Recorded as internal cleanup work. Never handed off.'
@@ -160,7 +175,13 @@ export function AddTicketModal({
         </div>
       )}
     >
-      <div className="at-body" data-mode={mode} data-type={type} data-branch={branch}>
+      <div
+        className="at-body"
+        data-mode={mode}
+        data-type={type}
+        data-branch={branch}
+        data-report={reportBranch}
+      >
         <div className="at-modes">
           <Segmented
             label="What kind of ticket"
@@ -180,7 +201,7 @@ export function AddTicketModal({
           <div className="at-grouprow">
             <span className="at-f-lbl" style={{ margin: 0 }}>Type</span>
             <Segmented
-              label="Defect, enhancement or cleanup"
+              label="Defect, enhancement, cleanup or report request"
               value={type}
               options={TYPE_SEGMENTS}
               onPick={setAddTicketType}
@@ -265,8 +286,10 @@ export function AddTicketModal({
               className="at-only-hist"
               hint="A new ticket always starts at New."
             >
+              {/* Scoped to the chosen type: a historical report request ended at
+                  one of its own nine words, never at Submitted or Deployed. */}
               <select value={addTicketForm.status} onChange={set('status')}>
-                {dynamicStatuses.map((status) => (
+                {statusesForRequestType(type, dynamicStatuses).map((status) => (
                   <option key={status} value={status}>{status}</option>
                 ))}
               </select>
@@ -409,6 +432,124 @@ export function AddTicketModal({
           </Field>
         </div>
 
+        {/* ── The report-request branch ─────────────────────────────────────
+            Mirrors the submit form's own report card, field for field and in the
+            same order, so an admin typing one up on somebody's behalf is filling
+            in the form the requester would have. Its two sub-branches gate on
+            `data-report`, the way the cleanup tag gates on `data-branch`. */}
+        <div className="at-sec at-only-report">
+          <p className="at-sec-lbl">What they need</p>
+
+          <div className="at-tagrow">
+            <span>Is this</span>
+            <Segmented
+              label="Something new, or a change to a report they already use"
+              value={reportBranch}
+              options={REPORT_SEGMENTS}
+              onPick={setAddTicketReportBranch}
+              disabled={addTicketWorking}
+            />
+          </div>
+
+          {/* Identity first on a change: you cannot usefully describe what should
+              happen to a report before saying which one it is. */}
+          <Field
+            label="Which report is it?"
+            required
+            className="at-report-change"
+            hint="A link to it, or where they open it from — a share drive, a menu item."
+          >
+            <input
+              type="text"
+              placeholder="https://… or where they open it from"
+              value={addTicketForm.existing_report_link}
+              onChange={set('existing_report_link')}
+            />
+          </Field>
+
+          <Field label="Describe what they need" required>
+            <textarea
+              placeholder="What it should show, who will read it, and what decision it helps them make."
+              value={addTicketForm.what_happened_exact_details}
+              onChange={set('what_happened_exact_details')}
+            />
+          </Field>
+
+          <Field label="What data does it need?" optional>
+            <textarea
+              placeholder="Fields, systems, date ranges — anything known about what it has to pull from."
+              value={addTicketForm.needed_data}
+              onChange={set('needed_data')}
+            />
+          </Field>
+
+          <div className="at-report-new">
+            <Field
+              label="Measures, and where they come from"
+              required
+              hint="The numbers it should calculate, and where each one comes from today."
+            >
+              <textarea
+                placeholder={'e.g. Unapplied cash total — from the nightly billing extract'}
+                value={addTicketForm.measures_and_sources}
+                onChange={set('measures_and_sources')}
+              />
+            </Field>
+            <Field label="Who owns the questions about it?" optional hint="Blank means the requester.">
+              <input
+                type="text"
+                placeholder="Name and email"
+                value={addTicketForm.primary_contact}
+                onChange={set('primary_contact')}
+              />
+            </Field>
+          </div>
+
+          <div className="at-report-change">
+            <Field label="What’s not working, missing, or needed to change?" optional>
+              <textarea
+                placeholder="What it gives them today, and where that falls short."
+                value={addTicketForm.request}
+                onChange={set('request')}
+              />
+            </Field>
+            <Field label="What should change?" required>
+              <textarea
+                placeholder="A new column, a different filter, a number that reads wrong."
+                value={addTicketForm.changes_requested}
+                onChange={set('changes_requested')}
+              />
+            </Field>
+          </div>
+
+          <div className="at-row at-row--2">
+            <Field label="How often will it be used?" optional>
+              <select value={addTicketForm.report_usage_frequency} onChange={set('report_usage_frequency')}>
+                <option value="">Not stated</option>
+                {USAGE_FREQUENCIES.map((frequency) => (
+                  <option key={frequency} value={frequency}>{frequency}</option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Which department is it for?" optional>
+              <input
+                type="text"
+                placeholder="e.g. Claims Operations"
+                value={addTicketForm.department}
+                onChange={set('department')}
+              />
+            </Field>
+          </div>
+
+          <Field label="When do they need it by?" optional>
+            <input
+              type="date"
+              value={addTicketForm.desired_completion_date}
+              onChange={set('desired_completion_date')}
+            />
+          </Field>
+        </div>
+
         <div className="at-sec at-only-hist">
           <p className="at-sec-lbl">
             Where it already went <span className="at-sec-tag">historical only</span>
@@ -460,7 +601,7 @@ export function AddTicketModal({
               Only fill in the stops it actually reached. Anything left blank is simply not recorded.
             </p>
             <div className="at-row at-row--2">
-              {ADD_TICKET_STATUS_STOPS.map((stop) => (
+              {addTicketStatusStops(type).map((stop) => (
                 <Field key={stop} label={stop} optional>
                   <input
                     type="datetime-local"
@@ -517,7 +658,11 @@ export function AddTicketModal({
           />
         </div>
 
-        <details className="at-fold">
+        {/* Dollar impact and policies affected are defect/enhancement figures.
+            A report request is sized by level of effort and hours, which the
+            analyst records on its Delivery pane — so the fold is absent rather
+            than offering fields nobody would fill in. */}
+        <details className="at-fold at-not-report">
           <summary>
             Impact <span>figures the triage team would otherwise add later</span>
           </summary>

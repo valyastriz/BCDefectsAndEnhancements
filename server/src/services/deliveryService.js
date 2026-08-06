@@ -290,7 +290,9 @@ async function getThroughput({ applicationIds, from, to, onlyUserId = null, repo
   const scope = (Array.isArray(applicationIds) ? applicationIds : []).map(Number).filter(Boolean);
   // Fail closed. No readable application means no rows, never all of them.
   if (scope.length === 0 || !reportTypeId) {
-    return { delivered: 0, total_hours: 0, analysts: [], by_month: [], median_days: null };
+    return {
+      delivered: 0, total_hours: 0, analysts: [], by_month: [], hours_by_month: [], median_days: null,
+    };
   }
 
   const fromDay = dayOf(from);
@@ -399,6 +401,18 @@ async function getThroughput({ applicationIds, from, to, onlyUserId = null, repo
     byMonth.set(month, (byMonth.get(month) || 0) + 1);
   }
 
+  // Hours by the month WORKED — the personal view's own chart, where one
+  // person's hours over time is a shape and their single total is not. The
+  // `hours` rows are already narrowed to the caller by the query when they are
+  // not a manager, so this needs no filter of its own. Accumulated in whole
+  // pence to keep 0.25 + 0.5 + 0.25 exactly 1.
+  const hoursByMonth = new Map();
+  for (const row of hours) {
+    const month = dayOf(row.worked_on).slice(0, 7);
+    if (!month) continue;
+    hoursByMonth.set(month, (hoursByMonth.get(month) || 0) + Math.round(toHours(row.hours) * 100));
+  }
+
   // Median rather than mean: one request that sat for a year moves a mean and
   // tells you nothing about the rest.
   const spans = delivered
@@ -430,6 +444,9 @@ async function getThroughput({ applicationIds, from, to, onlyUserId = null, repo
     analysts: [...analysts.values()].sort((left, right) => right.hours - left.hours),
     by_month: [...byMonth.entries()]
       .map(([month, count]) => ({ month, count }))
+      .sort((left, right) => (left.month < right.month ? -1 : 1)),
+    hours_by_month: [...hoursByMonth.entries()]
+      .map(([month, pence]) => ({ month, hours: pence / 100 }))
       .sort((left, right) => (left.month < right.month ? -1 : 1)),
     median_days: medianDays,
   };

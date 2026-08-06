@@ -6,13 +6,8 @@ import { Button, Modal } from '../components/bite-size/BitsizeUI';
 import { DuplicateCheck } from '../components/public/DuplicateCheck';
 import { ScreenshotDropZone } from '../components/public/ScreenshotDropZone';
 import { SubmitReadinessRail } from '../components/public/SubmitReadinessRail';
-
-// How often a requested report will be used. Mirrors REPORT_USAGE_FREQUENCIES in
-// server/src/constants.js, which refuses anything else — keep the two in step.
-// A fixed cadence scale rather than a managed lookup: it is not a
-// database-managed entity the way an application is, and free text would give an
-// analyst "Daily", "daily" and "every day" as three different answers.
-const USAGE_FREQUENCIES = ['Daily', 'Weekly', 'Monthly', 'Quarterly', 'Annually', 'One-off'];
+// Shared with the admin Add-a-ticket dialog, which offers the same six words.
+import { USAGE_FREQUENCIES } from '../constants/reportConstants';
 
 const initialForm = {
   created_by: '',

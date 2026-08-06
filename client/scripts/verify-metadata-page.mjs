@@ -90,11 +90,29 @@ async function run() {
   await page.waitForSelector('.md-table tbody tr');
 
   // ── The rail ─────────────────────────────────────────────────────────────
+  // Counted against the SERVER's list count rather than a number typed in here.
+  // The hard-coded 9 went stale the moment Levels of Effort was added, and while
+  // it was stale it masked the real fault underneath: the page listed that panel
+  // and showed 0 values in it, because the client's normalizer dropped the list.
   const railLabels = await page.$$eval('.md-railitem-name', (n) => n.map((e) => e.textContent.trim()));
   record(
-    'the rail lists every category, including Occurrence Timeframes',
-    railLabels.length === 9 && railLabels.includes('Occurrence Timeframes'),
-    `${railLabels.length}: ${railLabels.join(' · ')}`,
+    'the rail lists one panel per list the server manages',
+    railLabels.length === listKeys.length
+      && railLabels.includes('Occurrence Timeframes')
+      && railLabels.includes('Levels of Effort'),
+    `${railLabels.length} panels / ${listKeys.length} server lists: ${railLabels.join(' · ')}`,
+  );
+
+  // Every panel has to arrive with its values, not just its name.
+  const railCounts = await page.$$eval('.md-railitem', (nodes) => nodes.map((node) => ({
+    name: node.querySelector('.md-railitem-name')?.textContent?.trim(),
+    text: node.textContent.replace(/\s+/g, ' ').trim(),
+  })));
+  const emptyPanels = railCounts.filter((panel) => /\b0 values\b/.test(panel.text)).map((panel) => panel.name);
+  record(
+    'no panel is listed with nothing in it',
+    emptyPanels.length === 0,
+    emptyPanels.length ? `empty: ${emptyPanels.join(', ')}` : railCounts.map((panel) => panel.text).join(' | '),
   );
 
   const tiles = await page.$$eval('.md-tile', (nodes) => nodes.map((n) => ({
@@ -107,7 +125,7 @@ async function run() {
   );
   record(
     'the summary tiles agree with the server',
-    tiles[0]?.num === '9'
+    Number(tiles[0]?.num) === listKeys.length
       && Number(tiles[1]?.num) === serverValueTotal
       && Number(tiles[2]?.num) === serverUnused,
     tiles.map((t) => `${t.num} ${t.label}`).join(' | ') + ` (server: ${serverValueTotal} values, ${serverUnused} unused)`,

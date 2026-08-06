@@ -2,6 +2,7 @@ import { Badge } from '../bite-size/BitsizeUI';
 import { formatCurrency, formatNumber, formatDateOnly } from '../../utils/formatUtils';
 import { inlineDisplayType } from '../../utils/mappers';
 import { TRACKER_LABEL } from '../../constants/tracker';
+import { statusesForRequestType } from '../../constants/statusConstants';
 
 /**
  * Map a defect/enhancement status onto its visual variant. The three parked
@@ -143,7 +144,12 @@ export const COLUMN_DEFS = {
               ctx.updateStatusQuick(row.id, e.target.value, row);
             }}
           >
-            {ctx.runtimeStatusOptions.map((s) => <option key={s} value={s}>{s}</option>)}
+            {/* Scoped to the row's own type: a report request offers its nine
+                words and a defect never offers 'Delivered'. The server refuses
+                an out-of-type status either way — this is what stops an admin
+                being offered one. */}
+            {statusesForRequestType(row.type, ctx.runtimeStatusOptions)
+              .map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
         </td>
       );

@@ -29,11 +29,28 @@ export const ALL_APPLICATIONS = '__all__';
 // Everything not named here is a closed outcome — the trailing tile and the
 // Stage filter's last option both mean "anything else", so the numbers always
 // sum to the total rather than quietly losing tickets.
+//
+// The last two stops cover TWO WORDS EACH, because a report request travels the
+// same four positions under its own vocabulary: it is built in the portal rather
+// than handed to the Service Desk, so it goes In progress and then Delivered
+// where a defect goes to the Service Desk and then Deployed. Both words are on
+// the tile because the tile counts both types — the per-ticket track in
+// StatusBoardRow names only the one that ticket actually travels.
 export const PUBLIC_STAGES = [
   { key: 'reported', label: 'Reported', statuses: ['New'], modifier: 'pb-tile--reported' },
   { key: 'approved', label: 'Approved', statuses: ['Approved'], modifier: 'pb-tile--approved' },
-  { key: 'submitted', label: `With ${TRACKER_LABEL}`, statuses: ['Submitted'], modifier: 'pb-tile--submitted' },
-  { key: 'deployed', label: 'Deployed', statuses: ['Deployed'], modifier: 'pb-tile--deployed' },
+  {
+    key: 'submitted',
+    label: `With ${TRACKER_LABEL} / In progress`,
+    statuses: ['Submitted', 'In progress'],
+    modifier: 'pb-tile--submitted',
+  },
+  {
+    key: 'deployed',
+    label: 'Deployed / Delivered',
+    statuses: ['Deployed', 'Delivered'],
+    modifier: 'pb-tile--deployed',
+  },
 ];
 
 export const STAGED_STATUSES = new Set(PUBLIC_STAGES.flatMap((stage) => stage.statuses));
