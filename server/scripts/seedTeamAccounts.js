@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * The six working accounts, with their per-application, per-type grants.
+ * The eight working accounts, with their per-application, per-type grants.
  *
  *   npm run seed:team-accounts            # dry run — says what it would do
  *   npm run seed:team-accounts -- --apply # write
@@ -29,12 +29,23 @@
  * deliberately (`role: 'manager'` on that application's row) if a product owner
  * should see their team's figures rather than only their own.
  *
- * ACCOUNT-LEVEL ROLE. Every one of these gets `users.role = 'admin'`, because
- * `/api/auth/login` refuses anything else (authRoutes.js) — that column is the
- * door, and the grants below are the rooms. `is_super_user` stays 0: only `admin`
- * is a super user.
+ * ACCOUNT-LEVEL ROLE. `users.role` is the door; the grants below are the rooms.
+ * Two values may sign in (see accountMaySignIn in src/constants.js):
  *
- * PASSWORDS. All six are seeded with SEED_ADMIN_PASSWORD (or ADMIN_PASSWORD),
+ *   'admin' — the six triage accounts. What they administer is their grants.
+ *   'rep'   — the two REP accounts at the end, who hold NO grants at all. A rep
+ *             files requests and follows the ones they filed; ensureAdmin refuses
+ *             them like a stranger, and the header shows them no Admin link.
+ *             They exist because a report request is only visible to the person
+ *             who filed it, and that needs somebody to be.
+ *
+ * `is_super_user` stays 0 on all eight: only `admin` is a super user.
+ *
+ * A REP IS NOT SCOPED TO ONE APPLICATION. Their "home" application prefills the
+ * submit form and nothing more — they may file against any of them, which is why
+ * it is a directory-group default (application_ad_groups) rather than a grant.
+ *
+ * PASSWORDS. All eight are seeded with SEED_ADMIN_PASSWORD (or ADMIN_PASSWORD),
  * exactly as `npm run seed:admin` does for the original accounts — one shared test
  * password on a prototype whose data is test data. **Change them before anybody
  * real signs in.** An existing account's password is never touched by a re-run.
@@ -101,6 +112,25 @@ const ACCOUNTS = [
       { application: BILLING, role: 'admin', requestType: 'report' },
     ],
   },
+  // ── Requesters ─────────────────────────────────────────────────────────────
+  // No grants, on purpose: a grant is a right to work OTHER people's tickets, and
+  // a rep has none. Everything they can do follows from being signed in.
+  {
+    username: 'pc_rep',
+    displayName: 'Pat Rep (Policy Center)',
+    email: 'pc.rep@example.invalid',
+    accountRole: 'rep',
+    what: 'Requester who mostly files for Policy Center — may file for any application',
+    grants: [],
+  },
+  {
+    username: 'bc_rep',
+    displayName: 'Bailey Rep (Billing Center)',
+    email: 'bc.rep@example.invalid',
+    accountRole: 'rep',
+    what: 'Requester who mostly files for Billing Center — may file for any application',
+    grants: [],
+  },
 ];
 
 async function main() {
@@ -147,15 +177,19 @@ async function main() {
         username: account.username,
         password_hash: passwordHash,
         // The door. Per-application rights are the grants below.
-        role: 'admin',
+        role: account.accountRole || 'admin',
         display_name: account.displayName,
         email: account.email,
         is_super_user: 0,
       })).toJSON();
       createdUsers += 1;
-      console.log(`  account: created (#${user.id}), password = the seeded one`);
+      console.log(`  account: created (#${user.id}) as ${account.accountRole || 'admin'}, password = the seeded one`);
     } else {
       console.log('  account: would create');
+    }
+
+    if (account.grants.length === 0) {
+      console.log('  grants: none, deliberately — a requester works nobody\'s tickets');
     }
 
     for (const grant of account.grants) {

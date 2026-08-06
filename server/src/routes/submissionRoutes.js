@@ -21,7 +21,7 @@ const { getSubmissionByIdWithLookups, logStatusChange } = require('../services/s
 const { resolveReporter } = require('../services/reporterService');
 const { SUBMIT_REQUIRES_AUTH } = require('../config');
 const { scheduleEmbeddingRefresh } = require('../services/embeddingIndexService');
-const { emitAdminNotification, emitPublicUpdate } = require('../socket');
+const { emitAdminNotification, emitPublicUpdate, publicAudienceFor } = require('../socket');
 const { imageUpload } = require('../middleware/upload');
 
 const router = express.Router();
@@ -69,8 +69,18 @@ router.post('/api/submissions', imageUpload.array('attachments', 3), async (req,
   // services/reporterService.js. A signed-in reporter's own name is used and the
   // submitted one discarded, so nobody can file under someone else's name.
   await dbApi.init();
+  // A REPORT REQUEST ALWAYS NEEDS A SIGNED-IN REQUESTER, whatever
+  // SUBMIT_REQUIRES_AUTH says for the other types. It is only ever visible to the
+  // person who filed it (publicRoutes), and an anonymous one would belong to
+  // nobody: unfindable by its own requester and hidden from everybody else, which
+  // is a request that may as well not have been filed. Enforced here, at the only
+  // door, rather than in the form that asks.
+  const isReportRequest = normalizedType === SUBMISSION_TYPE_REPORT;
   const reporter = await resolveReporter(dbApi.getModels() || {}, req, req.body, {
-    requireAuthenticated: SUBMIT_REQUIRES_AUTH,
+    requireAuthenticated: SUBMIT_REQUIRES_AUTH || isReportRequest,
+    authRequiredMessage: isReportRequest
+      ? 'Sign in to request a report — a report request is only visible to the person who filed it.'
+      : 'Sign in to submit a report',
   });
   if (reporter.error) {
     return res.status(reporter.status || 400).json({
@@ -78,6 +88,9 @@ router.post('/api/submissions', imageUpload.array('attachments', 3), async (req,
       // Lets the form tell a lapsed session apart from a missing field: the two
       // need different words and different next steps.
       ...(reporter.sessionExpired ? { sessionExpired: true } : {}),
+      // And both of those apart from "this type needs an account", which is not a
+      // failure to recover from — it is a different way in.
+      ...(reporter.authRequired ? { authRequired: true } : {}),
     });
   }
 
@@ -315,7 +328,7 @@ router.post('/api/submissions', imageUpload.array('attachments', 3), async (req,
     if (created.is_public) {
       // Rep submissions are public by default, so the public status board should
       // live-update. Only allow-listed fields go to the unauthenticated watchers.
-      emitPublicUpdate(mapPublicSubmission(created));
+      emitPublicUpdate(mapPublicSubmission(created), publicAudienceFor(created));
     }
     scheduleEmbeddingRefresh(submissionId);
 

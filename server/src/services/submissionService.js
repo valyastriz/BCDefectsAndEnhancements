@@ -37,7 +37,7 @@ const {
 } = require('../helpers/utils');
 const { SUBMISSION_INSERT_COLUMNS, buildInsertPayload } = require('../helpers/submissionInsert');
 const { mapSubmission, mapPublicSubmission } = require('../helpers/mappers');
-const { emitAdminNotification, emitPublicUpdate } = require('../socket');
+const { emitAdminNotification, emitPublicUpdate, publicAudienceFor } = require('../socket');
 const { canReadSubmissionRow, canMutateApplication } = require('./viewerService');
 const { recordAssignment, isAssignableTo } = require('./deliveryService');
 const { scheduleEmbeddingRefresh } = require('./embeddingIndexService');
@@ -865,7 +865,7 @@ async function createAdminSubmission(db, { body, username, viewer }) {
   if (created.is_public) {
     // Public by default now includes admin-created tickets — let the public
     // status board live-update. Send only allow-listed fields (unauth watchers).
-    emitPublicUpdate(mapPublicSubmission(created));
+    emitPublicUpdate(mapPublicSubmission(created), publicAudienceFor(created));
   }
   scheduleEmbeddingRefresh(subId);
   return { status: 201, body: mapSubmission(created) };
@@ -1421,7 +1421,7 @@ async function updateAdminSubmission(db, { id, body, username, viewer }) {
   if (saved.is_public) {
     // Public watchers include unauthenticated sockets — send only the
     // allow-listed fields, same as the public REST endpoints.
-    emitPublicUpdate(mapPublicSubmission(saved));
+    emitPublicUpdate(mapPublicSubmission(saved), publicAudienceFor(saved));
   }
 
   scheduleEmbeddingRefresh(Number(id));

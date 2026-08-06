@@ -151,11 +151,12 @@ export const api = {
       body: JSON.stringify({ isSuperUser: Boolean(isSuperUser) }),
     }),
   // One change across many people and many applications. action: 'grant' | 'revoke'.
-  bulkSetAccess: ({ userIds, applicationIds, role, action }) =>
+  // `requestType` narrows the grant to one submission type; '' is every type.
+  bulkSetAccess: ({ userIds, applicationIds, role, action, requestType = '' }) =>
     request('/api/admin/access/bulk', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userIds, applicationIds, role, action }),
+      body: JSON.stringify({ userIds, applicationIds, role, action, requestType }),
     }),
   // Which EasyVista catalog an application's tickets are raised in. Blank values
   // clear it, which refuses a real send for that application rather than letting

@@ -506,18 +506,19 @@ async function run() {
     }
 
     const application = applications[0];
-    const made = await page.request.post(`${API}/api/admin/submissions`, {
-      headers: { 'X-CSRF-Token': csrf, 'Content-Type': 'application/json' },
+    // Filed through the PUBLIC endpoint, signed in, so it HAS a reporter. The
+    // admin create path leaves `reporter_user_id` null, and a report request
+    // without one is searchable by nobody — the fixture would be invisible to
+    // the very search it exists to be found by.
+    const made = await page.request.post(`${API}/api/submissions`, {
+      headers: { 'Content-Type': 'application/json' },
       data: {
         type: 'report',
-        status: 'New',
         application_name: application.name,
-        created_by: 'Verification harness',
         summary_of_issue: `${marker} — safe to delete`,
         what_happened_exact_details: 'Created by scripts/verify-submit-form.mjs. Removed by the same run.',
         measures_and_sources: 'One measure, from one place.',
         is_new_dashboard: true,
-        is_public: true,
       },
     }).then((response) => response.json());
     fixtureId = Number(made?.submission?.id || made?.id);
@@ -551,6 +552,37 @@ async function run() {
       asReport.meta?.searchedOnlyType === 'report' && asDefect.meta?.excludedType === 'report',
       `report: ${JSON.stringify(asReport.meta?.searchedOnlyType)} · defect excluded: ${JSON.stringify(asDefect.meta?.excludedType)}`,
     );
+
+    // SEARCH IS THE THIRD WAY OUT. The board list and the by-id route both
+    // refuse another person's report request; a semantic search over the same
+    // rows would hand one back — and worse, hand back a SUMMARY of it, which is
+    // a paraphrase of something the reader was never entitled to.
+    const strangerContext = await browser.newContext();
+    try {
+      const strangerSearch = await strangerContext.request.post(`${API}/api/ai-search`, {
+        headers: { 'Content-Type': 'application/json' },
+        data: { query: marker, requestType: 'report' },
+      }).then((response) => response.json());
+      const strangerCards = [
+        ...(strangerSearch.matches || []),
+        ...(strangerSearch.keywordMatches || []),
+      ];
+      record(
+        'a signed-out search cannot find somebody else\'s report request',
+        !strangerCards.some((card) => Number(card.id) === fixtureId)
+          && strangerCards.every((card) => String(card.type || '').toLowerCase() !== 'report'),
+        `${strangerCards.length} cards, types: ${[...new Set(strangerCards.map((card) => card.type))].join(', ') || 'none'}`,
+      );
+      record(
+        'and the AI summary it gets back does not describe one either',
+        !new RegExp(`#${fixtureId}\\b`).test(String(strangerSearch.summary?.answer_summary || '')),
+        strangerSearch.summary?.answer_summary
+          ? `summary present, ${String(strangerSearch.summary.answer_summary).length} chars, no reference to #${fixtureId}`
+          : 'no summary',
+      );
+    } finally {
+      await strangerContext.close();
+    }
   } finally {
     if (fixtureIds.length > 0) {
       const output = execFileSync(
@@ -689,6 +721,54 @@ async function run() {
     );
   }
   await shoot(anonymousPage, 'submit-anonymous-desktop-light');
+
+  // ── The one type a stranger cannot file ──────────────────────────────────
+  // A report request is only ever visible to the person who filed it, so an
+  // anonymous one would belong to nobody. The form has to say so at the moment
+  // the type is chosen — not on the last click — and the other two types must
+  // stay open, or requiring an account for one type has quietly closed the
+  // portal to everybody.
+  await anonymousPage.setViewportSize({ width: VIEWPORTS[0].width, height: VIEWPORTS[0].height });
+  await anonymousPage.getByRole('button', { name: 'Report request' }).click();
+  await anonymousPage.waitForTimeout(160);
+  const locked = await anonymousPage.evaluate(() => {
+    const alerts = [...document.querySelectorAll('.rs-alert')].map((node) => node.textContent || '');
+    // EVERY submit button, not the first one. There are two — the readiness
+    // rail's (what a desktop user clicks) and the narrow-screen sticky bar's —
+    // and an early version of this check read only `querySelector`, passed on
+    // the sticky one, and missed that the rail's was still live.
+    const submits = [...document.querySelectorAll('.rs-submit')];
+    return {
+      says: alerts.find((text) => /sign in/i.test(text)) || null,
+      hasSignInLink: Boolean(document.querySelector('.rs-alert a[href="/admin/login"]')),
+      submitCount: submits.length,
+      submitDisabled: submits.length > 0 && submits.every((button) => button.disabled),
+      bar: document.querySelector('.rs-stickybar-left')?.textContent?.trim() || null,
+    };
+  });
+  record(
+    'signed out, choosing Report request explains that it needs an account',
+    Boolean(locked.says) && locked.hasSignInLink,
+    locked.says ? `"${locked.says.replace(/\s+/g, ' ').trim().slice(0, 90)}…"` : 'no notice shown',
+  );
+  record(
+    'and EVERY submit button is disabled rather than failing on the last click',
+    locked.submitDisabled && locked.submitCount >= 2,
+    `${locked.submitCount} submit buttons, all disabled=${locked.submitDisabled}, bar="${locked.bar}"`,
+  );
+  await shoot(anonymousPage, 'submit-anonymous-report-locked');
+
+  await anonymousPage.getByRole('button', { name: 'Defect' }).click();
+  await anonymousPage.waitForTimeout(160);
+  const unlocked = await anonymousPage.evaluate(() => ({
+    stillWarns: [...document.querySelectorAll('.rs-alert')].some((node) => /sign in/i.test(node.textContent || '')),
+    submitDisabled: Boolean(document.querySelector('.rs-submit')?.disabled),
+  }));
+  record(
+    'switching back to Defect clears it — the other types are still open to anyone',
+    !unlocked.stillWarns && !unlocked.submitDisabled,
+    `warns=${unlocked.stillWarns} disabled=${unlocked.submitDisabled}`,
+  );
 
   const realErrors = consoleErrors.filter((t) => !/401|Unauthorized/i.test(t));
   record('console is clean', realErrors.length === 0, realErrors.slice(0, 3).join(' | '));

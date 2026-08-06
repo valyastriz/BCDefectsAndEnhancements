@@ -1,19 +1,29 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button, Card, Notice } from '../components/bite-size/BitsizeUI';
-import { useAccessManagement, roleFor } from '../hooks/useAccessManagement';
+import { useAccessManagement, roleFor, scopeFor, GRANT_SCOPES } from '../hooks/useAccessManagement';
 import { TRACKER_LABEL } from '../constants/tracker';
 
 // The catalog, in the order the dropdown offers it. Weakest first, matching
 // server/src/constants.js — "no access" is an option here rather than the
 // absence of one, so every cell answers the same question the same way.
+//
+// `manager` is a rank above admin, per application, and it gates exactly one
+// thing: seeing OTHER people's throughput numbers. The server has always
+// accepted it; this page used to omit it, so the only way to hand it out was a
+// direct database write.
 const ROLE_OPTIONS = [
   { value: '', label: 'No access' },
   { value: 'viewer', label: 'View' },
   { value: 'admin', label: 'Admin' },
+  { value: 'manager', label: 'Manager' },
 ];
 
-const ROLE_LABEL = { viewer: 'View', admin: 'Admin' };
+const ROLE_LABEL = { viewer: 'View', admin: 'Admin', manager: 'Manager' };
+
+const SCOPE_LABEL = new Map(GRANT_SCOPES.map((scope) => [scope.value, scope.label]));
+/** Short enough for a badge beside the application name. */
+const SCOPE_BADGE = { work: 'defects & enhancements', report: 'reports only', mixed: 'mixed' };
 
 function RoleSelect({ value, label, disabled, onChange }) {
   // The tint carries the state at a glance: a wall of untinted dropdowns all
@@ -29,6 +39,37 @@ function RoleSelect({ value, label, disabled, onChange }) {
     >
       {ROLE_OPTIONS.map((option) => (
         <option key={option.value || 'none'} value={option.value}>{option.label}</option>
+      ))}
+    </select>
+  );
+}
+
+/**
+ * Which request types a grant covers. Only shown once a role is chosen — there is
+ * nothing to scope about no access.
+ *
+ * An analyst IS this control: an admin grant narrowed to report requests. There
+ * is no fourth role, and before this existed the only way to make one was the
+ * seed script.
+ */
+function ScopeSelect({ value, label, disabled, onChange }) {
+  const isMixed = value === 'mixed';
+  return (
+    <select
+      className={`access-scope${isMixed ? ' access-scope--mixed' : ''}`}
+      value={isMixed ? 'mixed' : value}
+      aria-label={label}
+      disabled={disabled}
+      title={isMixed
+        ? 'This person holds different roles for different request types. Choosing a scope here replaces all of them.'
+        : undefined}
+      onChange={(event) => onChange(event.target.value)}
+    >
+      {/* Present only while it is the truth, and never selectable as a target:
+          "mixed" describes what is stored, it is not a thing you can save. */}
+      {isMixed && <option value="mixed" disabled>Mixed — pick one to replace</option>}
+      {GRANT_SCOPES.map((scope) => (
+        <option key={scope.value} value={scope.value}>{scope.label}</option>
       ))}
     </select>
   );
@@ -61,17 +102,31 @@ function SeesCell({ user, applications, unassignedTicketCount }) {
     return <span className="bs-badge badge-duplicate">Nothing</span>;
   }
 
+  // One badge per application, not per grant row: an application admin holds two
+  // rows (defect and enhancement) and rendering them as two badges reads as two
+  // separate rights. The scope is stated on the badge instead, and only when it
+  // is narrower than everything — an unqualified badge means every type.
+  const byApplication = new Map();
+  for (const grant of grants) {
+    if (!byApplication.has(grant.applicationId)) byApplication.set(grant.applicationId, []);
+    byApplication.get(grant.applicationId).push(grant);
+  }
+
   return (
     <span className="access-sees">
-      {grants.map((grant) => {
-        const app = applications.find((candidate) => candidate.id === grant.applicationId);
+      {[...byApplication.keys()].map((applicationId) => {
+        const app = applications.find((candidate) => candidate.id === applicationId);
         if (!app) return null;
+        const role = roleFor(user, applicationId);
+        const scope = scopeFor(user, applicationId);
+        const badge = SCOPE_BADGE[scope];
         return (
           <span
-            key={grant.applicationId}
-            className={`bs-badge ${grant.role === 'viewer' ? 'badge-redirected' : 'badge-approved'}`}
+            key={applicationId}
+            className={`bs-badge ${role === 'viewer' ? 'badge-redirected' : 'badge-approved'}`}
           >
-            {app.name} · {ROLE_LABEL[grant.role] || grant.role}
+            {app.name} · {ROLE_LABEL[role] || role}
+            {badge ? <span className="access-sees-scope"> · {badge}</span> : null}
           </span>
         );
       })}
@@ -81,6 +136,7 @@ function SeesCell({ user, applications, unassignedTicketCount }) {
 
 function BulkBar({ count, applications, onApply, onClear }) {
   const [role, setRole] = useState('admin');
+  const [scope, setScope] = useState('all');
   // '' means every application — the common case when onboarding someone.
   const [applicationId, setApplicationId] = useState('');
 
@@ -103,6 +159,19 @@ function BulkBar({ count, applications, onApply, onClear }) {
       >
         <option value="viewer">View</option>
         <option value="admin">Admin</option>
+        <option value="manager">Manager</option>
+      </select>
+
+      <label htmlFor="bulk-scope">for</label>
+      <select
+        id="bulk-scope"
+        className="bs-inline-select"
+        value={scope}
+        onChange={(event) => setScope(event.target.value)}
+      >
+        {GRANT_SCOPES.map((option) => (
+          <option key={option.value} value={option.value}>{option.label}</option>
+        ))}
       </select>
 
       <label htmlFor="bulk-app">on</label>
@@ -120,7 +189,7 @@ function BulkBar({ count, applications, onApply, onClear }) {
 
       <Button
         kind="primary"
-        onClick={() => onApply({ applicationIds: targetIds, role, action: 'grant' })}
+        onClick={() => onApply({ applicationIds: targetIds, role, action: 'grant', scope })}
       >
         Apply
       </Button>
@@ -130,7 +199,7 @@ function BulkBar({ count, applications, onApply, onClear }) {
       <Button
         kind="ghost"
         className="access-btn-danger"
-        onClick={() => onApply({ applicationIds: targetIds, action: 'revoke' })}
+        onClick={() => onApply({ applicationIds: targetIds, action: 'revoke', scope })}
       >
         Remove access
       </Button>
@@ -537,16 +606,31 @@ export function AdminAccessPage({ user }) {
                             Admin of every application, including tickets with none set
                           </span>
                         </td>
-                      ) : applications.map((app) => (
-                        <td key={app.id} className="access-col-app" data-label={app.name}>
-                          <RoleSelect
-                            value={roleFor(person, app.id)}
-                            label={`${person.username} — ${app.name}`}
-                            disabled={busy}
-                            onChange={(role) => access.changeRole(person.id, app.id, role)}
-                          />
-                        </td>
-                      ))}
+                      ) : applications.map((app) => {
+                        const role = roleFor(person, app.id);
+                        const scope = scopeFor(person, app.id) || 'all';
+                        return (
+                          <td key={app.id} className="access-col-app" data-label={app.name}>
+                            <div className="access-grant">
+                              <RoleSelect
+                                value={role}
+                                label={`${person.username} — ${app.name}`}
+                                disabled={busy}
+                                onChange={(next) => access.changeGrant(person.id, app.id, next, scope)}
+                              />
+                              {/* Nothing to scope when there is no access. */}
+                              {role && (
+                                <ScopeSelect
+                                  value={scope}
+                                  label={`${person.username} — ${app.name} — request types`}
+                                  disabled={busy}
+                                  onChange={(next) => access.changeGrant(person.id, app.id, role, next)}
+                                />
+                              )}
+                            </div>
+                          </td>
+                        );
+                      })}
 
                       <td className="access-col-sees" data-label="Sees">
                         <SeesCell
@@ -567,6 +651,10 @@ export function AdminAccessPage({ user }) {
         <div className="access-cardfoot">
           <strong>View</strong> reads the queue and exports. <strong>Admin</strong> adds editing,
           status, attachments, redirect, {TRACKER_LABEL} hand-off and public visibility.
+          {' '}<strong>Manager</strong> adds seeing other people&apos;s throughput numbers.
+          {' '}The second dropdown is which request types the grant covers — an
+          {' '}<strong>analyst</strong> is simply Admin narrowed to <em>Report requests only</em>,
+          {' '}which is why there is no analyst role to pick.
           {unassignedTicketCount > 0 && (
             <> {unassignedTicketCount} ticket{unassignedTicketCount === 1 ? ' has' : 's have'} no
               application set and {unassignedTicketCount === 1 ? 'is' : 'are'} visible to super users only.</>

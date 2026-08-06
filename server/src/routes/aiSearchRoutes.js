@@ -75,7 +75,14 @@ router.post('/api/ai-search', async (req, res) => {
     return res.status(429).json({ error: 'Too many searches. Please wait a moment and try again.' });
   }
   return withDb(async (db) => {
-    const result = await runAiSearch(db, { ...readSearchParams(req.body), scope: SCOPE_PUBLIC });
+    const result = await runAiSearch(db, {
+      ...readSearchParams(req.body),
+      scope: SCOPE_PUBLIC,
+      // Taken from the session, never from the body: it decides whether this
+      // caller's own report requests are searchable, and a client-supplied id
+      // would be a way to search somebody else's.
+      viewerUserId: Number(req.session?.user?.id) || null,
+    });
     if (!result.enabled) return res.status(503).json(result);
     return res.json(result);
   });

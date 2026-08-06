@@ -18,7 +18,7 @@ const { SUBMISSION_TYPE_REPORT } = require('../constants');
 const { withDb } = require('../helpers/db');
 const { isBlank } = require('../helpers/utils');
 const { mapSubmission, mapPublicSubmission, toExportCellValue } = require('../helpers/mappers');
-const { emitAdminNotification, emitPublicUpdate } = require('../socket');
+const { emitAdminNotification, emitPublicUpdate, publicAudienceFor } = require('../socket');
 const { scheduleEmbeddingRefresh } = require('../services/embeddingIndexService');
 const { ADMIN_EXPORT_FIELDS, ADMIN_EXPORT_FIELDS_BY_KEY, EXPORT_FIELD_GROUPS } = require('../helpers/export');
 const { buildStatusTimeline } = require('../helpers/timeline');
@@ -244,7 +244,7 @@ router.post('/api/admin/submissions/:id/redirect', ensureAdmin, attachViewer, as
     if (moved?.is_public) {
       // The reporter follows their own ticket across the hand-off. The note is
       // not part of this payload and must never become part of it.
-      emitPublicUpdate(mapPublicSubmission(moved));
+      emitPublicUpdate(mapPublicSubmission(moved), publicAudienceFor(moved));
     }
     scheduleEmbeddingRefresh(Number(req.params.id));
 

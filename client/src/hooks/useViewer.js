@@ -46,6 +46,11 @@ const ANONYMOUS = {
   // unsigned submission on its own, and guessing "locked" here would take the
   // form offline over a transient fetch error.
   submitRequiresAuth: false,
+  // Report requests always need a signed-in requester, because only that person
+  // can ever see the result. Defaults TRUE — the opposite of submitRequiresAuth
+  // above, and for the opposite reason: guessing "open" here would show a form
+  // whose last click is guaranteed to 401.
+  reportRequiresAuth: true,
   impersonating: false,
   user: null,
   isSuperUser: false,

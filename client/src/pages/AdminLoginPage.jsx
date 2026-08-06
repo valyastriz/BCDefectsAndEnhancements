@@ -11,8 +11,14 @@ export function AdminLoginPage({ user, onLogin }) {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  if (user?.role === 'admin') {
-    return <Navigate to="/admin" replace />;
+  // Where signing in takes you, and where an already-signed-in visitor to this
+  // page is sent. A rep has no admin side — sending them to /admin would bounce
+  // off RequireAdmin and land them back here, being asked to sign in as the
+  // account they are already signed in as.
+  const landingFor = (account) => (account?.role === 'admin' ? '/admin' : '/');
+
+  if (user) {
+    return <Navigate to={landingFor(user)} replace />;
   }
 
   async function submit(event) {
@@ -21,11 +27,11 @@ export function AdminLoginPage({ user, onLogin }) {
     try {
       setLoading(true);
       const data = await api.login(username, password);
-      // Reconnect the socket so the server re-authenticates it as an admin
-      // (rooms and presence handlers are assigned at connect time).
+      // Reconnect the socket so the server re-authenticates it (rooms and
+      // presence handlers are assigned at connect time, and a rep joins neither).
       resetSocket();
       onLogin(data.user);
-      navigate('/admin');
+      navigate(landingFor(data.user));
     } catch (loginError) {
       setError(loginError.message);
     } finally {
@@ -36,8 +42,8 @@ export function AdminLoginPage({ user, onLogin }) {
   return (
     <div className="login-wrap">
       <Card
-        title="Admin Sign In"
-        subtitle="Access is restricted to authorized administrators."
+        title="Sign In"
+        subtitle="Sign in to file a report request and to follow the ones you filed. The triage team signs in here too."
       >
         <form className="bs-form" onSubmit={submit}>
           <Input

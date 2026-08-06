@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { AppShell } from './components/bite-size/Layout';
 import { api } from './lib/api';
@@ -65,12 +65,24 @@ function App() {
     };
   }, []);
 
+  // The header's sign-out, which is the only one a rep has: they never reach the
+  // admin pages where the account menu lives. Clears the session locally even if
+  // the request fails, so a failed logout cannot leave the UI claiming they are
+  // still signed in.
+  const signOut = useCallback(async () => {
+    try {
+      await api.logout();
+    } finally {
+      setUser(null);
+    }
+  }, []);
+
   if (!checkedAuth) {
     return <div className="app-loading">Loading...</div>;
   }
 
   return (
-    <AppShell>
+    <AppShell user={user} onSignOut={signOut}>
       <Routes>
         <Route path="/" element={<RepSubmitPage />} />
         <Route path="/public" element={<PublicUpdatesPage />} />

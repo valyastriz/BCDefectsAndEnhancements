@@ -4,6 +4,7 @@ const dbApi = require('../../db');
 const { ensureAdmin } = require('../auth');
 const { signRealtimeToken } = require('../helpers/realtimeToken');
 const { createRateLimiter } = require('../middleware/rateLimit');
+const { accountMaySignIn } = require('../constants');
 
 const router = express.Router();
 
@@ -26,8 +27,12 @@ router.post('/api/auth/login', loginRateLimiter, async (req, res) => {
     return res.status(500).json({ error: 'User model is not initialized' });
   }
 
+  // Two account roles may sign in: 'admin' and 'rep'. A rep gets a session and
+  // nothing else — ensureAdmin refuses them exactly as it refuses a stranger.
+  // Same 'Invalid credentials' for an unknown username, a wrong password and a
+  // role that may not sign in, so the response never confirms an account exists.
   const user = await User.findOne({ where: { username } });
-  if (!user || user.role !== 'admin') {
+  if (!user || !accountMaySignIn(user.role)) {
     return res.status(401).json({ error: 'Invalid credentials' });
   }
 

@@ -69,6 +69,7 @@ router.post('/api/admin/access/bulk', ensureSuperUser, async (req, res, next) =>
         applicationIds: req.body?.applicationIds,
         role: req.body?.role,
         action: req.body?.action,
+        requestType: req.body?.requestType,
         grantedBy: req.session?.user?.username,
       });
       if (result.error) {

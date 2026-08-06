@@ -199,6 +199,9 @@ export function RepSubmitPage() {
   const isDefect = form.type === 'defect';
   const isEnhancement = form.type === 'enhancement';
   const isReport = form.type === 'report';
+  // The report branch is the one type that cannot be filed anonymously — see the
+  // notice below the type picker, and submissionRoutes, which is what enforces it.
+  const reportNeedsSignIn = isReport && viewer.reportRequiresAuth && !viewer.isAuthenticated;
   const reportBranch = form.is_new_dashboard ? 'new' : 'change';
 
   // `created_by` drops out of the required set once the reporter is known,
@@ -232,6 +235,11 @@ export function RepSubmitPage() {
   function onSubmit(event) {
     event.preventDefault();
     setError('');
+
+    // The submit button is already disabled for this, but Enter in a text field
+    // submits a form too. The server refuses it either way; stopping here means
+    // the answer is the notice already on screen rather than a round trip.
+    if (reportNeedsSignIn) return;
 
     if (missing.length > 0) {
       setShowErrors(true);
@@ -455,6 +463,25 @@ export function RepSubmitPage() {
                 </button>
               </div>
             </div>
+
+            {/* The report branch needs a signed-in requester, and the type picker
+                above is how somebody arrives at it. Shown here — under the
+                picker, over the fields — so the reason is attached to the choice
+                that caused it, and switching back to Defect clears it. The
+                fields below stay visible and keep what was typed: signing in
+                happens in another tab and this one is still here afterwards. */}
+            {reportNeedsSignIn && (
+              <div className="rs-alert" role="alert">
+                <span className="rs-alert-glyph" aria-hidden="true">!</span>
+                <b>Sign in to request a report</b>
+                <span>
+                  A report request is only visible to the person who filed it, so it has to
+                  be filed under your name. <Link to="/admin/login">Sign in</Link>, then come
+                  back to this tab and submit — nothing you have typed will be lost. A defect
+                  or an enhancement can still be sent without signing in.
+                </span>
+              </div>
+            )}
 
             {showErrors && missing.length > 0 && (
               <div className="rs-alert" role="alert">
@@ -967,6 +994,7 @@ export function RepSubmitPage() {
           type={form.type}
           fileCount={files.length}
           saving={saving}
+          blocked={reportNeedsSignIn}
         />
 
         {/* Narrow screens only. A sibling of the rail rather than nested inside
@@ -974,11 +1002,13 @@ export function RepSubmitPage() {
             below the readiness checklist, not above it. */}
         <div className="rs-stickybar">
           <span className="rs-stickybar-left">
-            {missing.length === 0
-              ? 'Ready to submit'
-              : `${missing.length} required field${missing.length === 1 ? '' : 's'} left`}
+            {reportNeedsSignIn
+              ? 'Sign in to send a report request'
+              : (missing.length === 0
+                ? 'Ready to submit'
+                : `${missing.length} required field${missing.length === 1 ? '' : 's'} left`)}
           </span>
-          <button type="submit" className="rs-submit" disabled={saving}>
+          <button type="submit" className="rs-submit" disabled={saving || reportNeedsSignIn}>
             {saving && <span className="rs-spin" aria-hidden="true" />}
             {saving ? 'Submitting…' : 'Submit request'}
           </button>

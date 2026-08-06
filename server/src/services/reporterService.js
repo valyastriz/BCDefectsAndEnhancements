@@ -54,7 +54,10 @@ function arrivedWithASession(req) {
  * The check sits here rather than in the route so the rule and the identity it
  * guards cannot drift apart.
  */
-async function resolveReporter(models, req, body = {}, { requireAuthenticated = false } = {}) {
+async function resolveReporter(models, req, body = {}, {
+  requireAuthenticated = false,
+  authRequiredMessage = 'Sign in to submit a report',
+} = {}) {
   const sessionUserId = Number(req?.session?.user?.id) || null;
 
   if (sessionUserId && models?.User) {
@@ -75,7 +78,7 @@ async function resolveReporter(models, req, body = {}, { requireAuthenticated = 
   // Nothing below this line can produce an identity, only a typed claim — so if
   // one is required, refuse here rather than accepting the claim.
   if (requireAuthenticated) {
-    return { error: 'Sign in to submit a report', status: 401 };
+    return { error: authRequiredMessage, status: 401, authRequired: true };
   }
 
   const typedName = String(body.created_by || '').trim();

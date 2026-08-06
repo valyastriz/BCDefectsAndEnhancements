@@ -383,6 +383,30 @@ const APPLICATION_ROLE_ADMIN = 'admin';
 const APPLICATION_ROLE_VIEWER = 'viewer';
 const APPLICATION_ROLE_MANAGER = 'manager';
 
+// ── The ACCOUNT role (users.role) ────────────────────────────────────────────
+// A different axis from the per-application roles above. This one is the door:
+// whether an account may sign in at all, and whether it reaches the admin side.
+// The per-application grants decide what it administers once inside.
+//
+//   'admin' — may sign in and may reach /api/admin/*, subject to its grants
+//   'rep'   — may sign in and NOTHING else: files requests, tracks its own, and
+//             is refused by ensureAdmin like any stranger. This is the seat SSO
+//             will fill for everybody who is not on a triage team; it exists as
+//             a local login now because a report request has to be attributable
+//             to somebody before "only the person who filed it may see it" can
+//             mean anything.
+//
+// Anything else cannot sign in. Keep this list closed: it is the allow-list, and
+// a role that is merely unrecognised must fail closed rather than fall through.
+const ACCOUNT_ROLE_ADMIN = 'admin';
+const ACCOUNT_ROLE_REP = 'rep';
+const ACCOUNT_ROLES_THAT_MAY_SIGN_IN = [ACCOUNT_ROLE_ADMIN, ACCOUNT_ROLE_REP];
+
+/** May an account with this `users.role` sign in at all? */
+function accountMaySignIn(role) {
+  return ACCOUNT_ROLES_THAT_MAY_SIGN_IN.includes(String(role || '').trim().toLowerCase());
+}
+
 /** Position in the ladder, or -1 for anything unrecognised (which grants nothing). */
 function applicationRoleRank(role) {
   return APPLICATION_ROLES.indexOf(String(role || '').trim().toLowerCase());
@@ -492,6 +516,10 @@ module.exports = {
   ADMIN_VIEW_FILTER_KEYS,
   UNASSIGNED_APPLICATION,
   APPLICATION_ROLES,
+  ACCOUNT_ROLE_ADMIN,
+  ACCOUNT_ROLE_REP,
+  ACCOUNT_ROLES_THAT_MAY_SIGN_IN,
+  accountMaySignIn,
   APPLICATION_ROLE_ADMIN,
   APPLICATION_ROLE_VIEWER,
   APPLICATION_ROLE_MANAGER,

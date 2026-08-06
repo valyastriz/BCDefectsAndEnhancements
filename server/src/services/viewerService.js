@@ -391,6 +391,10 @@ async function resolveViewer(req, { models, sequelize }) {
     // is what lets the submit page show a sign-in prompt instead of a form that
     // would 401 on the last click.
     submitRequiresAuth: SUBMIT_REQUIRES_AUTH,
+    // A report request always needs one, whatever the line above says: it is only
+    // ever visible to the person who filed it, so an anonymous one would belong
+    // to nobody. Advisory, like the flag above — submissionRoutes enforces it.
+    reportRequiresAuth: true,
     impersonating: false,
     user: null,
     isSuperUser: false,
@@ -437,6 +441,10 @@ async function resolveViewer(req, { models, sequelize }) {
     isAuthenticated: true,
     source: AUTH_MODE === 'sso' ? 'sso' : 'local',
     submitRequiresAuth: SUBMIT_REQUIRES_AUTH,
+    // A report request always needs one, whatever the line above says: it is only
+    // ever visible to the person who filed it, so an anonymous one would belong
+    // to nobody. Advisory, like the flag above — submissionRoutes enforces it.
+    reportRequiresAuth: true,
     impersonating: Boolean(req.session?.impersonating),
     user: {
       id: Number(user.id),

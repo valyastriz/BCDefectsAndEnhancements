@@ -305,11 +305,24 @@ h1, h2, h3, h4, h5, h6 {
   border-top: 1px solid rgba(255,255,255,.12);
 }
 
-.app-header.use-hamburger .app-nav-mobile a {
+.app-header.use-hamburger .app-nav-mobile a,
+.app-header.use-hamburger .app-nav-mobile .app-nav-action {
   display: block;
+  width: 100%;
+  text-align: left;
 }
 
-.app-header nav a {
+/* Sign out is an action, not a destination, so it is a button — styled to sit in
+   the same row as the links rather than to look like one more place to go. */
+.app-nav-action {
+  font: inherit;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.app-header nav a,
+.app-header nav .app-nav-action {
   color: var(--slate-300);
   font-size: 13.5px;
   font-weight: 500;
@@ -319,7 +332,8 @@ h1, h2, h3, h4, h5, h6 {
   transition: color .15s, background .15s;
 }
 
-.app-header nav a:hover {
+.app-header nav a:hover,
+.app-header nav .app-nav-action:hover {
   color: #fff;
   background: rgba(255,255,255,.09);
 }
@@ -3727,8 +3741,31 @@ select.dm-prow-input { cursor: pointer; }
 .access-role--none { color: var(--color-muted); font-weight: 500; }
 .access-role--viewer { background-color: var(--status-redirected-bg); color: var(--status-redirected-fg); border-color: transparent; }
 .access-role--admin { background-color: var(--status-approved-bg); color: var(--status-approved-fg); border-color: transparent; }
+.access-role--manager { background-color: var(--status-submitted-bg); color: var(--status-submitted-fg); border-color: transparent; }
 /* The open list is drawn by the OS, so options need their own contrast. */
 .access-role option { background: var(--color-surface); color: var(--color-text); font-weight: 500; }
+
+/* Which request types a grant covers. Deliberately quieter than the role above
+   it: the role is the decision, the scope qualifies it, and two equally loud
+   dropdowns in one cell read as two separate decisions. */
+.access-grant { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }
+.access-scope {
+  font: inherit; font-size: 11.5px; font-weight: 500;
+  padding: 3px 22px 3px 8px; width: 100%; max-width: 132px; cursor: pointer;
+  border: 1px solid var(--color-border); border-radius: var(--radius-sm);
+  background-color: transparent; color: var(--color-muted);
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%2364748b' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 7px center;
+  appearance: none; -webkit-appearance: none;
+}
+.access-scope:hover:not(:disabled) { border-color: var(--color-muted); color: var(--color-text); }
+.access-scope:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 1px; }
+.access-scope:disabled { opacity: .5; cursor: not-allowed; }
+/* A combination the three named scopes cannot express. Marked rather than
+   rounded off to the nearest one, which would rewrite it on the next save. */
+.access-scope--mixed { border-color: var(--status-rejected-fg); color: var(--status-rejected-fg); font-weight: 600; }
+.access-scope option { background: var(--color-surface); color: var(--color-text); font-weight: 500; }
+.access-sees-scope { font-weight: 500; opacity: .8; }
 
 /* Super user is a different KIND of grant from the per-application roles, so it
    gets a different control rather than a third option in the same dropdown. */

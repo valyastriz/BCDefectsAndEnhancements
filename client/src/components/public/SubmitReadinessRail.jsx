@@ -38,6 +38,9 @@ export function SubmitReadinessRail({
   type = 'defect',
   fileCount,
   saving,
+  // Set when the form cannot be sent at all from here — today only the report
+  // branch with nobody signed in. Distinct from `saving`, which is temporary.
+  blocked = false,
 }) {
   const outstanding = requiredFields.filter((field) => !String(values[field.key] ?? '').trim());
 
@@ -76,14 +79,18 @@ export function SubmitReadinessRail({
           </div>
         )}
 
-        <button type="submit" className="rs-submit" disabled={saving}>
+        <button type="submit" className="rs-submit" disabled={saving || blocked}>
           {saving && <span className="rs-spin" aria-hidden="true" />}
           {saving ? 'Submitting…' : 'Submit request'}
         </button>
         <p className="rs-railnote">
-          {outstanding.length === 0
-            ? 'Everything required is filled in.'
-            : 'You can press Submit with fields empty — we will point them out first.'}
+          {/* `blocked` outranks the field count: an empty field is something you
+              can fix here, and needing an account is not. */}
+          {blocked
+            ? 'A report request has to be filed under your name — sign in and come back to this tab.'
+            : (outstanding.length === 0
+              ? 'Everything required is filled in.'
+              : 'You can press Submit with fields empty — we will point them out first.')}
         </p>
       </div>
 

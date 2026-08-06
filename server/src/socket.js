@@ -1,6 +1,7 @@
 const { Server } = require('socket.io');
 const { CLIENT_ORIGINS } = require('./config');
 const { verifyRealtimeToken } = require('./helpers/realtimeToken');
+const { boardAudienceFor } = require('./helpers/reportVisibility');
 
 let io = null;
 
@@ -116,10 +117,17 @@ function initSocket(server, sessionMiddleware) {
       socket.on('disconnect', () => leaveAllTickets(socket));
     }
     socket.join('public-watchers');
+    // A room of one, so a live update about a report request can reach the person
+    // who filed it without going to every board watcher. Only signed-in sockets
+    // have one, which is the same condition that makes a report request visible
+    // at all.
+    if (user?.id != null) socket.join(publicUserRoom(user.id));
   });
 
   return io;
 }
+
+const publicUserRoom = (userId) => `public-user:${Number(userId)}`;
 
 function emitAdminNotification(event, payload) {
   if (!io) return;
@@ -130,16 +138,38 @@ function emitAdminNotification(event, payload) {
   });
 }
 
-function emitPublicUpdate(payload) {
+/**
+ * Tell the board something changed.
+ *
+ * `audience` narrows who hears it. A report request goes ONLY to the socket of
+ * the person who filed it — the board room is every visitor, signed in or not,
+ * and broadcasting a report request there would hand it to everybody live even
+ * though GET /api/public/submissions refuses it. A row with an audience and
+ * nobody to send it to is simply not emitted; the change is still there on the
+ * next load, for the one person entitled to see it.
+ */
+function emitPublicUpdate(payload, { onlyReporterUserId = null, nobody = false } = {}) {
   if (!io) return;
-  io.to('public-watchers').emit('public:update', {
+  // Nobody may see it, so nobody is told. Not the same as "no audience given",
+  // which means the whole board — conflating the two is how a private row would
+  // have gone out to every watcher.
+  if (nobody) return;
+  const room = onlyReporterUserId != null
+    ? publicUserRoom(onlyReporterUserId)
+    : 'public-watchers';
+  io.to(room).emit('public:update', {
     payload,
     at: new Date().toISOString(),
   });
 }
 
+// The audience for a row, from the row itself, so no caller has to remember the
+// rule — and it is the SAME rule the board's REST routes filter on, not a copy.
+const publicAudienceFor = boardAudienceFor;
+
 module.exports = {
   initSocket,
   emitAdminNotification,
   emitPublicUpdate,
+  publicAudienceFor,
 };

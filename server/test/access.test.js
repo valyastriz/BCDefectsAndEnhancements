@@ -126,7 +126,10 @@ test('listAccess reports each account with the applications it holds', async () 
   assert.strictEqual(lead.isSuperUser, false);
   assert.deepStrictEqual(
     lead.grants,
-    [{ applicationId: 7, role: 'admin' }, { applicationId: 9, role: 'viewer' }],
+    [
+      { applicationId: 7, role: 'admin', requestType: '' },
+      { applicationId: 9, role: 'viewer', requestType: '' },
+    ],
     'sorted, so the page is stable',
   );
   assert.strictEqual(lead.displayName, 'lead_admin', 'falls back to the username');
@@ -170,11 +173,14 @@ test('listAccess collapses two rows for one pair to the stronger role', async ()
     ],
   });
   const access = await listAccess(models);
-  assert.deepStrictEqual(access.users[0].grants, [{ applicationId: 7, role: 'admin' }]);
+  assert.deepStrictEqual(access.users[0].grants, [{ applicationId: 7, role: 'admin', requestType: '' }]);
 });
 
 // ── Granting one person ──────────────────────────────────────────────────────
-const grant = (applicationId, role) => ({ applicationId, role });
+// '' is "every type". A grant is (application, role, requestType) — see the
+// type-scope tests at the end of this file for why the third part is not
+// optional in practice.
+const grant = (applicationId, role, requestType = '') => ({ applicationId, role, requestType });
 
 test('setUserGrants replaces the whole set rather than adding to it', async () => {
   const models = makeModels({
@@ -188,6 +194,7 @@ test('setUserGrants replaces the whole set rather than adding to it', async () =
 
   assert.strictEqual(result.status, 200);
   assert.deepStrictEqual(result.body.grants, [grant(9, 'viewer')]);
+  assert.strictEqual(models.store.grants[0].request_type, '', 'written, never left to the column default');
   // 7 is gone, not kept alongside 9.
   assert.deepStrictEqual(models.store.grants.map((g) => [g.application_id, g.role]), [[9, 'viewer']]);
   assert.strictEqual(models.store.grants[0].granted_by, 'admin', 'the grant is attributable');
@@ -543,4 +550,183 @@ test('removeAdGroupMapping refuses a malformed id', async () => {
   const models = makeModels();
   assert.strictEqual((await removeAdGroupMapping(models, { id: 'abc' })).status, 400);
   assert.strictEqual((await removeAdGroupMapping(models, { id: 0 })).status, 400);
+});
+
+// ── Type-scoped grants ───────────────────────────────────────────────────────
+// An "analyst" is not a role: it is an admin grant narrowed to `request_type`.
+// This service used to drop that column on every write, so re-saving anybody's
+// row silently promoted their report-only grant to every type — a privilege
+// escalation reachable from a dropdown, with no screen that would show it. These
+// are the regression net for that.
+
+const ANALYST = { user_id: 2, application_id: 7, role: 'admin', request_type: 'report' };
+
+test('listAccess reports a narrowed grant as narrowed, not as every type', async () => {
+  const models = makeModels({
+    users: [{ id: 2, username: 'bc_report_analyst', is_super_user: 0 }],
+    grants: [ANALYST],
+  });
+
+  const access = await listAccess(models);
+
+  assert.deepStrictEqual(access.users[0].grants, [grant(7, 'admin', 'report')]);
+});
+
+test('listAccess keeps two type scopes on one application apart', async () => {
+  // The application-admin shape: two rows, one per type, NOT one all-types row.
+  const models = makeModels({
+    users: [{ id: 2, username: 'bc_app_admin' }],
+    grants: [
+      { user_id: 2, application_id: 7, role: 'admin', request_type: 'enhancement' },
+      { user_id: 2, application_id: 7, role: 'admin', request_type: 'defect' },
+    ],
+  });
+
+  const access = await listAccess(models);
+
+  assert.deepStrictEqual(
+    access.users[0].grants,
+    [grant(7, 'admin', 'defect'), grant(7, 'admin', 'enhancement')],
+    'two grants, sorted — collapsing them to one would report wider rights than exist',
+  );
+});
+
+test('setUserGrants keeps a report-only grant report-only', async () => {
+  const models = makeModels({
+    users: [{ id: 2, username: 'bc_report_analyst' }],
+    grants: [ANALYST],
+  });
+
+  await setUserGrants(models, makeSequelize(), {
+    userId: 2, grants: [grant(7, 'admin', 'report')],
+  });
+
+  assert.deepStrictEqual(
+    models.store.grants.map((row) => [row.application_id, row.role, row.request_type]),
+    [[7, 'admin', 'report']],
+    'still narrowed — this is the escalation the old code performed here',
+  );
+});
+
+test('editing another application does not widen an analyst grant', async () => {
+  // The real-world path: a super user gives the analyst View on Policy Center.
+  // The payload carries their whole set, so Billing Center's report-only grant
+  // has to survive the round trip with its scope intact.
+  const models = makeModels({
+    users: [{ id: 2, username: 'bc_report_analyst' }],
+    grants: [ANALYST],
+  });
+
+  await setUserGrants(models, makeSequelize(), {
+    userId: 2,
+    grants: [grant(7, 'admin', 'report'), grant(9, 'viewer')],
+  });
+
+  assert.deepStrictEqual(
+    models.store.grants.map((row) => [row.application_id, row.role, row.request_type]),
+    [[7, 'admin', 'report'], [9, 'viewer', '']],
+  );
+});
+
+test('setUserGrants treats one application at two scopes as two grants', async () => {
+  const models = makeModels({ users: [{ id: 2, username: 'bc_owner_analyst' }] });
+
+  const result = await setUserGrants(models, makeSequelize(), {
+    userId: 2,
+    grants: [grant(7, 'admin', 'defect'), grant(7, 'admin', 'enhancement')],
+  });
+
+  assert.strictEqual(models.store.grants.length, 2, 'not collapsed into one');
+  assert.deepStrictEqual(result.body.grants, [grant(7, 'admin', 'defect'), grant(7, 'admin', 'enhancement')]);
+});
+
+test('setUserGrants still collapses a genuine duplicate — same application AND same scope', async () => {
+  const models = makeModels({ users: [{ id: 2, username: 'lead_admin' }] });
+
+  await setUserGrants(models, makeSequelize(), {
+    userId: 2, grants: [grant(7, 'viewer', 'report'), grant(7, 'admin', 'report')],
+  });
+
+  assert.deepStrictEqual(
+    models.store.grants.map((row) => [row.role, row.request_type]),
+    [['admin', 'report']],
+  );
+});
+
+test('setUserGrants refuses a request type the catalog does not know', async () => {
+  // Fails closed. A grant naming a non-existent type matches nothing today, and
+  // would start matching something the day that name became a real type.
+  const models = makeModels({ users: [{ id: 2, username: 'lead_admin' }] });
+
+  const result = await setUserGrants(models, makeSequelize(), {
+    userId: 2, grants: [grant(7, 'admin', 'invoice')],
+  });
+
+  assert.strictEqual(result.status, 400);
+  assert.match(result.error, /Unknown request type/);
+  assert.strictEqual(models.store.grants.length, 0, 'and wrote nothing');
+});
+
+test('bulkSetAccess granting one type leaves the other types alone', async () => {
+  const models = makeModels({
+    users: [{ id: 2, username: 'bc_app_admin' }],
+    grants: [{ user_id: 2, application_id: 7, role: 'admin', request_type: 'defect' }],
+  });
+
+  await bulkSetAccess(models, makeSequelize(), {
+    userIds: [2], applicationIds: [7], role: 'admin', action: 'grant', requestType: 'report',
+  });
+
+  assert.deepStrictEqual(
+    models.store.grants.map((row) => row.request_type).sort(),
+    ['defect', 'report'],
+    'grants add up — a report grant must not revoke the defect one',
+  );
+});
+
+test('bulkSetAccess granting every type supersedes the narrowed ones', async () => {
+  const models = makeModels({
+    users: [{ id: 2, username: 'bc_owner_analyst' }],
+    grants: [
+      { user_id: 2, application_id: 7, role: 'admin', request_type: 'report' },
+      { user_id: 2, application_id: 7, role: 'admin', request_type: 'defect' },
+    ],
+  });
+
+  await bulkSetAccess(models, makeSequelize(), {
+    userIds: [2], applicationIds: [7], role: 'admin', action: 'grant', requestType: '',
+  });
+
+  assert.deepStrictEqual(
+    models.store.grants.map((row) => row.request_type),
+    [''],
+    'one all-types row, not an all-types row stacked on two narrower ones',
+  );
+});
+
+test('bulkSetAccess revoking one type leaves the other types alone', async () => {
+  const models = makeModels({
+    users: [{ id: 2, username: 'bc_owner_analyst' }],
+    grants: [
+      { user_id: 2, application_id: 7, role: 'admin', request_type: 'report' },
+      { user_id: 2, application_id: 7, role: 'admin', request_type: 'defect' },
+    ],
+  });
+
+  await bulkSetAccess(models, makeSequelize(), {
+    userIds: [2], applicationIds: [7], action: 'revoke', requestType: 'report',
+  });
+
+  assert.deepStrictEqual(models.store.grants.map((row) => row.request_type), ['defect']);
+});
+
+test('bulkSetAccess refuses a request type the catalog does not know', async () => {
+  const models = bulkModels();
+
+  const result = await bulkSetAccess(models, makeSequelize(), {
+    userIds: [2], applicationIds: [7], role: 'admin', action: 'grant', requestType: 'invoice',
+  });
+
+  assert.strictEqual(result.status, 400);
+  assert.match(result.error, /Unknown request type/);
 });

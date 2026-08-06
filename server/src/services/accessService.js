@@ -17,9 +17,25 @@ const {
   applicationRoleRank,
   applicationRoleAtLeast,
 } = require('../constants');
+const { getSubmissionTypes } = require('../helpers/lookups');
 
 const isApplicationId = (value) => Number.isInteger(value) && value > 0;
 const normalizeRole = (value) => String(value || '').trim().toLowerCase();
+
+// '' is "every type" — see the user_application_roles model comment for why it is
+// the empty string and not NULL. A grant is (application, role, requestType), and
+// the third part was invisible here until it escalated somebody: this service used
+// to drop the column on write, so re-saving a report-scoped analyst turned them
+// into an all-types admin on that application.
+const ALL_REQUEST_TYPES = '';
+const normalizeRequestType = (value) => String(value ?? '').trim().toLowerCase();
+const grantKey = (applicationId, requestType) => `${applicationId}:${requestType}`;
+
+/** The type names a grant may be narrowed to, plus '' for every type. */
+async function loadGrantableRequestTypes() {
+  const types = await getSubmissionTypes();
+  return new Set([ALL_REQUEST_TYPES, ...types.map(normalizeRequestType)]);
+}
 
 /** Active application ids, as a Set, for validating a grant before it is written. */
 async function loadActiveApplicationIds(models) {
@@ -72,19 +88,23 @@ async function listAccess(models, sequelize) {
 
   const grants = await models.UserApplicationRole.findAll({ raw: true });
 
-  // Keyed by person, then application, so two rows for the same pair collapse to
-  // the stronger role rather than rendering as a contradiction.
+  // Keyed by person, then by (application, requestType), so two rows for the same
+  // pair collapse to the stronger role rather than rendering as a contradiction —
+  // while a report-scoped grant stays a row of its own instead of being merged
+  // into the all-types one and reported as wider than it is.
   const rolesByUser = new Map();
   for (const grant of grants) {
     const userId = Number(grant.user_id);
     const applicationId = Number(grant.application_id);
     const role = normalizeRole(grant.role);
+    const requestType = normalizeRequestType(grant.request_type);
     if (!isApplicationId(applicationId) || applicationRoleRank(role) < 0) continue;
 
     if (!rolesByUser.has(userId)) rolesByUser.set(userId, new Map());
-    const held = rolesByUser.get(userId).get(applicationId);
-    if (!held || applicationRoleAtLeast(role, held)) {
-      rolesByUser.get(userId).set(applicationId, role);
+    const key = grantKey(applicationId, requestType);
+    const held = rolesByUser.get(userId).get(key);
+    if (!held || applicationRoleAtLeast(role, held.role)) {
+      rolesByUser.get(userId).set(key, { applicationId, role, requestType });
     }
   }
 
@@ -125,9 +145,9 @@ async function listAccess(models, sequelize) {
       isSuperUser: Number(row.is_super_user || 0) === 1,
       // Sorted so the page renders the same order every load and a diff of two
       // screenshots means something.
-      grants: [...(rolesByUser.get(Number(row.id)) || new Map())]
-        .map(([applicationId, role]) => ({ applicationId, role }))
-        .sort((a, b) => a.applicationId - b.applicationId),
+      grants: [...(rolesByUser.get(Number(row.id)) || new Map()).values()]
+        .sort((a, b) => a.applicationId - b.applicationId
+          || a.requestType.localeCompare(b.requestType)),
     })),
     adGroups: adGroups
       .map((row) => ({
@@ -137,6 +157,9 @@ async function listAccess(models, sequelize) {
       }))
       .sort((a, b) => a.applicationId - b.applicationId || a.groupName.localeCompare(b.groupName)),
     roles: APPLICATION_ROLES,
+    // What a grant may be narrowed to. Sent rather than hardcoded in the client
+    // so a new submission type becomes grantable without a second edit.
+    requestTypes: [...await loadGrantableRequestTypes()].filter(Boolean).sort(),
   };
 }
 
@@ -165,31 +188,48 @@ async function setUserGrants(models, sequelize, { userId, grants, grantedBy }) {
     return { error: 'grants must be an array', status: 400 };
   }
 
-  // Collapse before validating, so a payload that names one application twice is
+  // Collapse before validating, so a payload that names one pair twice is
   // resolved here rather than becoming two rows the reader has to reconcile.
-  const byApplication = new Map();
+  // Keyed by (application, requestType): the same application narrowed to two
+  // different types is two grants, not a duplicate.
+  const grantableTypes = await loadGrantableRequestTypes();
+  const byKey = new Map();
   for (const grant of grants) {
     const applicationId = Number(grant?.applicationId);
     const role = normalizeRole(grant?.role);
+    const requestType = normalizeRequestType(grant?.requestType);
     if (!isApplicationId(applicationId)) {
       return { error: 'Each grant needs a positive integer applicationId', status: 400 };
     }
     if (applicationRoleRank(role) < 0) {
       return { error: `Unknown role: ${grant?.role}. Expected one of ${APPLICATION_ROLES.join(', ')}`, status: 400 };
     }
-    const held = byApplication.get(applicationId);
-    if (!held || applicationRoleAtLeast(role, held)) byApplication.set(applicationId, role);
+    // Fail closed on an unrecognised scope. Accepting it would write a grant that
+    // matches no request type and so silently grants nothing — or, if the name
+    // were later added as a type, grants something nobody chose.
+    if (!grantableTypes.has(requestType)) {
+      return {
+        error: `Unknown request type: ${grant?.requestType}. Expected one of ${[...grantableTypes].filter(Boolean).join(', ')}, or omit it for every type`,
+        status: 400,
+      };
+    }
+    const key = grantKey(applicationId, requestType);
+    const held = byKey.get(key);
+    if (!held || applicationRoleAtLeast(role, held.role)) {
+      byKey.set(key, { applicationId, role, requestType });
+    }
   }
 
+  const resolved = [...byKey.values()]
+    .sort((a, b) => a.applicationId - b.applicationId || a.requestType.localeCompare(b.requestType));
+
   const activeIds = await loadActiveApplicationIds(models);
-  const unknown = [...byApplication.keys()].filter((applicationId) => !activeIds.has(applicationId));
+  const unknown = [...new Set(resolved.map((grant) => grant.applicationId))]
+    .filter((applicationId) => !activeIds.has(applicationId));
   if (unknown.length > 0) {
     return { error: `Unknown or inactive application: ${unknown.join(', ')}`, status: 400 };
   }
 
-  const resolved = [...byApplication]
-    .map(([applicationId, role]) => ({ applicationId, role }))
-    .sort((a, b) => a.applicationId - b.applicationId);
   const grantedAt = new Date().toISOString();
 
   // One transaction: a half-applied change would silently leave someone with
@@ -198,10 +238,13 @@ async function setUserGrants(models, sequelize, { userId, grants, grantedBy }) {
     await models.UserApplicationRole.destroy({ where: { user_id: id }, transaction });
     if (resolved.length > 0) {
       await models.UserApplicationRole.bulkCreate(
-        resolved.map(({ applicationId, role }) => ({
+        resolved.map(({ applicationId, role, requestType }) => ({
           user_id: id,
           application_id: applicationId,
           role,
+          // Written explicitly. Leaving it to the column default is what turned a
+          // report-only analyst into an all-types admin on every save.
+          request_type: requestType,
           granted_at: grantedAt,
           granted_by: String(grantedBy || ''),
         })),
@@ -225,7 +268,9 @@ async function setUserGrants(models, sequelize, { userId, grants, grantedBy }) {
  * names one bad application changes nobody, because a partially applied access
  * change is the hardest kind to notice.
  */
-async function bulkSetAccess(models, sequelize, { userIds, applicationIds, role, action, grantedBy }) {
+async function bulkSetAccess(models, sequelize, {
+  userIds, applicationIds, role, action, requestType, grantedBy,
+}) {
   if (action !== 'grant' && action !== 'revoke') {
     return { error: "action must be 'grant' or 'revoke'", status: 400 };
   }
@@ -254,6 +299,15 @@ async function bulkSetAccess(models, sequelize, { userIds, applicationIds, role,
     return { error: `Unknown role: ${role}. Expected one of ${APPLICATION_ROLES.join(', ')}`, status: 400 };
   }
 
+  const normalizedRequestType = normalizeRequestType(requestType);
+  const grantableTypes = await loadGrantableRequestTypes();
+  if (!grantableTypes.has(normalizedRequestType)) {
+    return {
+      error: `Unknown request type: ${requestType}. Expected one of ${[...grantableTypes].filter(Boolean).join(', ')}, or omit it for every type`,
+      status: 400,
+    };
+  }
+
   const activeIds = await loadActiveApplicationIds(models);
   const unknownApplications = resolvedApplicationIds.filter((id) => !activeIds.has(id));
   if (unknownApplications.length > 0) {
@@ -276,8 +330,21 @@ async function bulkSetAccess(models, sequelize, { userIds, applicationIds, role,
   await sequelize.transaction(async (transaction) => {
     // Clearing first makes grant idempotent: re-granting a different role to the
     // same pair replaces it instead of stacking a second row beside it.
+    //
+    // WHAT GETS CLEARED depends on the scope, and it has to: an every-type grant
+    // supersedes every narrower one, so it clears them all. A grant narrowed to
+    // one type touches only that type, because the other types are separate
+    // grants that add up — clearing them would revoke rights this action never
+    // named. Before request_type existed here, every bulk action took the first
+    // branch and quietly widened whoever it touched.
     await models.UserApplicationRole.destroy({
-      where: { user_id: resolvedUserIds, application_id: resolvedApplicationIds },
+      where: {
+        user_id: resolvedUserIds,
+        application_id: resolvedApplicationIds,
+        ...(normalizedRequestType === ALL_REQUEST_TYPES
+          ? {}
+          : { request_type: normalizedRequestType }),
+      },
       transaction,
     });
 
@@ -289,6 +356,7 @@ async function bulkSetAccess(models, sequelize, { userIds, applicationIds, role,
             user_id: userId,
             application_id: applicationId,
             role: normalizedRole,
+            request_type: normalizedRequestType,
             granted_at: grantedAt,
             granted_by: String(grantedBy || ''),
           });
@@ -303,6 +371,7 @@ async function bulkSetAccess(models, sequelize, { userIds, applicationIds, role,
     body: {
       action,
       role: action === 'grant' ? normalizedRole : null,
+      requestType: normalizedRequestType,
       userIds: resolvedUserIds.slice().sort((a, b) => a - b),
       applicationIds: resolvedApplicationIds.slice().sort((a, b) => a - b),
       changed: resolvedUserIds.length * resolvedApplicationIds.length,

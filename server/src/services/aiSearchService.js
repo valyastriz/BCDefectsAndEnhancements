@@ -51,6 +51,7 @@ const {
   AI_SEARCH_MIN_SIMILARITY,
 } = require('../config');
 const { SUBMISSION_TYPE_REPORT } = require('../constants');
+const { maySeeReportRequest } = require('../helpers/reportVisibility');
 
 const RECENCY_HALFLIFE_MS = AI_SEARCH_RECENCY_HALFLIFE_DAYS * 86400000;
 
@@ -317,7 +318,14 @@ function buildLatestChangeMap(events) {
   return map;
 }
 
-async function loadCandidates({ scope, applicationId, onlyTypeId = null, excludeTypeId = null }) {
+async function loadCandidates({
+  scope,
+  applicationId,
+  onlyTypeId = null,
+  excludeTypeId = null,
+  reportTypeId = null,
+  viewerUserId = null,
+}) {
   const { Submission } = dbApi.getModels() || {};
   if (!Submission) return [];
   const where = {};
@@ -339,11 +347,36 @@ async function loadCandidates({ scope, applicationId, onlyTypeId = null, exclude
     limit: MAX_CANDIDATES + 1,
     raw: true,
   });
-  if (rows.length > MAX_CANDIDATES) {
+  // A REPORT REQUEST IS NOT PUBLIC READING, even when is_public is set: only the
+  // person who filed it may see it (canSeeOnBoard in routes/publicRoutes.js).
+  // Search is the third way out of the building after the list and the by-id
+  // route, and the one easiest to forget — a summary written over a candidate
+  // set is a paraphrase of rows the reader was never entitled to.
+  //
+  // Applied here rather than at any call site so every public search inherits it,
+  // the same way `is_public` is forced above. In JS rather than SQL because the
+  // type and ownership clauses would have to interleave with the Op.or that
+  // excludeTypeId already owns.
+  //
+  // These rows are RAW — hydration has not run yet, so they carry `type_id` and
+  // not `type`. The shared rule reads `type`, so each row is presented to it in
+  // the shape it expects rather than the check being rewritten here against a
+  // column: two spellings of one rule is how the fourth surface gets missed.
+  const visible = (scope === SCOPE_PUBLIC && reportTypeId)
+    ? rows.filter((row) => maySeeReportRequest(
+      {
+        type: Number(row.type_id) === Number(reportTypeId) ? SUBMISSION_TYPE_REPORT : '',
+        reporter_user_id: row.reporter_user_id,
+      },
+      viewerUserId,
+    ))
+    : rows;
+
+  if (visible.length > MAX_CANDIDATES) {
     console.warn(`[ai-search] candidate set exceeded ${MAX_CANDIDATES}; ranking the most recent only. Consider the pgvector upgrade.`);
-    return rows.slice(0, MAX_CANDIDATES);
+    return visible.slice(0, MAX_CANDIDATES);
   }
-  return rows;
+  return visible;
 }
 
 async function loadStatusEvents(submissionIds) {
@@ -390,6 +423,9 @@ async function runAiSearch(db, {
   // check sends the type being filed; a general search sends nothing and sees
   // everything.
   requestType = '',
+  // Who is asking. Only used to decide whether a report request they filed may
+  // appear in a public search; null means anonymous, which sees none of them.
+  viewerUserId = null,
 } = {}) {
   const safeScope = scope === SCOPE_PUBLIC ? SCOPE_PUBLIC : SCOPE_ADMIN;
 
@@ -427,9 +463,24 @@ async function runAiSearch(db, {
   // eligible for each other, with a preference for the same kind applied to the
   // display order below.
   const wantedType = String(requestType || '').trim().toLowerCase();
-  const reportTypeId = wantedType
-    ? await getLookupIdByName(db, 'submission_types', SUBMISSION_TYPE_REPORT, { lowercase: true })
-    : null;
+  // Needed for the type filters below AND, on a public search, to keep other
+  // people's report requests out of the candidate set — so it is resolved
+  // whenever either reason applies, not only when a type was asked for.
+  //
+  // A null answer means the catalog has no `report` type, so there are no report
+  // rows to hide. A THROW means the lookup could not run at all, which is a
+  // different thing: on a public search it leaves us unable to tell a report
+  // request from a defect, so the honest answer is nothing rather than a guess.
+  let reportTypeId = null;
+  if (wantedType || safeScope === SCOPE_PUBLIC) {
+    try {
+      reportTypeId = await getLookupIdByName(db, 'submission_types', SUBMISSION_TYPE_REPORT, { lowercase: true });
+    } catch (error) {
+      if (safeScope !== SCOPE_PUBLIC) throw error;
+      console.error('[ai-search] could not resolve the report type; answering empty rather than risk leaking one:', error?.message || error);
+      return { enabled: true, query: cleanQuery, summary: emptySummary(), matches: [], keywordMatches: [], window: { reportedWithinDays: reportedDays, resolvedWithinDays: resolvedDays }, windowExcluded: 0, meta: emptyMeta() };
+    }
+  }
   const onlyTypeId = wantedType === SUBMISSION_TYPE_REPORT ? reportTypeId : null;
   const excludeTypeId = wantedType && wantedType !== SUBMISSION_TYPE_REPORT ? reportTypeId : null;
 
@@ -439,6 +490,8 @@ async function runAiSearch(db, {
     applicationId: appId,
     onlyTypeId,
     excludeTypeId,
+    reportTypeId,
+    viewerUserId,
   });
   if (!rawCandidates.length) {
     return { enabled: true, query: cleanQuery, summary: emptySummary(), matches: [], keywordMatches: [], window: { reportedWithinDays: reportedDays, resolvedWithinDays: resolvedDays }, windowExcluded: 0, meta: emptyMeta() };

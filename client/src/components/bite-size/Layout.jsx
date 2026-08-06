@@ -17,7 +17,19 @@ function getInitialTheme() {
   return prefersDark ? 'dark' : 'light';
 }
 
-export function AppShell({ children }) {
+/**
+ * `user` is the account App already resolved from /api/auth/me — passed in rather
+ * than re-fetched so the header and the route guards can never disagree about who
+ * is signed in.
+ *
+ * WHAT THE NAV OFFERS, and why it is not the same for everybody:
+ *   - nobody signed in    → Sign in, because the login page has to stay reachable
+ *   - signed in as a rep  → Sign out, and NO Admin link: a rep is refused by
+ *                           ensureAdmin, so advertising the admin area to them
+ *                           offers a door that only ever answers 403
+ *   - signed in as admin  → Admin
+ */
+export function AppShell({ user = null, onSignOut, children }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [useHamburger, setUseHamburger] = useState(false);
   const [theme, setTheme] = useState(getInitialTheme);
@@ -30,11 +42,17 @@ export function AppShell({ children }) {
   const navNaturalWidth = useRef(0);
   const brandNaturalWidth = useRef(0);
 
+  const isAdmin = user?.role === 'admin';
   const navItems = [
     { to: '/', label: 'Submit a Request' },
     { to: '/public', label: 'Status Board' },
-    { to: '/admin', label: 'Admin' },
+    ...(isAdmin ? [{ to: '/admin', label: 'Admin' }] : []),
+    ...(user ? [] : [{ to: '/admin/login', label: 'Sign in' }]),
   ];
+  // A rep has no admin page to sign out from, so the header is the only place
+  // they can. Rendered as an action, not a NavLink, because it is not a
+  // destination.
+  const showSignOut = Boolean(user) && !isAdmin;
 
   // Capture natural widths once before any flex-stretching or state changes occur
   useLayoutEffect(() => {
@@ -124,6 +142,11 @@ export function AppShell({ children }) {
             {navItems.map((item) => (
               <NavLink key={item.to} to={item.to}>{item.label}</NavLink>
             ))}
+            {showSignOut && (
+              <button type="button" className="app-nav-action" onClick={onSignOut}>
+                Sign out
+              </button>
+            )}
           </nav>
 
           <button
@@ -152,6 +175,15 @@ export function AppShell({ children }) {
           {navItems.map((item) => (
             <NavLink key={item.to} to={item.to} onClick={() => setMenuOpen(false)}>{item.label}</NavLink>
           ))}
+          {showSignOut && (
+            <button
+              type="button"
+              className="app-nav-action"
+              onClick={() => { setMenuOpen(false); onSignOut?.(); }}
+            >
+              Sign out
+            </button>
+          )}
         </nav>
       </header>
       <main className="app-main">{children}</main>

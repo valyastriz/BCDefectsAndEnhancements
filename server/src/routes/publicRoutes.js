@@ -5,6 +5,9 @@ const { buildAllLookupMaps, hydrateRowFromMaps } = require('../helpers/lookups')
 const { mapPublicSubmission } = require('../helpers/mappers');
 const { getSubmissionByIdWithLookups } = require('../services/submissionService');
 const { listRoutings, listRoutingsBySubmissionIds } = require('../services/redirectService');
+// The report-request rule, shared with the socket broadcast and the public
+// semantic search so the four surfaces cannot drift apart.
+const { boardVisibilityFor } = require('../helpers/reportVisibility');
 
 const router = express.Router();
 
@@ -45,6 +48,7 @@ function markOwnership(req) {
   });
 }
 
+
 router.get('/api/public/submissions', async (req, res) => {
   return withDb(async (db) => {
     const dbModels = dbApi.getModels() || {};
@@ -61,7 +65,12 @@ router.get('/api/public/submissions', async (req, res) => {
 
     // Hydrate text fields from FK IDs (DB stores only _id columns, no redundant text columns)
     const lookupMaps = await buildAllLookupMaps(dbModels);
-    const rows = rawRows.map((row) => hydrateRowFromMaps(row, lookupMaps));
+    // Filtered immediately after hydration and before anything else reads the
+    // set: everything below works from `rows`, so a row dropped here cannot leak
+    // through the status events, the hand-off trail, or even as an id.
+    const rows = rawRows
+      .map((row) => hydrateRowFromMaps(row, lookupMaps))
+      .filter(boardVisibilityFor(req));
 
     const ids = rows.map((row) => Number(row.id)).filter((id) => Number.isFinite(id));
     const events = SubmissionStatusEvent
@@ -138,7 +147,10 @@ router.get('/api/public/submissions/:id', async (req, res) => {
     }
     const submission = await getSubmissionByIdWithLookups(db, req.params.id, { publicOnly: true });
 
-    if (!submission) {
+    // Same rule as the list, and the same answer as a row that does not exist:
+    // 404 rather than 403, so guessing ids cannot confirm that a report request
+    // with that number is out there.
+    if (!submission || !boardVisibilityFor(req)(submission)) {
       return res.status(404).json({ error: 'Submission not found' });
     }
 

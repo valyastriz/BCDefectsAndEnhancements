@@ -1,9 +1,22 @@
 const dbApi = require('../db');
 const { resolveViewer } = require('./services/viewerService');
+const { ACCOUNT_ROLE_ADMIN } = require('./constants');
 
+/**
+ * The admin side, gated on the ACCOUNT role — not on any per-application grant,
+ * which is a separate question answered by attachViewer.
+ *
+ * The two refusals are told apart deliberately. Signed in as a rep is a 403: the
+ * caller is who they say they are and simply may not be here, and answering 401
+ * would send the client down its "your session expired" path and invite them to
+ * sign in again as the same account that was just refused.
+ */
 function ensureAdmin(req, res, next) {
-  if (!req.session?.user || req.session.user.role !== 'admin') {
+  if (!req.session?.user) {
     return res.status(401).json({ error: 'Admin authentication required' });
+  }
+  if (req.session.user.role !== ACCOUNT_ROLE_ADMIN) {
+    return res.status(403).json({ error: 'This area is for the triage team' });
   }
 
   next();

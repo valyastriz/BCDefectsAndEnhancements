@@ -6,17 +6,63 @@ const EMPTY = {
   users: [],
   adGroups: [],
   roles: ['viewer', 'admin'],
+  // Replaced by the server's list on load. A grant narrowed to one of these is
+  // what an "analyst" is — there is no separate analyst role.
+  requestTypes: [],
   unassignedTicketCount: 0,
 };
+
+// The scopes a cell can express, and the request types each one writes. A grant
+// row is (application, role, requestType) where '' means every type, so a scope
+// is just a set of those rows sharing one role.
+//
+// Deliberately three named shapes rather than a free multi-select: these are the
+// three that exist in practice (an application admin, a report analyst, and
+// somebody who is both), and they are the ones seedTeamAccounts.js creates.
+export const GRANT_SCOPES = [
+  { value: 'all', label: 'Every type', requestTypes: [''] },
+  { value: 'work', label: 'Defects & enhancements', requestTypes: ['defect', 'enhancement'] },
+  { value: 'report', label: 'Report requests only', requestTypes: ['report'] },
+];
+
+const SCOPE_BY_VALUE = new Map(GRANT_SCOPES.map((scope) => [scope.value, scope]));
+const scopeKey = (requestTypes) => [...requestTypes].sort().join('|');
+const SCOPE_BY_TYPES = new Map(GRANT_SCOPES.map((scope) => [scopeKey(scope.requestTypes), scope.value]));
 
 // How long a row keeps its "Saved" marker. Long enough to notice on a row you
 // were not looking at, short enough that the table isn't permanently decorated.
 const SAVED_MS = 2600;
 
+/** Every grant this person holds in one application, across all type scopes. */
+function grantsFor(user, applicationId) {
+  return (user?.grants || []).filter((grant) => Number(grant.applicationId) === Number(applicationId));
+}
+
 /** The role this person holds in one application, or '' for none. */
 export function roleFor(user, applicationId) {
-  const found = (user?.grants || []).find((grant) => Number(grant.applicationId) === Number(applicationId));
-  return found ? found.role : '';
+  const found = grantsFor(user, applicationId);
+  if (found.length === 0) return '';
+  // Strongest wins, matching how the server collapses a person's rights when it
+  // asks "may they work in this application at all".
+  return found.reduce((best, grant) => (ROLE_RANK[grant.role] > ROLE_RANK[best] ? grant.role : best), found[0].role);
+}
+
+const ROLE_RANK = { viewer: 0, admin: 1, manager: 2 };
+
+/**
+ * Which named scope this person's grants in one application add up to.
+ *
+ * Returns the scope value, or 'mixed' for a combination the three named shapes
+ * cannot express (different roles per type, or a set of types that is none of
+ * them). 'mixed' is reported rather than rounded off: a cell that silently
+ * displayed the nearest shape would rewrite the real grant on the next save.
+ */
+export function scopeFor(user, applicationId) {
+  const found = grantsFor(user, applicationId);
+  if (found.length === 0) return '';
+  const roles = new Set(found.map((grant) => grant.role));
+  if (roles.size > 1) return 'mixed';
+  return SCOPE_BY_TYPES.get(scopeKey(found.map((grant) => grant.requestType || ''))) || 'mixed';
 }
 
 /**
@@ -86,13 +132,28 @@ export function useAccessManagement() {
     }
   }, [markSaved]);
 
-  /** Set (or clear, with role '') one person's role in one application. */
-  const changeRole = useCallback(async (userId, applicationId, role) => {
+  /**
+   * Set (or clear, with role '') one person's grant in one application.
+   *
+   * Sends the person's WHOLE grant set, as the endpoint expects — so the other
+   * applications must be carried through untouched, type scopes and all. An
+   * earlier version of this pair dropped `requestType` on the way out, and the
+   * server defaulted it to "every type": editing anyone's row quietly promoted
+   * every report-only analyst grant they held into a full one.
+   */
+  const changeGrant = useCallback(async (userId, applicationId, role, scopeValue) => {
     const user = data.users.find((candidate) => candidate.id === userId);
     if (!user) return;
 
     const others = (user.grants || []).filter((grant) => Number(grant.applicationId) !== Number(applicationId));
-    const next = role ? [...others, { applicationId: Number(applicationId), role }] : others;
+    const scope = SCOPE_BY_VALUE.get(scopeValue) || SCOPE_BY_VALUE.get('all');
+    const next = role
+      ? [...others, ...scope.requestTypes.map((requestType) => ({
+        applicationId: Number(applicationId),
+        role,
+        requestType,
+      }))]
+      : others;
 
     await runForUser(userId, async () => {
       const saved = await api.setUserGrants(userId, next);
@@ -124,23 +185,33 @@ export function useAccessManagement() {
    * rows at once, and re-reading is both simpler and the only way to be sure the
    * table matches what was actually written.
    */
-  const applyBulk = useCallback(async ({ applicationIds, role, action }) => {
+  const applyBulk = useCallback(async ({ applicationIds, role, action, scope }) => {
     if (selectedIds.length === 0) return;
     setError('');
     setNotice('');
     try {
-      const result = await api.bulkSetAccess({
-        userIds: selectedIds,
-        applicationIds,
-        role,
-        action,
-      });
+      // One request type per bulk action, so "every type" and "reports only" stay
+      // distinguishable in the confirmation as well as in the write. The two-row
+      // 'work' scope is sent as two actions for the same reason a cell writes two
+      // rows: defect and enhancement are separate grants.
+      const requestTypes = (SCOPE_BY_VALUE.get(scope) || SCOPE_BY_VALUE.get('all')).requestTypes;
+      let result = null;
+      for (const requestType of requestTypes) {
+        result = await api.bulkSetAccess({
+          userIds: selectedIds,
+          applicationIds,
+          role,
+          action,
+          requestType,
+        });
+      }
       await load({ quiet: true });
       const people = `${result.userIds.length} account${result.userIds.length === 1 ? '' : 's'}`;
       const apps = `${result.applicationIds.length} application${result.applicationIds.length === 1 ? '' : 's'}`;
+      const scopeLabel = (SCOPE_BY_VALUE.get(scope) || SCOPE_BY_VALUE.get('all')).label.toLowerCase();
       setNotice(action === 'grant'
-        ? `Granted ${result.role} on ${apps} to ${people}.`
-        : `Removed access to ${apps} from ${people}.`);
+        ? `Granted ${result.role} on ${apps} to ${people}, for ${scopeLabel}.`
+        : `Removed access to ${apps} from ${people}, for ${scopeLabel}.`);
       setSelectedIds([]);
     } catch (bulkError) {
       setError(bulkError?.message || 'That change could not be applied.');
@@ -235,7 +306,7 @@ export function useAccessManagement() {
     blindUsers,
     superUserCount,
     reload: load,
-    changeRole,
+    changeGrant,
     toggleSuperUser,
     applyBulk,
     addGroup,

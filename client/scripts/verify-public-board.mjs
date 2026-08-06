@@ -20,6 +20,10 @@
  *      the throughput page counts by that column and the board's own word for the
  *      end state must not leave it empty.
  *   5. Per-container overflow at three widths in both themes.
+ *   6. A report request is visible ONLY to the person who filed it. Checked from
+ *      a second, session-less browser context — through the list API, the by-id
+ *      route, and the rendered page — because the leak this closes was exactly
+ *      that: signed out, the board listed everybody's.
  *
  * IT WRITES: one public report request, walked through its statuses, and removed
  * again through server/scripts/removeVerificationSubmissions.js with the count
@@ -110,23 +114,25 @@ async function run() {
   let createdId = null;
   try {
     // ── The fixture: one public report request, walked through its statuses ──
-    const created = await context.request.post(`${API}/api/admin/submissions`, {
-      headers,
+    //
+    // Filed through the PUBLIC submit endpoint, signed in, because that is the
+    // only way a report request gets a reporter — and a report request without
+    // one is now visible to nobody on the board (helpers/reportVisibility.js).
+    // The admin create path deliberately leaves `reporter_user_id` null, so a
+    // fixture made that way could not be seen by the very checks below.
+    const created = await context.request.post(`${API}/api/submissions`, {
+      headers: { 'Content-Type': 'application/json' },
       data: {
         type: 'report',
-        status: 'New',
         application_name: application.name,
-        created_by: 'Verification harness',
-        created_by_email: 'verify@example.invalid',
         summary_of_issue: `${MARKER} — safe to delete`,
         what_happened_exact_details: 'Created by scripts/verify-public-board.mjs. Removed by the same run.',
         measures_and_sources: 'One measure, from one place.',
         is_new_dashboard: true,
-        is_public: true,
       },
     }).then((response) => response.json());
     createdId = Number(created?.submission?.id || created?.id);
-    record('a public report request was created', Boolean(createdId), `#${createdId}`);
+    record('a public report request was filed by a signed-in requester', Boolean(createdId), `#${createdId}`);
 
     const save = async (patch) => {
       const current = await context.request.get(`${API}/api/admin/submissions/${createdId}`)
@@ -171,6 +177,52 @@ async function run() {
       row.typeChip === 'Report',
       `chip="${row.typeChip}"`,
     );
+
+    // ── A REPORT REQUEST IS NOT PUBLIC READING ──────────────────────────────
+    // The check above ran in the requester's own session. This is the branch
+    // everybody else is on, and it is where the leak was: signed out, the board
+    // listed every report request that had ever been filed. A second, session-
+    // less context, for the same reason verify-submit-form.mjs opens one — the
+    // signed-in branch is not the branch a stranger sees.
+    const stranger = await browser.newContext({
+      viewport: VIEWPORTS[0], deviceScaleFactor: 2, reducedMotion: 'reduce',
+    });
+    try {
+      const strangerApi = await stranger.request.get(`${API}/api/public/submissions`)
+        .then((response) => response.json());
+      record(
+        'signed out, the board API does not return it at all',
+        Array.isArray(strangerApi) && !strangerApi.some((item) => Number(item.id) === createdId),
+        `${Array.isArray(strangerApi) ? strangerApi.length : '?'} rows, none of them #${createdId}`,
+      );
+      record(
+        'and signed out sees no report request of anyone else\'s either',
+        Array.isArray(strangerApi)
+          && strangerApi.every((item) => String(item.type || '').toLowerCase() !== 'report'),
+        `${(strangerApi || []).filter((item) => String(item.type || '').toLowerCase() === 'report').length} report requests visible`,
+      );
+      // Reading it by its own number must fail the same way a number that does
+      // not exist fails, or guessing ids confirms which ones are out there.
+      const byId = await stranger.request.get(`${API}/api/public/submissions/${createdId}`);
+      record(
+        'and fetching it by id answers 404, not 403',
+        byId.status() === 404,
+        `HTTP ${byId.status()}`,
+      );
+
+      const strangerPage = await stranger.newPage();
+      await strangerPage.goto(`${BASE}/public`, { waitUntil: 'networkidle' });
+      await strangerPage.waitForSelector('.sb-item');
+      const strangerRow = await strangerPage.evaluate(ROW_PROBE, reference);
+      record(
+        'and the board page a stranger actually looks at does not draw it',
+        strangerRow.found === false,
+        strangerRow.found ? 'IT IS ON SCREEN' : 'absent, as it should be',
+      );
+      await shoot(strangerPage, 'public-board-signed-out');
+    } finally {
+      await stranger.close();
+    }
 
     await page.click(`.sb-item:has(.sb-ref:text-is("${reference}")) .sb-row`);
     await page.waitForTimeout(200);
