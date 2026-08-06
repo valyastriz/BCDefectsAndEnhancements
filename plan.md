@@ -97,11 +97,13 @@ second, session-less context for exactly that reason.
 **Merged and deployed:** PR #12 (schema, authorisation sweep, backend), PR #13
 (submit form), PR #14 (Delivery pane, handover trail, approval evidence).
 
-**Verified:** 361 server tests, client lint and production build clean, and **312
+**Verified:** 361 server tests, client lint and production build clean, and **313
 harness checks** across seven committed scripts at 1500/820/390 in both themes — 119
-admin data entry, 60 submit form, 52 throughput, 26 metadata, 21 public board, 19
+admin data entry, 60 submit form, 52 throughput, 26 metadata, 21 public board, 20
 spreadsheet round trip, 15 session store. **All seven were run green at the eleventh
-pass**, and the round trip again at the twelfth (it now compares 16 fields, not 15). Every script that writes ends by printing the hosted count back where it
+pass**, and the round trip again at the twelfth (it now compares 16 fields, not 15,
+and names Approved By / Approved Date / Delivery Notes as mappable rather than
+checking three columns and hoping the rest came with them). Every script that writes ends by printing the hosted count back where it
 found it; it is 86.
 
 **Six working accounts became eight**, and a second KIND of account exists.
