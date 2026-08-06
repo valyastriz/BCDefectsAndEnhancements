@@ -36,6 +36,11 @@ const BASE = process.env.VERIFY_BASE_URL || 'http://localhost:5173';
 const API = process.env.VERIFY_API_URL || 'http://localhost:4000';
 const USER = process.env.ADMIN_USER || 'admin';
 const PASS = process.env.ADMIN_PASS || 'admin123';
+// A reporting analyst: one grant, on one application, narrowed to report requests.
+// Used to prove the Other queue reaches somebody who is not a super user and holds
+// nothing on the application the request is eventually routed to.
+const ANALYST_USER = process.env.ANALYST_USER || 'bc_report_analyst';
+const ANALYST_PASS = process.env.ANALYST_PASS || PASS;
 
 const shotsIndex = process.argv.indexOf('--shots');
 const SHOTS = shotsIndex === -1 ? null : (process.argv[shotsIndex + 1] || './verify-shots');
@@ -389,13 +394,18 @@ async function run() {
     // And an ENHANCEMENT lands in the application it was filed against. The
     // server pinned every one of them to Billing Center regardless of the payload
     // — the same fault as above, one type over.
-    const otherApplication = applications[applications.length - 1];
+    // A REAL application that is not the viewer's own home one, and not the Other
+    // queue — the point is that the payload's application survives, so it has to be
+    // one the fallback would not have picked anyway.
+    const secondApplication = applications
+      .filter((row) => !/^other$/i.test(row.name))
+      .at(-1);
     const filed = await page.request.post(`${API}/api/submissions`, {
       multipart: {
         type: 'enhancement',
         summary_of_issue: `${marker} enhancement — safe to delete`,
         request: 'Check that this lands in the application it was filed against.',
-        application_name: otherApplication.name,
+        application_name: secondApplication.name,
       },
     }).then((response) => response.json());
     if (filed?.id) fixtureIds.push(Number(filed.id));
@@ -406,9 +416,94 @@ async function run() {
       : null;
     record(
       'an enhancement lands in the application it was filed against',
-      filedRow?.application_name === otherApplication.name,
-      `filed against ${otherApplication.name}, stored as ${filedRow?.application_name}`,
+      filedRow?.application_name === secondApplication.name,
+      `filed against ${secondApplication.name}, stored as ${filedRow?.application_name}`,
     );
+
+    // ── "Other": the queue every reporting analyst can see ──────────────────
+    // Sometimes the honest answer to "whose data is this?" is "both" or "I do not
+    // know", and the request still has to land where somebody will pick it up.
+    // Other is a real application, so it is a queue with grants, it appears in the
+    // queue's application filter, and the existing Redirect action moves the
+    // ticket to its real home with a trail in `submission_routings`.
+    //
+    // The strong claim is that an analyst with NO grant on either real application
+    // can see it and route it. `ANALYST_USER` is one of those: its own grant is on
+    // one application only.
+    const otherApplication = applications.find((row) => /^other$/i.test(row.name));
+    record(
+      '"Other" is one of the applications a requester can choose',
+      Boolean(otherApplication),
+      applications.map((row) => row.name).join(' · '),
+    );
+
+    if (otherApplication) {
+      const filedAsOther = await page.request.post(`${API}/api/submissions`, {
+        multipart: {
+          type: 'report',
+          summary_of_issue: `${marker} other queue — safe to delete`,
+          what_happened_exact_details: 'Nobody knows which system this comes out of yet.',
+          measures_and_sources: 'One measure, source unknown.',
+          is_new_dashboard: 'true',
+          application_name: otherApplication.name,
+        },
+      }).then((response) => response.json());
+      const otherId = Number(filedAsOther?.id);
+      if (otherId) fixtureIds.push(otherId);
+      const storedAsOther = otherId
+        ? await page.request.get(`${API}/api/admin/submissions/${otherId}`).then((r) => r.json())
+        : null;
+      record(
+        'a report request filed as Other lands in the Other queue',
+        storedAsOther?.application_name === otherApplication.name && storedAsOther?.type === 'report',
+        `#${otherId} stored as ${storedAsOther?.application_name} / ${storedAsOther?.type}`,
+      );
+
+      // An analyst whose only grant is on ONE application still works this queue.
+      const analystContext = await browser.newContext();
+      try {
+        await analystContext.request.post(`${API}/api/auth/login`, {
+          data: { username: ANALYST_USER, password: ANALYST_PASS },
+        });
+        const analystViewer = (await analystContext.request.get(`${API}/api/viewer`)
+          .then((r) => r.json())).viewer;
+        const seen = await analystContext.request
+          .get(`${API}/api/admin/submissions?search=${encodeURIComponent(`${marker} other queue`)}`)
+          .then((r) => r.json());
+        const seenRows = Array.isArray(seen) ? seen : (seen.submissions || []);
+        const asAnalyst = await analystContext.request.get(`${API}/api/admin/submissions/${otherId}`)
+          .then((r) => r.json());
+        record(
+          'a reporting analyst sees the Other queue and may work what is in it',
+          seenRows.some((row) => Number(row.id) === otherId) && asAnalyst.can_edit === true,
+          `${analystViewer.user.username} administers ${JSON.stringify(analystViewer.adminApplicationIds)}; sees #${otherId}: ${seenRows.some((row) => Number(row.id) === otherId)}, can_edit: ${asAnalyst.can_edit}`,
+        );
+
+        // And routes it to its real home, which is the point of the queue.
+        const target = applications.find((row) => !/^other$/i.test(row.name)
+          && analystViewer.adminApplicationIds.includes(Number(row.id)));
+        const csrfAnalyst = (await analystContext.cookies())
+          .find((cookie) => cookie.name === 'bc_csrf')?.value || '';
+        const redirected = await analystContext.request.post(
+          `${API}/api/admin/submissions/${otherId}/redirect`,
+          {
+            headers: { 'X-CSRF-Token': csrfAnalyst, 'Content-Type': 'application/json' },
+            data: { toApplicationId: target?.id, note: 'It is billing data after all.' },
+          },
+        );
+        const afterMove = await page.request.get(`${API}/api/admin/submissions/${otherId}`)
+          .then((r) => r.json());
+        record(
+          'and can route it out of Other to the application that owns it',
+          redirected.ok()
+            && afterMove.application_name === target?.name
+            && (afterMove.routings || []).length === 1,
+          `${redirected.status()} → ${afterMove.application_name}, ${(afterMove.routings || []).length} hand-off recorded`,
+        );
+      } finally {
+        await analystContext.close();
+      }
+    }
 
     const application = applications[0];
     const made = await page.request.post(`${API}/api/admin/submissions`, {

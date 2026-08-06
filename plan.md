@@ -351,6 +351,52 @@ that read the previous filter's rows, a `.dm-pane` class that does not exist, an
 `.submission` on a detail response that is flat. Waits are now keyed to the query
 the click produces.
 
+### The application picker, and the "Other" queue (2026-08-06, sixth pass)
+
+**The select looked like a system dialog from another decade** — grey bevel, its own
+font, nothing to do with the field above it. It was the submit form's FIRST select,
+so `.rs-field select` had never been written: `input` and `textarea` were styled and
+nothing else. It now shares that rule, with the browser chrome switched off and the
+caret drawn as a background image — the same treatment `.md-picker-select` uses —
+plus explicit option colours, or dark mode gives black text on a black sheet.
+
+**"Other" is a real application, not a flag.** Sometimes the honest answer to "whose
+data is this?" is "both" or "I do not know", and the request still has to land where
+somebody will pick it up. Making that somewhere an application row buys the existing
+machinery whole: it is a queue with grants, it appears in the queue's application
+filter, and the **Redirect** action already moves a ticket to its real home and
+records the hand-off in `submission_routings`.
+
+The alternative was a null `application_id`, which the portal already has a name for
+("No application set"). That is the wrong home: only a SUPER USER sees those rows, so
+a request nobody had claimed would be visible to nobody who works the queue.
+
+`npm run seed:other-application` (dry run by default) creates it last in the list —
+it is the answer you reach for when none of the real ones fit — and grants it to
+**everybody who works report requests anywhere, derived from the grants that
+exist** rather than a list typed into the script. Somebody holding an all-types
+grant works report requests too, so they are included; their grant on Other is
+narrowed to `report`, because Other exists for requests whose application is not yet
+known and that only happens to a report request. Re-run it after granting somebody
+new. Six people hold it today; super users need no grant.
+
+**A hardcode this exposed, now fixed:** the import route accepted a default
+application only from `['Billing Center', 'Policy Center']` — a literal pair — so it
+would have refused Other outright, and any future application with it. Both that
+check and the list the dialog is offered now come from the applications table.
+
+Verified end to end by 55 checks in `verify-submit-form.mjs`: the picker offers
+Other, a report request filed as Other lands in the Other queue, **an analyst whose
+only grant is on one application sees it and may work it** (`bc_report_analyst`,
+`can_edit: true`), and they route it out to the application that owns it with one
+hand-off recorded.
+
+**The hosted baseline moves as the owner tests.** It is 85 as of this pass: 83 plus
+#117 "Testing a report request" and #131 "Testing for a report", both filed through
+the live form by the owner. Neither is a harness fixture — every one of those carries
+a `VERIFY` marker and is removed by the run that made it — so both were left alone.
+Read the count from the removal script rather than trusting a number written here.
+
 ### Not done, on purpose
 
 - **§5 step 6** — screenshots and docs. Unstarted.

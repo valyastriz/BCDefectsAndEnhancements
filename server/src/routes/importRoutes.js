@@ -10,6 +10,7 @@ const {
   resolveSubmissionLookupIds,
   collectMissingLookupIds,
   formatMissingLookupError,
+  getApplications,
   getDefectEnhancementStatuses,
   getLevelsOfEffort,
   getLookupIdByName,
@@ -225,10 +226,15 @@ router.post('/api/admin/submissions/import-xlsx', ensureAdmin, tempUpload.single
   }
   const normalizedColumnMappings = normalizeColumnMappings(columnMappings);
 
+  // Checked against the applications the portal actually has, not two names typed
+  // in here. The hardcoded pair silently refused any third application — which
+  // stopped being hypothetical the moment "Other" was added as the queue a report
+  // request lands in when nobody knows whose data it is yet.
+  const activeApplications = await withDb(async (db) => getApplications(db));
   const defaultApplicationNameRaw = String(req.body?.defaultApplicationName || '').trim();
-  const defaultApplicationName = ['Billing Center', 'Policy Center'].includes(defaultApplicationNameRaw)
-    ? defaultApplicationNameRaw
-    : '';
+  const defaultApplicationName = activeApplications.some(
+    (name) => name.toLowerCase() === defaultApplicationNameRaw.toLowerCase(),
+  ) ? defaultApplicationNameRaw : '';
 
   let statusValueMappings = {};
   try {
@@ -330,7 +336,9 @@ router.post('/api/admin/submissions/import-xlsx', ensureAdmin, tempUpload.single
         error: 'No Application column was detected. Please choose a default application before importing.',
         mappingRequired: true,
         mappingField: 'defaultApplicationName',
-        availableApplications: ['Billing Center', 'Policy Center'],
+        // The real list, so the dialog offers what exists rather than what was
+        // true when this line was written.
+        availableApplications: activeApplications,
       });
     }
 

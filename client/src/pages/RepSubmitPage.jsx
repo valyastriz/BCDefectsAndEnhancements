@@ -738,7 +738,9 @@ export function RepSubmitPage() {
                   name="application_name"
                   label="Which application is the data from?"
                   required
-                  help="The system the numbers come out of, not the team asking for them."
+                  help="The system the numbers come out of, not the team asking for them.
+                        If it spans more than one, or you are not sure, choose Other —
+                        it goes to every reporting analyst and they will route it."
                   error={errorFor('application_name')}
                 >
                   <select

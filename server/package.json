@@ -9,6 +9,7 @@
     "migrate": "node scripts/migrate.js",
     "seed:admin": "node src/seedAdmin.js",
     "seed:team-accounts": "node scripts/seedTeamAccounts.js",
+    "seed:other-application": "node scripts/seedOtherApplication.js",
     "seed:sample": "node src/seedSampleData.js",
     "backfill:embeddings": "node scripts/backfillEmbeddings.js",
     "backfill:public-visibility": "node scripts/backfillPublicVisibility.js",
