@@ -17,8 +17,8 @@ sections after it are the historical record and unchanged.
 record of HOW, in the order it happened; this block is WHERE THINGS STAND. If the
 two ever disagree, this block is newer.
 
-**Nothing is in flight.** `main` is clean, pushed, and deployed (`562e900` is the
-last commit). Seven passes shipped on 2026-08-06:
+**Nothing is in flight.** `main` is clean, pushed, and deployed (`7ee3003` is the
+last commit). Eight passes shipped on 2026-08-06:
 
 | Commit | What |
 |---|---|
@@ -28,20 +28,20 @@ last commit). Seven passes shipped on 2026-08-06:
 | `2cecec0` | Five more owner items (+ the Report tab showing the request at all) |
 | `fc44be1` | The application picker's styling, and the "Other" queue |
 | `562e900` | "Requester Name is required" while signed in — a lapsed session, told honestly |
+| `7ee3003` | Sessions that survive a deploy — the persistent store, and the cause removed |
 
-**One decision is waiting on the owner, and it is the only thing anybody is
-blocked on:** sessions live in `express-session`'s default MemoryStore, so every
-deploy signs everyone out. The form now says so in plain words and keeps what was
-typed, but a persistent store (`connect-pg-simple` against the same Postgres) would
-stop it happening at all — one dependency, one table on the shared database, and it
-must be conditional because local dev runs on sql.js. **I recommended doing it**;
-the owner has not answered. See the seventh-pass section.
+**No decision is outstanding.** The one that was — whether to persist sessions —
+was answered "do it" by the owner and shipped as `7ee3003`. See the eighth-pass
+section.
 
 **The next substantial piece of work is §5 step 6 — screenshots and docs.** Read
 `### Not done, on purpose` before starting it: the screenshot HARNESS does not
-exist (the six verify scripts can write PNGs with `--shots`, but the
+exist (the seven verify scripts can write PNGs with `--shots`, but the
 manifest-driven capture the docs need is unwritten), and that is the first task of
-that pass, not an afterthought.
+that pass, not an afterthought. **The owner asked on 2026-08-06, after `7ee3003`,
+to do their own testing and make any last changes before this pass starts** — so
+expect the surface to move, and take the screenshots after their changes, not
+before.
 
 **Six working accounts exist on the hosted database** (fifth pass), all with the
 seeded password from `.env`, none a super user, none a `manager`:
@@ -85,11 +85,13 @@ second, session-less context for exactly that reason.
 **Merged and deployed:** PR #12 (schema, authorisation sweep, backend), PR #13
 (submit form), PR #14 (Delivery pane, handover trail, approval evidence).
 
-**Verified:** 319 server tests, client lint and production build clean, and **275
-harness checks** across six committed scripts at 1500/820/390 in both themes — 110
+**Verified:** 332 server tests, client lint and production build clean, and **290
+harness checks** across seven committed scripts at 1500/820/390 in both themes — 110
 admin data entry, 51 submit form, 52 throughput, 26 metadata, 19 spreadsheet round
-trip, 17 public board. Every script that writes ends by printing the hosted
-submission count back where it found it.
+trip, 17 public board, 15 session store. Every script that writes ends by printing
+the hosted count back where it found it. The six page scripts were last run in full
+at the seventh pass; the eighth re-ran metadata (26/26) and added the session-store
+script.
 
 The second pass shipped as `dfd944f` on `main`. The spreadsheet round trip that
 followed it is the third pass — see "The spreadsheet round trip" below.
@@ -481,25 +483,84 @@ Fixed so the failure is honest and recoverable:
   answer, and re-reads the viewer — so the name field comes back and the request can
   be sent without signing in again if that is quicker.
 
-**Still open, and the owner's call:** sessions do not survive a restart. A
-persistent store (`connect-pg-simple` against the same Postgres, or any store)
-would stop the sign-out happening at all, at the cost of one dependency and one
-table on the shared database — and it would need to be conditional, because local
-development runs on sql.js where a Postgres store cannot work. Until then, expect to
-be signed out by every deploy; the form now says so plainly.
+~~**Still open, and the owner's call:** sessions do not survive a restart.~~
+**Answered and done** — see the eighth pass, immediately below.
+
+### Sessions that survive a deploy (2026-08-06, eighth pass)
+
+The seventh pass made the failure honest. This removes its cause. The owner's
+answer to the one open decision was to do it.
+
+**`connect-pg-simple` against the same Postgres, into a new `user_sessions`
+table.** One dependency, one additive table, no change to any route.
+
+- **Conditional, because it has to be.** `SESSION_STORE=auto` (the default, and
+  what deploys run) uses the store when the app is already on Postgres and
+  MemoryStore otherwise — local development runs on sql.js, where a Postgres store
+  cannot work. `pg` and `memory` force either one; `memory` is the escape hatch if
+  the store ever misbehaves in production, flippable as an env var without a code
+  change. **`pg` with no `DATABASE_URL` throws rather than falling back**: falling
+  back there would quietly reinstate this exact bug in the one environment whose
+  operator explicitly asked for the opposite. Nine tests in
+  `test/sessionStore.test.js` pin the fallback as hard as the happy path.
+- **The store announces itself on boot** — `[sessionStore] Postgres, table
+  "user_sessions" (DB_PROVIDER=postgres)` or `[sessionStore] MemoryStore (…)`,
+  with the reason. That line is the only honest way to confirm which branch an
+  environment took, short of an endpoint that reports configuration, which is not
+  worth having.
+- **The honest expired path is kept, not replaced.** It should stop firing on
+  deploys, and that is all: an 8-hour expiry, a pruned row, and a local sql.js box
+  all still reach it. `arrivedWithASession` and its five tests are unchanged; only
+  the comment above it was corrected, because it asserted a cause that is now gone.
+- `npm run migrate:session-store` (dry run by default, `-- --apply` to write).
+  **Applied to the hosted database**, idempotent, and a re-run reports the row
+  count instead. The store also carries `createTableIfMissing`, so an environment
+  that deploys ahead of the script still works; the script exists so the change is
+  reviewable and names its own constraint and index rather than inheriting the
+  bundled file's `session_pkey` on a table that is not called `session`.
+- Its own two-connection pool, sharing Sequelize's SSL treatment via a
+  `normalizeDatabaseUrl` helper now exported from `db/sequelize.js` — the Supabase
+  URL's `sslmode=require` makes `pg` verify a chain the pooler's certificate fails.
+  Expired rows are swept every 15 minutes, not the store's default 60 seconds.
+
+**`verify-session-store.mjs` is the seventh harness script, and it is shaped by
+what the bug is.** No page shows this, and no single process can: the script
+**spawns its own server on a spare port** (4100), signs in, kills it, spawns a
+fresh one on the same port, and presents the same cookie. It needs no browser, no
+Vite, and not the server on :4000 — it brings its own, which also means each boot
+gets a fresh in-memory login limiter, so it cannot 429 itself.
+
+**The control is the half that makes it mean anything.** The same sequence runs
+again with `SESSION_STORE=memory`, where the session MUST be lost. Without it a
+pass only shows the cookie was accepted, not that Postgres is what accepted it. A
+third boot with the setting unset confirms the shipping default resolves the same
+way. 15 checks, and the table is left at the row count it started with.
+
+**A probe was wrong before the code was, again — the fourth trap, on cue.** The
+first version of the auto-mode check read `process.env.DB_PROVIDER` from its own
+process and concluded it was on sql.js. `server/.env` is loaded by the server's
+dotenv in the server's directory; a script in `client/` sees none of it. It now
+takes the dialect from the migration script's own output, which is the app
+answering the question.
+
+**One live row is not litter.** A browser script that signs in and never signs out
+leaves a session behind — that is the store working. It expires in 8 hours and the
+pruner sweeps it.
 
 ### Not done, on purpose
 
 - **§5 step 6** — screenshots and docs. Unstarted, and the biggest thing left. The
-  screenshot HARNESS does not exist: the six verify scripts write PNGs with
+  screenshot HARNESS does not exist: the seven verify scripts write PNGs with
   `--shots`, but the manifest-driven capture the docs need is unwritten. Write that
   first rather than shooting by hand — 43+ desktop screenshots were re-shot once
-  already after a rename.
-- **Sessions do not survive a restart** (seventh pass). The owner's call, and the
-  only open decision. Recommended: do it.
-- **A persistent session store would need to be conditional.** Local development
-  runs on sql.js; a Postgres-backed store cannot work there, so whatever lands has
-  to fall back to MemoryStore when `DB_PROVIDER` is not postgres.
+  already after a rename. **Held on purpose at the eighth pass:** the owner asked
+  to test and make last changes first, and shooting before that means shooting
+  twice.
+- ~~**Sessions do not survive a restart**~~ — done, eighth pass.
+- **The session store's fallback is load-bearing, not a nicety.** Local
+  development runs on sql.js, where a Postgres-backed store cannot work. Anything
+  that touches `middleware/session.js` has to keep the MemoryStore branch working,
+  and `test/sessionStore.test.js` is what says so.
 - **The five `401 Unauthorized` fetches on the public routes** are still untraced
   (§3b). Pre-existing, harmless-looking, never chased.
 - **`feat/admin-detail-modal-redesign`** still needs a keep-or-delete decision (see
@@ -679,6 +740,12 @@ branch). Two remain, both needing a decision:
      and check all three refusal paths. **Writes** four report requests and removes
      them. Needs no browser for most of it (it drives the API directly) and builds
      its fixture sheets with `xlsx`, a client devDependency. 19 checks.
+   - `verify-session-store.mjs` — sessions outlive a restart. **Brings its own
+     servers** on port 4100 (spawn, sign in, kill, spawn again, present the same
+     cookie) because no single process can show this, so it needs neither :4000
+     nor Vite nor a browser. Runs the same sequence with `SESSION_STORE=memory` as
+     a control, where the session must be LOST. **Writes** session rows only,
+     signs out of them, and prints the `user_sessions` count. 15 checks.
    - `lib/overflow-probe.mjs` — the per-container overflow probe every one of them
      uses. Read its header before changing it: each exclusion in it is there
      because a false positive buried a real finding.
@@ -686,8 +753,8 @@ branch). Two remain, both needing a decision:
      its header too: it exists because a chart drew 27 above the line marked 30
      while passing every other check.
 
-   All five need the server on :4000 and Vite on :5173 already running, and take
-   an optional `--shots <dir>`. If Vite has been running across a lot of edits its
+   All of them except `verify-session-store.mjs` need the server on :4000 and Vite
+   on :5173 already running, and take an optional `--shots <dir>`. If Vite has been running across a lot of edits its
    module graph can go stale and a page will fail to mount with a bogus "does not
    provide an export named …" — restart it rather than debugging the source.
 
@@ -705,8 +772,10 @@ branch). Two remain, both needing a decision:
    removed by hand. Redirect to a file and read the file.
 
    `/api/auth/login` allows **10 attempts per 15 minutes per IP**. One full pass of
-   all five is six logins, so a burst of re-runs starts answering 429 — and a 429
-   mid-run looks exactly like a broken check.
+   the six page scripts is six logins, so a burst of re-runs starts answering 429 —
+   and a 429 mid-run looks exactly like a broken check. The limiter is in-memory
+   per process (`middleware/rateLimit.js`), which is why the session-store script,
+   whose every boot is a fresh process, is exempt.
 
 ## 1. Landed and verified (2026-08-05, first pass)
 
