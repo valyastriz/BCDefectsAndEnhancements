@@ -299,10 +299,31 @@ export function AdminDashboardPage({ user, onLogout }) {
     viewer.homeApplicationId,
   ]);
 
+  // The report queue draws its OWN columns and saves its own layout. Derived the
+  // same way CommandBar presses its segment — exactly the report type selected
+  // and nothing else — so the two can never disagree about which queue is on
+  // screen. A hand-picked mix in the filter panel is not the report queue and
+  // keeps the shared set.
+  const isReportQueue = useMemo(() => {
+    const types = Array.isArray(filters.types) ? filters.types : [];
+    return types.length === 1 && /^report/i.test(String(types[0] || ''));
+  }, [filters.types]);
+
+  // The columns this queue draws, with the one label that is wrong on it fixed.
+  // A report request's statuses are their own list (statusConstants), so
+  // "Defect/Enhancement Status" names a list it is not on — the detail modal has
+  // called it plain "Status" here since the statuses were split, and the queue
+  // header was the last place still saying the other thing.
+  const visibleColumns = useMemo(() => {
+    const base = isReportQueue ? viewPrefs.orderedReportColumns : viewPrefs.orderedVisibleColumns;
+    if (!isReportQueue) return base;
+    return base.map((column) => (column.key === 'status' ? { ...column, label: 'Status' } : column));
+  }, [isReportQueue, viewPrefs.orderedReportColumns, viewPrefs.orderedVisibleColumns]);
+
   const handleViewSave = useCallback((next) => {
-    viewPrefs.saveView(next);
+    viewPrefs.saveView({ ...next, forReports: isReportQueue });
     setCustomizeOpen(false);
-  }, [viewPrefs]);
+  }, [viewPrefs, isReportQueue]);
 
   // A hidden filter must never silently constrain the table. Filter values are
   // restored from this browser's localStorage while the visible-filter set comes
@@ -868,7 +889,7 @@ export function AdminDashboardPage({ user, onLogout }) {
           filters={filters}
           setFilters={setFilters}
           openDetail={openDetail}
-          orderedVisibleColumns={viewPrefs.orderedVisibleColumns}
+          orderedVisibleColumns={visibleColumns}
           updateStatusQuick={updateStatusQuick}
           updateCleanupStatusQuick={updateCleanupStatusQuick}
           updatePublicQuick={updatePublicQuick}
@@ -952,8 +973,12 @@ export function AdminDashboardPage({ user, onLogout }) {
         <CustomizeViewModal
           open={customizeOpen}
           onClose={() => setCustomizeOpen(false)}
-          columns={viewPrefs.columns}
+          columns={isReportQueue ? viewPrefs.reportColumns : viewPrefs.columns}
           filters={viewPrefs.filters}
+          // Says WHICH queue's layout is being edited, so the dialog can say so
+          // too — otherwise "Customize view" silently means two different things
+          // depending on a segment somewhere else on the page.
+          scopeLabel={isReportQueue ? 'the report request queue' : 'the defect & enhancement queue'}
           onSave={handleViewSave}
           onReset={() => {
             viewPrefs.resetView();

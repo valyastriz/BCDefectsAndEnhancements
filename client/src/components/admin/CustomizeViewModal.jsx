@@ -35,7 +35,7 @@ function buildInitialColumns(columns) {
  * Mounted only while open (parent gates with `open &&`), so the lazy useState
  * initializers seed a fresh draft from the current saved view each time.
  */
-export function CustomizeViewModal({ open, onClose, columns, filters, onSave, onReset }) {
+export function CustomizeViewModal({ open, onClose, columns, filters, onSave, onReset, scopeLabel = '' }) {
   // draftColumns: [{ key, label, visible }] in display order.
   const [draftColumns, setDraftColumns] = useState(() => buildInitialColumns(columns));
   const [draftFilterSet, setDraftFilterSet] = useState(
@@ -85,6 +85,11 @@ export function CustomizeViewModal({ open, onClose, columns, filters, onSave, on
         <Card title={`Columns (${visibleColumnCount} of ${ADMIN_TABLE_COLUMNS.length} shown)`}>
           <p className="muted" style={{ marginTop: 0 }}>
             Check the columns to show and use the arrows to reorder them.
+            {/* Which queue this layout belongs to. The two do not share one — a
+                report request has no Service Desk number or cleanup status and
+                does have an assignee — so without this line the same dialog
+                would silently mean two different things. */}
+            {scopeLabel ? <> Saved for <strong>{scopeLabel}</strong>.</> : null}
           </p>
           <div className="stack" style={{ gap: 6, maxHeight: 320, overflowY: 'auto', paddingRight: 4 }}>
             {draftColumns.map((column, index) => (

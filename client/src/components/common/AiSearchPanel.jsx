@@ -280,19 +280,25 @@ export function AiSearchPanel({
             border: '1px solid color-mix(in srgb, var(--color-primary) 35%, transparent)',
           }}
         >
+          {/* "Closest matches", not "AI summary". The panel answers "what is
+              nearest to this", and labelling it as a summary invited reading the
+              paragraph below as a ruling on whether the thing had been reported
+              — which is a question similarity cannot answer. The two badges stay:
+              they report on a time window the searcher explicitly asked for, and
+              they say nothing about sameness. */}
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 6 }}>
-            <strong>AI summary</strong>
+            <strong>Closest matches</strong>
             {summary.reported_in_window && <Badge tone="success">Reported in window</Badge>}
             {summary.resolved_in_window && <Badge tone="info">Resolved in window</Badge>}
           </div>
           <p style={{ margin: 0 }}>{summary.answer_summary}</p>
-          {matches.length > 0 && (
-            <p className="muted" style={{ margin: '8px 0 0', fontSize: 13 }}>
-              {matches.length === 1
-                ? 'The ticket it refers to is shown below.'
-                : `This and the other matching tickets (${matches.length}) are shown below for review.`}
-            </p>
-          )}
+          <p className="muted" style={{ margin: '8px 0 0', fontSize: 13 }}>
+            {matches.length === 0
+              ? 'Nothing on this topic among the tickets searched — which is what the search found, not a ruling that it is new.'
+              : (matches.length === 1
+                ? 'The ticket described above is shown below. You decide whether it is the same thing.'
+                : `The one described above and ${matches.length - 1} other close ${matches.length === 2 ? 'match is' : 'matches are'} shown below. You decide whether any of them is the same thing.`)}
+          </p>
         </div>
       )}
 

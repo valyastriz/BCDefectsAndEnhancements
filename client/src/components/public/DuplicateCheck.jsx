@@ -187,9 +187,12 @@ export function DuplicateCheck({ query, requestType = '' }) {
 
       {hasHits && open && !loading && (
         <>
+          {/* Labelled by what it is — a description of the nearest ticket —
+              rather than as a summary, which reads as a ruling on whether the
+              thing has already been reported. The requester decides that. */}
           {showSummary && (
             <div className="rs-dupe-sum">
-              <b>AI summary</b>
+              <b>The closest one</b>
               {summary.answer_summary}
             </div>
           )}

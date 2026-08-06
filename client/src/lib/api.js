@@ -180,11 +180,14 @@ export const api = {
   // `pinnedApplication` is the queue scope this admin lands on: an application
   // name, the '__all__' sentinel, or null to unpin. The endpoint replaces the
   // whole row, so every caller sends all three fields.
-  saveAdminViewPreferences: ({ columns, filters, pinnedApplication = null }) =>
+  // `reportColumns` is the report-request queue's own layout. The endpoint
+  // replaces the whole row, so both sets are always sent — omitting one would
+  // wipe it every time the other was saved.
+  saveAdminViewPreferences: ({ columns, filters, reportColumns = null, pinnedApplication = null }) =>
     request('/api/admin/view-preferences', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ columns, filters, pinnedApplication }),
+      body: JSON.stringify({ columns, filters, reportColumns, pinnedApplication }),
     }),
   resetAdminViewPreferences: () =>
     request('/api/admin/view-preferences', { method: 'DELETE' }),

@@ -521,6 +521,84 @@ h1, h2, h3, h4, h5, h6 {
   min-height: 88px;
 }
 
+/* ── File pickers ──────────────────────────────────────────────────────────
+   A bare <input type="file"> renders its own button from the OS, so on Windows
+   the admin modals had a grey "Choose File" chrome button sitting next to
+   fields that follow the design system, and it did not follow the theme at all
+   — in dark mode it stayed light.
+
+   Styled here rather than replaced with a hidden input behind a real button:
+   the native control carries the accept filter, multi-select and drag-and-drop
+   for free, and every one of those would have to be rebuilt. Only its button
+   is redrawn, as a secondary action, which is what it is.
+
+   `::file-selector-button` is the standard selector; the -webkit- alias is kept
+   for older Chromium/Electron builds, and the two cannot be combined into one
+   rule because an unknown selector invalidates the whole list. */
+input[type='file'] {
+  font: inherit;
+  font-size: 13.5px;
+  color: var(--color-muted);
+  max-width: 100%;
+}
+
+input[type='file']::file-selector-button {
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  margin-right: 10px;
+  padding: 7px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text);
+  cursor: pointer;
+  transition: background .15s, border-color .15s, color .15s;
+}
+
+input[type='file']::-webkit-file-upload-button {
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  margin-right: 10px;
+  padding: 7px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+input[type='file']:hover::file-selector-button {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 8%, var(--color-surface));
+}
+
+input[type='file']:focus-visible::file-selector-button {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 1px;
+}
+
+input[type='file']:disabled { color: var(--slate-500); }
+input[type='file']:disabled::file-selector-button {
+  opacity: .5;
+  cursor: not-allowed;
+  border-color: var(--color-border);
+  color: var(--color-muted);
+}
+
+/* The `.bs-field` rule above gives every input a full-width box and a border.
+   On a file input that draws a second border around the OS control, so the
+   field wrapper hands its box back and the button carries the styling. */
+.bs-field input[type='file'] {
+  border: 0;
+  padding: 4px 0;
+  background: transparent;
+}
+.bs-field input[type='file']:focus { box-shadow: none; }
+.bs-field input[type='file']:disabled { background: transparent; }
+
 .bs-select-wrap {
   position: relative;
 }

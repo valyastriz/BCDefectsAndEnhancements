@@ -326,6 +326,10 @@ const ADMIN_VIEW_COLUMN_KEYS = [
   'policiesImpacted',
   'frequency',
   'application',
+  // Who is working it. A report request is assigned to a person; a defect is
+  // handed to the Service Desk, which is why this arrives with the report queue's
+  // own column set rather than as one more column on the shared one.
+  'assignedTo',
 ];
 const ADMIN_VIEW_FILTER_KEYS = [
   'statuses',

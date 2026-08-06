@@ -24,6 +24,8 @@ router.put('/api/admin/view-preferences', ensureAdmin, async (req, res) => {
   return withDb(async (db) => {
     const saved = await saveViewPreference(db, req.session.user.id, {
       columns: body.columns,
+      // The report-request queue's own column set — see sanitizeViewPreference.
+      reportColumns: body.reportColumns,
       filters: body.filters,
       // The queue scope this admin pinned as their default. Sent as null to unpin.
       pinnedApplication: body.pinnedApplication,

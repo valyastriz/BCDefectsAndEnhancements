@@ -262,4 +262,17 @@ export const COLUMN_DEFS = {
       </td>
     ),
   },
+  // Who is working it. The report queue's column — a defect goes to the Service
+  // Desk rather than to a person, so on those rows this is legitimately empty and
+  // says "Unassigned" rather than rendering blank.
+  assignedTo: {
+    headerStyle: { width: 150, minWidth: 150 },
+    renderCell: (row) => (
+      <td data-label="Assigned To" style={{ width: 150, minWidth: 150 }}>
+        {row.assigned_to_name
+          ? row.assigned_to_name
+          : <span className="muted">Unassigned</span>}
+      </td>
+    ),
+  },
 };

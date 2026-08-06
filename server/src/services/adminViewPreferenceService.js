@@ -49,12 +49,45 @@ function sanitizeKeyList(value, allowedSet) {
  * Validate an incoming view preference payload down to known column/filter keys.
  * Pure (no DB) so it can be unit-tested in isolation.
  */
-function sanitizeViewPreference({ columns, filters, pinnedApplication } = {}) {
+function sanitizeViewPreference({ columns, filters, reportColumns, pinnedApplication } = {}) {
   return {
     columns: sanitizeKeyList(columns, COLUMN_KEY_SET),
+    // The report-request queue keeps its OWN column set. The two kinds of work do
+    // not share a useful set of columns — a report request has no Service Desk
+    // number, no JIRA card and no cleanup status, and does have an assignee — so
+    // one saved view serving both means customising either one spoils the other.
+    reportColumns: sanitizeKeyList(reportColumns, COLUMN_KEY_SET),
     filters: sanitizeKeyList(filters, FILTER_KEY_SET),
     pinnedApplication: sanitizePinnedApplication(pinnedApplication),
   };
+}
+
+/**
+ * Read a stored column set, accepting both shapes.
+ *
+ * `columns_json` used to hold a bare array and now holds
+ * `{ default: [...], report: [...] }`. Stored in the one TEXT column rather than
+ * a new one because it is the same preference asked twice, and because a shape
+ * change costs nothing here while a migration on a live table is not free.
+ *
+ * A legacy array reads as the default set with no report set, which is exactly
+ * what an admin who saved a view before this existed should see: their view,
+ * untouched, and the report defaults until they customise those too.
+ */
+function parseStoredColumns(value) {
+  if (!value) return { columns: null, reportColumns: null };
+  try {
+    const parsed = JSON.parse(String(value));
+    if (Array.isArray(parsed)) {
+      return { columns: sanitizeKeyList(parsed, COLUMN_KEY_SET), reportColumns: null };
+    }
+    return {
+      columns: parsed?.default ? sanitizeKeyList(parsed.default, COLUMN_KEY_SET) : null,
+      reportColumns: parsed?.report ? sanitizeKeyList(parsed.report, COLUMN_KEY_SET) : null,
+    };
+  } catch {
+    return { columns: null, reportColumns: null };
+  }
 }
 
 function parseStoredList(value, allowedSet) {
@@ -80,9 +113,11 @@ async function getViewPreference(db, userId) {
     'SELECT * FROM admin_view_preferences WHERE user_id = ?',
     [userId],
   );
-  if (!row) return { columns: null, filters: null, pinnedApplication: null };
+  if (!row) return { columns: null, reportColumns: null, filters: null, pinnedApplication: null };
+  const stored = parseStoredColumns(row.columns_json);
   return {
-    columns: parseStoredList(row.columns_json, COLUMN_KEY_SET),
+    columns: stored.columns,
+    reportColumns: stored.reportColumns,
     filters: parseStoredList(row.filters_json, FILTER_KEY_SET),
     pinnedApplication: sanitizePinnedApplication(row.pinned_application),
   };
@@ -94,7 +129,9 @@ async function getViewPreference(db, userId) {
  */
 async function saveViewPreference(db, userId, payload) {
   const clean = sanitizeViewPreference(payload);
-  const columnsJson = JSON.stringify(clean.columns);
+  // Both sets in the one field. Written as an object always, so a row saved once
+  // never reads back through the legacy-array branch again.
+  const columnsJson = JSON.stringify({ default: clean.columns, report: clean.reportColumns });
   const filtersJson = JSON.stringify(clean.filters);
   const updatedAt = new Date().toISOString();
 

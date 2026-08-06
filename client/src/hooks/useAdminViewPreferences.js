@@ -6,6 +6,7 @@ import {
   ALL_COLUMN_KEYS,
   ALL_FILTER_KEYS,
   DEFAULT_VISIBLE_COLUMN_KEYS,
+  DEFAULT_VISIBLE_REPORT_COLUMN_KEYS,
   DEFAULT_VISIBLE_FILTER_KEYS,
 } from '../constants/adminConstants';
 
@@ -42,12 +43,12 @@ function readCache() {
   }
 }
 
-function writeCache(columns, filters, pinnedApplication) {
+function writeCache(columns, filters, pinnedApplication, reportColumns) {
   if (typeof window === 'undefined') return;
   try {
     window.localStorage.setItem(
       ADMIN_VIEW_PREFS_STORAGE_KEY,
-      JSON.stringify({ columns, filters, pinnedApplication }),
+      JSON.stringify({ columns, filters, pinnedApplication, reportColumns }),
     );
   } catch {
     // Cache is best-effort; the server remains the source of truth.
@@ -80,6 +81,13 @@ function resolveColumns(raw) {
   const cols = sanitizeKeys(raw?.columns, KNOWN_COLUMN_KEYS);
   return cols && cols.length > 0 ? cols : DEFAULT_VISIBLE_COLUMN_KEYS;
 }
+// The report queue's own set. Absent means "never customised", which falls back
+// to the report defaults — NOT to the shared set, which is the whole point: an
+// admin who tailored the defect queue has said nothing about this one.
+function resolveReportColumns(raw) {
+  const cols = sanitizeKeys(raw?.reportColumns, KNOWN_COLUMN_KEYS);
+  return cols && cols.length > 0 ? cols : DEFAULT_VISIBLE_REPORT_COLUMN_KEYS;
+}
 function resolveFilters(raw) {
   const fils = sanitizeKeys(raw?.filters, KNOWN_FILTER_KEYS);
   return fils !== null ? fils : DEFAULT_VISIBLE_FILTER_KEYS;
@@ -89,6 +97,7 @@ export function useAdminViewPreferences() {
   // Seed from the local cache (lazy init) so the first paint matches the last
   // known view; the server fetch below then reconciles to the source of truth.
   const [columns, setColumns] = useState(() => resolveColumns(readCache()));
+  const [reportColumns, setReportColumns] = useState(() => resolveReportColumns(readCache()));
   const [filters, setFiltersState] = useState(() => resolveFilters(readCache()));
   const [pinnedApplication, setPinnedApplication] = useState(() => resolvePinned(readCache()));
   // The queue must not pick a scope until the pin is known, or a pinned admin
@@ -101,12 +110,14 @@ export function useAdminViewPreferences() {
       .then((server) => {
         if (cancelled) return;
         const cols = resolveColumns(server);
+        const reportCols = resolveReportColumns(server);
         const fils = resolveFilters(server);
         const pin = resolvePinned(server);
         setColumns(cols);
+        setReportColumns(reportCols);
         setFiltersState(fils);
         setPinnedApplication(pin);
-        writeCache(cols, fils, pin);
+        writeCache(cols, fils, pin, reportCols);
       })
       .catch(() => {
         // Offline / not authenticated yet — keep cached or default view.
@@ -115,16 +126,26 @@ export function useAdminViewPreferences() {
     return () => { cancelled = true; };
   }, []);
 
-  const saveView = useCallback(async ({ columns: nextColumns, filters: nextFilters }) => {
+  /**
+   * Save a column layout. `forReports` says WHICH of the two sets is being
+   * edited — the queue's kind switch decides that, and the other set is carried
+   * through untouched, because the endpoint replaces the whole row.
+   */
+  const saveView = useCallback(async ({ columns: nextColumns, filters: nextFilters, forReports = false }) => {
     const cleanCols = sanitizeKeys(nextColumns, KNOWN_COLUMN_KEYS) || [];
     const cleanFils = sanitizeKeys(nextFilters, KNOWN_FILTER_KEYS) || [];
-    const cols = cleanCols.length > 0 ? cleanCols : DEFAULT_VISIBLE_COLUMN_KEYS;
-    setColumns(cols);
+    const fallback = forReports ? DEFAULT_VISIBLE_REPORT_COLUMN_KEYS : DEFAULT_VISIBLE_COLUMN_KEYS;
+    const cols = cleanCols.length > 0 ? cleanCols : fallback;
+
+    const nextDefault = forReports ? columns : cols;
+    const nextReport = forReports ? cols : reportColumns;
+    if (forReports) setReportColumns(cols); else setColumns(cols);
     setFiltersState(cleanFils);
-    writeCache(cols, cleanFils, pinnedApplication);
+    writeCache(nextDefault, cleanFils, pinnedApplication, nextReport);
     try {
       await api.saveAdminViewPreferences({
-        columns: cols,
+        columns: nextDefault,
+        reportColumns: nextReport,
         filters: cleanFils,
         // Carried through untouched: saving a column layout must not silently
         // drop the pin, since the endpoint replaces the whole row.
@@ -133,7 +154,7 @@ export function useAdminViewPreferences() {
     } catch {
       // Optimistic update stands; the cache preserves the choice locally.
     }
-  }, [pinnedApplication]);
+  }, [pinnedApplication, columns, reportColumns]);
 
   /**
    * Pin (or with null, unpin) the application queue this admin lands on.
@@ -144,16 +165,19 @@ export function useAdminViewPreferences() {
   const savePinnedApplication = useCallback(async (nextPinned) => {
     const pin = typeof nextPinned === 'string' && nextPinned.trim() ? nextPinned.trim() : null;
     setPinnedApplication(pin);
-    writeCache(columns, filters, pin);
+    writeCache(columns, filters, pin, reportColumns);
     try {
-      await api.saveAdminViewPreferences({ columns, filters, pinnedApplication: pin });
+      await api.saveAdminViewPreferences({
+        columns, reportColumns, filters, pinnedApplication: pin,
+      });
     } catch {
       // Optimistic update stands; the cache preserves the choice locally.
     }
-  }, [columns, filters]);
+  }, [columns, filters, reportColumns]);
 
   const resetView = useCallback(async () => {
     setColumns(DEFAULT_VISIBLE_COLUMN_KEYS);
+    setReportColumns(DEFAULT_VISIBLE_REPORT_COLUMN_KEYS);
     setFiltersState(DEFAULT_VISIBLE_FILTER_KEYS);
     setPinnedApplication(null);
     if (typeof window !== 'undefined') {
@@ -170,13 +194,19 @@ export function useAdminViewPreferences() {
     () => columns.map((key) => COLUMN_BY_KEY.get(key)).filter(Boolean),
     [columns],
   );
+  const orderedReportColumns = useMemo(
+    () => reportColumns.map((key) => COLUMN_BY_KEY.get(key)).filter(Boolean),
+    [reportColumns],
+  );
 
   return {
     columns,
+    reportColumns,
     filters,
     pinnedApplication,
     loaded,
     orderedVisibleColumns,
+    orderedReportColumns,
     saveView,
     savePinnedApplication,
     resetView,

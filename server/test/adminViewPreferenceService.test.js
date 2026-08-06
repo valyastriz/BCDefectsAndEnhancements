@@ -33,12 +33,38 @@ test('sanitizeViewPreference dedupes repeated keys', () => {
 test('sanitizeViewPreference coerces non-array / missing input to empty arrays', () => {
   assert.deepStrictEqual(
     sanitizeViewPreference(),
-    { columns: [], filters: [], pinnedApplication: null },
+    { columns: [], reportColumns: [], filters: [], pinnedApplication: null },
   );
   assert.deepStrictEqual(
     sanitizeViewPreference({ columns: 'summary', filters: null }),
-    { columns: [], filters: [], pinnedApplication: null },
+    { columns: [], reportColumns: [], filters: [], pinnedApplication: null },
   );
+});
+
+// ── Two queues, two layouts ──────────────────────────────────────────────────
+// A report request has no Service Desk number, no JIRA card and no cleanup
+// status, and does have somebody it is assigned to. One saved view serving both
+// kinds means customising either one spoils the other, so the report queue keeps
+// its own set — stored in the same JSON field, since it is the same preference
+// asked twice.
+test('the report queue keeps its own column set, allow-listed the same way', () => {
+  const result = sanitizeViewPreference({
+    columns: ['id', 'summary', 'easyvista'],
+    reportColumns: ['id', 'summary', 'assignedTo', 'not_a_column'],
+    filters: ['search'],
+  });
+
+  assert.deepStrictEqual(result.columns, ['id', 'summary', 'easyvista']);
+  assert.deepStrictEqual(result.reportColumns, ['id', 'summary', 'assignedTo']);
+});
+
+test('an absent report set is empty, not a copy of the shared one', () => {
+  // Empty means "never customised", and the client then applies the REPORT
+  // defaults. Copying the shared set here would hand the report queue a Service
+  // Desk column the admin never asked for.
+  const result = sanitizeViewPreference({ columns: ['id', 'easyvista'], filters: [] });
+
+  assert.deepStrictEqual(result.reportColumns, []);
 });
 
 // ── The pinned queue scope ───────────────────────────────────────────────────
@@ -89,6 +115,7 @@ test('a pin is independent of the column and filter lists', () => {
   });
   assert.deepStrictEqual(result, {
     columns: ['summary'],
+    reportColumns: [],
     filters: ['search'],
     pinnedApplication: 'Billing Center',
   });

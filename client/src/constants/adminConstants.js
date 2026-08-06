@@ -149,6 +149,10 @@ export const ADMIN_TABLE_COLUMNS = [
   // summary cell already tags it — this is the dedicated column for anyone who
   // wants to scan a merged, multi-application queue by that alone.
   { key: 'application', label: 'Application', sortKey: null, exportKey: 'application_name' },
+  // Who is working it. Only meaningful on a report request — a defect is handed
+  // to the Service Desk rather than to a person — so it is off the default view
+  // and on by default in the report queue's own set below.
+  { key: 'assignedTo', label: 'Assigned To', sortKey: null, exportKey: 'assigned_to_name' },
 ];
 
 /** The export fields behind a set of visible column keys, in registry order. */
@@ -204,6 +208,24 @@ export const DEFAULT_VISIBLE_COLUMN_KEYS = [
   'easyvista',
   'jiraCard',
 ];
+// The REPORT-REQUEST queue's own default set, and the reason the two queues do
+// not share a saved view at all.
+//
+// Three of the defaults above are meaningless here and one is missing. A report
+// request has no Service Desk number and no JIRA card — it is built in the portal,
+// not handed downstream — and no cleanup status, because a cleanup is a defect
+// with a flag. What it does have, and what nothing else has, is somebody it is
+// assigned to. One saved view serving both kinds means customising either one
+// spoils the other, so the server stores two.
+export const DEFAULT_VISIBLE_REPORT_COLUMN_KEYS = [
+  'id',
+  'reportedDate',
+  'summary',
+  'status',
+  'assignedTo',
+  'isPublic',
+];
+
 export const DEFAULT_VISIBLE_FILTER_KEYS = ALL_FILTER_KEYS;
 
 // ── Filter groups (drives the grouped filter panel) ─────────────────────────

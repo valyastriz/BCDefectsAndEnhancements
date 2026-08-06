@@ -802,12 +802,51 @@ async function run() {
         `${reportRows.length} rows${reportRows.includes(createdId) ? ` including #${createdId}` : `, missing #${createdId}`} · chips: ${reportChip.join(' / ')}`,
       );
 
+      // ── The two queues do not share a column set ─────────────────────────
+      // A report request has no Service Desk number, no JIRA card and no cleanup
+      // status, and does have somebody it is assigned to. Read from the header
+      // row, which is what an admin actually sees.
+      const headersNow = async () => page.$$eval(
+        '.admin-submissions-table thead th',
+        (nodes) => nodes.map((node) => node.textContent.trim()).filter(Boolean),
+      );
+      const reportHeaders = await headersNow();
+      record(
+        'the report queue shows Assigned To and drops the columns that mean nothing to it',
+        reportHeaders.some((header) => /Assigned To/i.test(header))
+          && !reportHeaders.some((header) => /Cleanup Status/i.test(header))
+          && !reportHeaders.some((header) => /JIRA/i.test(header))
+          && !reportHeaders.some((header) => /Service Desk|EasyVista/i.test(header)),
+        reportHeaders.join(' · '),
+      );
+      // And it calls the status column what it is. A report request's statuses
+      // are their own list, so "Defect/Enhancement Status" names a list it is
+      // not on.
+      record(
+        'and its status column is called Status, not Defect/Enhancement Status',
+        // `[^A-Za-z]`, not `\s`: a sortable header renders its caret glued to the
+        // label ("▼Status"), so a whitespace boundary never matches and the check
+        // failed against a header that was already correct.
+        reportHeaders.some((header) => /(^|[^A-Za-z])Status$/.test(header))
+          && !reportHeaders.some((header) => /Defect\/Enhancement Status/i.test(header)),
+        reportHeaders.filter((header) => /Status/i.test(header)).join(' · '),
+      );
+
       await switchKind('Defects & enhancements', 'types=Defect');
       const workRows = await idsOnScreen();
       record(
         'and switching to defects and enhancements takes it out again',
         workRows.length > 0 && !workRows.includes(createdId),
         `${workRows.length} rows, report request present: ${workRows.includes(createdId)}`,
+      );
+
+      const workHeaders = await headersNow();
+      record(
+        'and the defect queue keeps its own, unchanged',
+        workHeaders.some((header) => /Service Desk|EasyVista/i.test(header))
+          && workHeaders.some((header) => /Cleanup Status/i.test(header))
+          && !workHeaders.some((header) => /Assigned To/i.test(header)),
+        workHeaders.join(' · '),
       );
       await switchKind('All kinds', '');
 

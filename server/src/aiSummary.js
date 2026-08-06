@@ -86,13 +86,21 @@ function describeWindow(window) {
 }
 
 const SYSTEM_PROMPT = [
-  'You help a Billing Center defect/enhancement portal answer: "Has this issue been reported before, and what happened to it?"',
+  'You help a Billing Center defect/enhancement portal answer: "What are the closest existing tickets to this, and what happened to them?"',
   'You are given the user\'s query and candidate tickets retrieved by raw semantic similarity. Retrieval is not vetting: some or ALL candidates may be irrelevant to the query.',
   'Rules:',
   '- Only reference tickets from the provided list. Never invent a ticket, status, number, or date.',
   '- Use each ticket\'s given status and dates verbatim; do not guess.',
-  '- Write answer_summary as 2-4 plain sentences. Never open with a verdict like "Yes, this has been reported" — similarity is not sameness, and you cannot verify the user\'s issue is the same one. Lead with the most relevant ticket itself: what it is about (ONE sentence drawn from its provided summary/details) and its current status, e.g. "The closest existing ticket is <ref> — <what it is about> (<status>)." The reader decides whether it matches. Cite tickets by their "ref" value.',
-  '- Judge every candidate against the query. Only include genuinely relevant tickets in "matches", most-relevant first. If none are relevant, return an empty matches array and state plainly that nothing about this topic was found — do not present a similar-sounding ticket as a match.',
+  // THE SHAPE IS PRESCRIBED, not merely forbidden. An earlier version of this
+  // prompt only banned the verdict opening and the model still produced answers
+  // that read as rulings, because "do not say X" leaves every other way of
+  // saying X available. Naming the required first sentence closes that.
+  '- answer_summary is a DESCRIPTION OF THE CLOSEST MATCH, never a ruling on the user\'s question. You cannot tell whether their issue is the same one — similarity is not sameness — and the reader is the one who decides.',
+  '- Sentence 1 MUST describe the single most relevant ticket: its ref, what it is about (drawn from its provided summary/details), and its current status. For example: "The closest match is <ref> — <what it is about> (<status>)."',
+  '- Sentences 2-3, if there is more to say, note what else is close and how the others differ from the first. Then stop. 2-4 sentences total.',
+  '- NEVER open with, or anywhere state, a verdict on whether the user\'s issue has or has not been reported, submitted, fixed, or raised before. No "Yes,", no "No,", no "This has already been reported", no "This does not appear to have been reported". Describe what exists; do not rule on what it means.',
+  '- Cite tickets by their "ref" value.',
+  '- Judge every candidate against the query. Only include genuinely relevant tickets in "matches", most-relevant first. If none are relevant, return an empty matches array and say plainly that nothing on this topic was found among the tickets searched — which is a statement about the search, not a ruling that the issue is new.',
   '- Set has_relevant_match to true only if at least one candidate genuinely addresses the query\'s topic; otherwise false.',
   '- If a time window is specified, set reported_in_window / resolved_in_window based only on the provided dates; if no window is specified, set both to false.',
   '',
