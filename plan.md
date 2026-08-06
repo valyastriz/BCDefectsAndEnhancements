@@ -81,19 +81,59 @@ seeded effort values.
    `verify-admin-data-entry.mjs` rather than writing a throwaway.
 4. **§5 step 6** — screenshots and docs.
 
-### Still open, and needing the owner rather than code
+### Both owner questions ANSWERED (2026-08-06)
 
-- **What is "Report/Dashboard Approval" approving?** Built as a gate before work
-  starts ("Approved to go ahead"). If it is really the requester signing off on
-  the finished report, it belongs below completion and means something different
-  in reporting.
-- **Do report requests need their own status words?** They share the defect list,
-  so a delivered report has to be filed as **Deployed**, and the public board's
-  four-stop track ends at *With Service Desk → Deployed* — it would draw a
-  delivered report as stuck at Reported. Either this type gets its own short list
-  (a second Metadata panel) or the board learns to draw its track differently.
-  **This is the one thing that should be settled before requesters see report
-  requests**, or the board will quietly lie to them.
+**1. What "Report/Dashboard Approval" is approving — a manager or supervisor
+okaying the RESOURCES to build it.** Owner's words: "basically a manager or
+supervisor giving them okay to use resources to create the report/dashboard".
+
+So it is a gate BEFORE work starts, which is how it is built — "Approved to go
+ahead", above the hours, in the Go-ahead group. **No code change needed.** Two
+consequences worth carrying:
+- The approver is often now a portal user, because the `manager` rank exists. The
+  field stays a typed NAME anyway: a supervisor in another department may approve
+  and have no grant here, and the accountability is `approval_recorded_by`, which
+  is an id the server fills in.
+- It is genuinely a SECOND gate, not a restatement of the `Approved` status.
+  Triage accepting a request as valid and a manager authorising the spend are
+  different people saying yes to different questions. Keep them separate, and
+  keep the group labelled "Go-ahead" so the two never read as one.
+
+**2. Report requests get their own status list.** Owner: "we probably aren't
+submitting to easyvista, but I imagine most statuses can transfer."
+
+PROPOSED list — **confirm with the owner before building**, because the words are
+what a requester reads on the public board:
+
+| Report request status | From the defect list? |
+|---|---|
+| New | yes |
+| Approved | yes — triage accepted it |
+| In progress | **new** — there is no working state today at all |
+| Delivered | **new** — replaces `Deployed`, which is deploy language |
+| On hold | **new** — collapses Backlog / Future Consideration / Deferred, which read as one state to a requester |
+| Rejected | yes |
+| Duplicate | yes |
+| Redirected | yes — moving between application queues is still meaningful |
+| Retired | yes — protected, exists everywhere |
+
+Dropped: **Submitted** and **Deployed**, both of which are the Service Desk
+hand-off a report request never makes.
+
+What this implies, and none of it is drawn yet:
+- A new lookup, so a new Metadata panel — the 11th. One `ADMIN_META_CATEGORIES`
+  entry plus its `LOOKUP_TABLES` row, which is the pattern §2a made cheap.
+- `submissions.status_id` currently points at `defect_enhancement_statuses`. A
+  second status table means either a second column or a resolver that picks the
+  table by type. **Decide that deliberately** — it is the one part of this that is
+  not additive.
+- **The public board's four-stop track.** It is hard-coded to
+  Reported → Approved → With Service Desk → Deployed
+  (`client/src/components/public/StatusBoardRow.jsx:13`,
+  `constants/publicConstants.js:33`). A report request needs its own:
+  Reported → Approved → In progress → Delivered. Until that lands the board draws
+  a finished report as stuck at Reported, so **this blocks showing report requests
+  to requesters** even though nothing else does.
 
 ## Where this stands, in ten lines (2026-08-05 — now history, see above)
 
