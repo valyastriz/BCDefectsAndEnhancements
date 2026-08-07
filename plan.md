@@ -5,6 +5,152 @@ per-app details.
 
 ---
 
+
+---
+
+# HANDOFF — pick this up cold (2026-08-07, end of the seventeenth pass)
+
+Everything from here to the next `---` is the live work queue. The dated sections
+after it are the historical record. **`main` is clean and pushed at `646711c`.**
+
+## Where things stand
+
+| | |
+|---|---|
+| **Shipped today** | `89d7976` — the reseed, the screenshot harness, three documents, sign-in on every request. `646711c` — the application picker on every branch, and analyst-created reports-only applications (**server only**). |
+| **Green at `646711c`** | 389 server tests · lint · build · `verify-submit-form` 63/63 · `verify-admin-data-entry` 121/121 · `verify-public-board` 21/21 |
+| **NOT re-run since** | `verify-metadata-page`, `verify-throughput-page`, `verify-report-import-export`, `verify-session-store`. They were green at `89d7976` and nothing since touches them, **but they have not been proved.** Run them first. |
+| **Database** | 39 seeded submissions, 0 `VERIFY` leftovers. `applications.reports_only` applied. `Other` granted for every type (22 grants). |
+
+## THE WORK LEFT, in the order it should be done
+
+### 1. The analyst has no way to add an application yet — the feature is half-delivered
+
+`POST /api/admin/applications` exists, is tested (`test/reportsOnlyApplications.test.js`,
+11 tests) and does the whole job: validates the name, refuses a duplicate
+case-insensitively **including against a switched-off application**, creates the
+row `reports_only = 1`, and grants it in the same transaction to everybody who
+works report requests anywhere. **Nothing in the UI calls it.**
+
+The owner's words: *"the analyst should be able to add an application (for reports
+only) by typing it in and it becomes a new application type for the reports."*
+
+Where to put it, in priority order:
+
+1. **The Add-a-ticket dialog's report branch** — an analyst recording a request for
+   a system that is not in the list. `client/src/components/admin/AddTicketModal.jsx`,
+   the `.at-only-report` section.
+2. **The Redirect dialog** — this is the triage action for "this belongs somewhere
+   else", and it is where an analyst realises an `Other` request is really for
+   Marketing Analytics. `client/src/components/admin/detail/DetailActions.jsx`.
+
+Build it as one shared control used by both rather than twice. It needs the
+`api.js` helper (the shared `request()` sends the CSRF header), and the viewer's
+application list has to be re-read after a create or the new value will not appear
+in the picker that just created it.
+
+**Do not** put it on the Metadata page. Metadata writes are super-user-only by the
+fifteenth pass's deliberate decision, and `test/metaRouteGuards.test.js` polices it.
+
+### 2. The Service Desk send, when the application has no catalog (owner's request)
+
+Owner's words: *"for those where an application isn't configured, they would
+obviously have to manually submit in easyvista since an easyvista connection is not
+yet set up, so they can't directly click submit to easyvista, that would be greyed
+out with a note saying they will have to manually submit and then they can come
+back and enter an incident number and mark it submitted."*
+
+**Most of this exists** — do not rebuild it:
+
+- The send is already **refused server-side** when the application has no catalog
+  (`EASYVISTA_CATALOG_GUIDS` is empty today, so that is every application).
+- The incident number is already **editable behind an unlock** on the detail modal,
+  built in the fourteenth pass for exactly this case.
+- Setting the status to `Submitted` by hand already works from the status dropdown.
+
+**What is missing is the affordance:** the button should be visibly **disabled with
+the reason stated**, rather than enabled and failing on click. Wire it to the same
+catalog check the server uses, and put the two manual steps in the note.
+
+### 3. Soft-assign out of `Other` — NEEDS A DECISION BEFORE BUILDING
+
+Owner's words: *"they can either make it so that they assign it to an application
+queue that is available, or leave as other, but once they change it from new status
+to something else - then it soft assigns it to their queue (they can select if they
+want it to show up in which of their queues list)."*
+
+**The design question, and why it is not obvious.** A Redirect **resets the status
+to `New`** — deliberately, because the receiving team has not triaged it. But a soft
+assign is triggered *by* moving the status off `New`, so routing it through
+`redirectService` would immediately undo the change that triggered it.
+
+So it is one of two things, and they are different features:
+
+- **(a) A real move that keeps the status.** `application_id` changes, a
+  `submission_routings` row is written, the status stays where the admin just put
+  it. Needs a variant of `redirectSubmission` that skips the status reset, and a
+  decision about what `status_at_handoff` means when nothing was handed off.
+- **(b) A softer association that does not move the ticket.** The ticket stays in
+  `Other`; a new column records which queue it should *appear* in. Nothing existing
+  does this, and it adds a second answer to "whose queue is this in", which the
+  data model currently answers with exactly one column.
+
+**Ask the owner which before building either.** (a) reuses the ledger and keeps one
+source of truth; (b) matches "soft" more literally but introduces a second concept.
+
+### 4. Documentation — the owner asked for this explicitly
+
+> *"any changes we make, we need to update those sections or add them in the
+> documentation"*
+
+`CLAUDE.md` now carries that rule. **Neither document has been updated for
+`646711c` yet.** What needs adding:
+
+- **`docs/DEVELOPER_HANDOFF.md`** — §5 (vocabulary: a reports-only application),
+  §8.1 (the picker is on every branch, and why the report branch is not prefilled),
+  §10 (the `Other` grant now covers every type), §17 (the `reports_only` column),
+  §18 (`POST /api/admin/applications`), §19 (the migration script), Part IX (a
+  seventeenth-pass entry), and Part XI (acceptance items for the new rules).
+- **`docs/USER_MANUAL.md`** — §1.2/§1.3/§1.4 (the picker), §2.9, and a new §2.x for
+  an analyst adding an application once the UI exists.
+
+### 5. Screenshots are stale for the submit form
+
+The submit-form shots (`01`–`08`, `70`, `80`, `81`) predate the picker. **Re-run the
+whole set** rather than shooting selectively — the harness prunes and rewrites the
+manifest, and a filtered run deliberately does not:
+
+```
+cd client && node scripts/capture-screenshots.mjs
+```
+
+### 6. Worth considering: seed a reports-only application
+
+The demonstration data has none, so nothing on screen shows the feature. One
+analyst-created application with two or three report requests would show it — and
+would give `verify-throughput-page.mjs`'s empty-state check a **structurally** empty
+target again (a brand-new queue has no delivered work), which is currently held by
+a modelling rule about `Other` instead.
+
+## Things that will bite you
+
+1. **`server/.env` is `DB_PROVIDER=postgres`** — `npm run dev` is the live shared
+   database. See §0.1.
+2. **Do not pipe a verify script through `head`** — SIGPIPE kills cleanup and
+   strands fixtures. Redirect to a file.
+3. **`/api/auth/login` allows 10 attempts per 15 minutes per IP.** Restart the
+   server to reset it. A 429 mid-run looks exactly like a broken check.
+4. **Never assert a total against this shared database** — assert the CHANGE against
+   a baseline the script takes first. Three throughput checks failed that way.
+5. **A browser probe is wrong more often than the code is.** §0.3 has the table of
+   sixteen that were.
+6. **A `useMemo` reading `form.x` must be declared BELOW `const [form] = useState`**
+   — putting it above threw "Cannot access 'form' before initialization" and rendered
+   the whole submit page as nothing. The page still *compiled*, so Vite logged a
+   clean HMR update and only the browser check caught it.
+
+---
+
 ## The documentation set, the reseed, and sign-in on every request (2026-08-07, sixteenth pass)
 
 **The HANDOFF block that used to sit at the top of this file is gone**, reconciled
