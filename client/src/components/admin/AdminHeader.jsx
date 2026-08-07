@@ -86,6 +86,9 @@ export function AdminHeader({
   // rather than shown-and-refused. The route and every endpoint behind it check
   // again server-side — this is signposting, not the control.
   canManageAccess = false,
+  // Both default FALSE: an unknown viewer is not a super user, so a menu that
+  // renders before the envelope arrives offers nothing it should not.
+  canManageMetadata = false,
   onLogout,
   onImportFileChange,
   activeCount = null,
@@ -151,7 +154,15 @@ export function AdminHeader({
         >
           {({ close }) => (
             <>
-              <MenuItem onClick={() => { close(); onNavigateMetadata(); }}>Manage metadata</MenuItem>
+              {/* Super users only, same flag as Manage access below. A lookup
+                  edited here is renamed or withdrawn on every ticket holding it,
+                  in every application — it is not scoped by the per-application
+                  grants the rest of the admin side is. Hidden rather than shown
+                  and refused: an entry that only ever leads to a 403 is a door
+                  with a wall behind it. */}
+              {canManageMetadata && (
+                <MenuItem onClick={() => { close(); onNavigateMetadata(); }}>Manage metadata</MenuItem>
+              )}
               {/* Not gated: every admin may open it, and the server decides
                   whether they see the team's numbers or only their own. */}
               <MenuItem onClick={() => { close(); onNavigateThroughput(); }}>Reporting throughput</MenuItem>

@@ -317,6 +317,61 @@ async function run() {
     }
   }
 
+  // ── An admin who is not a super user cannot manage metadata ──────────────
+  // Editing a lookup renames or withdraws a value on every ticket that holds it,
+  // in every application, and is not scoped by the per-application grants the
+  // rest of the admin side uses. Everything above ran as `admin`, who IS a super
+  // user — so it proves nothing about the gate. This runs as one who is not.
+  const plainAdmin = await browser.newContext();
+  try {
+    const signIn = await plainAdmin.request.post(`${API}/api/auth/login`, {
+      data: { username: 'bc_app_admin', password: PASS },
+    });
+    record(
+      'an application admin who is not a super user can still sign in',
+      signIn.ok(),
+      `HTTP ${signIn.status()}`,
+    );
+
+    // THE SERVER IS THE GATE. Asserted first and separately from the menu: a
+    // hidden menu item is a courtesy, and a check that only looked at the menu
+    // would pass against a server that still accepted the write.
+    const csrf = (await plainAdmin.cookies()).find((cookie) => cookie.name === 'bc_csrf')?.value || '';
+    const write = await plainAdmin.request.post(`${API}/api/admin/meta/statuses`, {
+      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
+      data: { name: 'VERIFY should never be created' },
+    });
+    record(
+      'and is refused when they try to add a metadata value',
+      write.status() === 403,
+      `HTTP ${write.status()} — 201 would mean the value was created`,
+    );
+
+    // Belt and braces: it must not exist, whatever the status code said.
+    const stillClean = await page.request.get(`${API}/api/admin/meta/options`).then((r) => r.json());
+    record(
+      'and nothing was created by the attempt',
+      !(stillClean.statuses || []).some((row) => /VERIFY should never be created/i.test(row.name)),
+      `${(stillClean.statuses || []).length} statuses, none of them the refused one`,
+    );
+
+    const plainPage = await plainAdmin.newPage();
+    await plainPage.goto(`${BASE}/admin`, { waitUntil: 'networkidle' });
+    await plainPage.waitForSelector('.admin-header-row', { timeout: 30000 });
+    await plainPage.click('.admin-who');
+    await plainPage.waitForTimeout(250);
+    const menu = await plainPage.$$eval('[role="menuitem"]', (nodes) => nodes.map((n) => n.textContent.trim()));
+    record(
+      'and is not offered the menu entry that only leads to a refusal',
+      !menu.some((item) => /Manage metadata/i.test(item))
+        && menu.some((item) => /Reporting throughput/i.test(item)),
+      menu.join(' · ') || 'no account menu',
+    );
+    await plainAdmin.request.post(`${API}/api/auth/logout`);
+  } finally {
+    await plainAdmin.close();
+  }
+
   // The 409 is provoked on purpose by the duplicate-name check above, and the 401s
   // are the anonymous viewer probes every page makes. Anything else is a finding.
   const realErrors = consoleErrors.filter((t) => !/401|Unauthorized|409|Conflict/i.test(t));

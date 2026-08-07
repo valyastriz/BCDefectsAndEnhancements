@@ -771,6 +771,7 @@ export function AdminDashboardPage({ user, onLogout }) {
         onNavigateThroughput={() => navigate('/admin/throughput')}
         onNavigateAccess={() => navigate('/admin/access')}
         canManageAccess={viewer.isSuperUser}
+        canManageMetadata={viewer.isSuperUser}
         onLogout={logout}
         onImportFileChange={analyzeImportFile}
       />

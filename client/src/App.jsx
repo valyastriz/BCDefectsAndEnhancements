@@ -95,11 +95,20 @@ function App() {
             </RequireAdmin>
           }
         />
+        {/* Super users only. Editing a lookup renames or withdraws a value on
+            every ticket that holds it, across every application — it is not
+            scoped by the per-application grants the rest of the admin side is,
+            so an admin for one queue would be changing another's vocabulary.
+            The server is the authority (metaRoutes puts ensureSuperUser on all
+            three writes); this stops a non-super-user landing on a page whose
+            every control 403s. */}
         <Route
           path="/admin/metadata"
           element={
             <RequireAdmin user={user}>
-              <AdminMetadataPage user={user} />
+              <RequireSuperUser>
+                <AdminMetadataPage user={user} />
+              </RequireSuperUser>
             </RequireAdmin>
           }
         />

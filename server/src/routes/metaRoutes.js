@@ -1,5 +1,5 @@
 const express = require('express');
-const { ensureAdmin } = require('../auth');
+const { ensureAdmin, ensureSuperUser } = require('../auth');
 const { withDb } = require('../helpers/db');
 const { toBooleanSql } = require('../helpers/utils');
 const {
@@ -44,6 +44,13 @@ router.get('/api/meta/options', async (_req, res) => {
   });
 });
 
+// READING stays open to every admin, and must: this is where the queue's filter
+// lists and the detail modal's dropdowns come from (useAdminMeta delegates to
+// useMetaManagement, which reads exactly this). Narrowing it to super users would
+// take every other admin's dropdowns away to protect a list they can already see
+// the contents of on every ticket.
+//
+// WRITING is super-user only — see the three routes below.
 router.get('/api/admin/meta/options', ensureAdmin, async (_req, res) => {
   return withDb(async (db) => {
     const mapRow = (row, hasRetiredFlag, usageCount) => ({
@@ -95,7 +102,17 @@ router.get('/api/admin/meta/options', ensureAdmin, async (_req, res) => {
   });
 });
 
-router.post('/api/admin/meta/:category', ensureAdmin, async (req, res) => {
+// ── Writing metadata is super-user only ──────────────────────────────────────
+// These three change the vocabulary the WHOLE portal speaks: a status renamed
+// here is renamed on every ticket that holds it, on the public board, and in
+// every export; a value switched off stops being offered everywhere. That is a
+// different kind of act from triaging tickets in one application's queue, and it
+// is not scoped by application — an admin for Billing Center editing this list
+// changes Policy Center's too.
+//
+// ensureSuperUser re-reads `is_super_user` from the users row rather than the
+// session, so a demotion takes effect on the demoted person's very next request.
+router.post('/api/admin/meta/:category', ensureSuperUser, async (req, res) => {
   const category = resolveLookupCategory(req.params.category);
   if (!category) {
     return res.status(400).json({ error: 'Invalid metadata category' });
@@ -139,7 +156,7 @@ router.post('/api/admin/meta/:category', ensureAdmin, async (req, res) => {
   });
 });
 
-router.put('/api/admin/meta/:category/:id', ensureAdmin, async (req, res) => {
+router.put('/api/admin/meta/:category/:id', ensureSuperUser, async (req, res) => {
   const category = resolveLookupCategory(req.params.category);
   if (!category) {
     return res.status(400).json({ error: 'Invalid metadata category' });
@@ -217,7 +234,7 @@ router.put('/api/admin/meta/:category/:id', ensureAdmin, async (req, res) => {
   });
 });
 
-router.post('/api/admin/meta/:category/reorder', ensureAdmin, async (req, res) => {
+router.post('/api/admin/meta/:category/reorder', ensureSuperUser, async (req, res) => {
   const category = resolveLookupCategory(req.params.category);
   if (!category) {
     return res.status(400).json({ error: 'Invalid metadata category' });
