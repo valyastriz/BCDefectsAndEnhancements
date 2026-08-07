@@ -25,6 +25,19 @@ Monorepo with two apps:
   :4000 and Vite on :5173 already up; `--shots <dir>` also writes PNGs. Extend
   these rather than writing throwaway checkers. A script that WRITES must prove it
   put the data back (see `verify-metadata-page.mjs`'s closing check).
+  **Never assert a total against this shared database — assert the CHANGE against a
+  baseline the script takes first.** A check that measures an absolute measures the
+  fixture and the world at once, and `verify-throughput-page.mjs` failed three that
+  way the moment real data existed.
+- **Screenshots:** `client/scripts/capture-screenshots.mjs` takes all 62 and
+  **writes** `docs/handoff/screenshot-manifest.json` from its own registry — never
+  edit that file by hand, and never shoot by hand. Add a shot to the registry.
+- **Documentation:** three files, and they are the deliverable.
+  `docs/DEVELOPER_HANDOFF.md` (how AND why, plus the decision record),
+  `docs/USER_MANUAL.md` (every feature, with the screenshots and the test logins),
+  `docs/NEXT_STEPS.md` (the programme decision). The root `README.md` is a short
+  orientation page pointing at them. **After a verified feature change, update the
+  handoff and the manual, not just `plan.md`.**
 
 ## Important project facts
 

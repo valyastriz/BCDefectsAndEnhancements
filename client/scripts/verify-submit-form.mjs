@@ -12,9 +12,17 @@
  * both themes.
  *
  * It also holds the two claims about what a REQUESTER sees that nothing else
- * checks: the summary owns its own row (it used to share one with the name box for
- * anyone not signed in — which is everybody, on the live site), and the duplicate
- * check searches only the kind of request being filed, saying so on screen.
+ * checks: the summary owns its own row, and the duplicate check searches only the
+ * kind of request being filed, saying so on screen.
+ *
+ * AND, since 2026-08-07, what a SESSION-LESS visitor gets — which is no longer a
+ * form. Filing requires a signed-in person for every request type
+ * (config.SUBMIT_REQUIRES_AUTH defaults on; test/submitRequiresAuth.test.js pins
+ * which types), so the session-less context checks a wall with a way past it, the
+ * ENDPOINT refusing an anonymous defect with 401 + authRequired rather than the
+ * form merely hiding itself, and — the one that catches over-implementing this —
+ * that the status board is still readable with no session at all. The gate is on
+ * filing, not on reading.
  *
  * Nearly read-only: the duplicate-scope section creates ONE public report request
  * so the narrowing can be proved from both directions, and removes it again
@@ -674,101 +682,122 @@ async function run() {
     }
   }
 
-  // ── The same form with nobody signed in ──────────────────────────────────
-  // The case that regressed, and the case a visitor to the live site is actually
-  // in: the name is a real input then, and it used to sit on the summary's line.
-  // Checked in its own context because the one above is signed in, and the branch
-  // only exists for a viewer the server does not recognise.
+  // ── The page with nobody signed in ────────────────────────────────────────
+  // THE RULE CHANGED ON 2026-08-07: filing needs a signed-in person, for every
+  // request type, not just report requests (config.SUBMIT_REQUIRES_AUTH now
+  // defaults on — see test/submitRequiresAuth.test.js). So there is no anonymous
+  // FORM to check any more; what a session-less visitor gets is a wall.
+  //
+  // This section used to measure the anonymous form's layout, and it earned its
+  // place then: the name box shared the summary's row and only a viewer the
+  // server does not recognise ever saw it. That branch is gone, and the checks
+  // that replace it are about the two things that can now go wrong instead —
+  // a wall with no way past it, and an over-implemented gate that also locks
+  // the reading everybody is still meant to be able to do.
   const anonymous = await browser.newContext({
     viewport: VIEWPORTS[0], deviceScaleFactor: 2, reducedMotion: 'reduce',
   });
   const anonymousPage = await anonymous.newPage();
   await anonymousPage.goto(BASE, { waitUntil: 'networkidle' });
-  await anonymousPage.waitForSelector('.rs-main .rs-card');
+  await anonymousPage.waitForSelector('.rs-locked, .rs-main .rs-card');
+
+  const wall = await anonymousPage.evaluate(() => {
+    const locked = document.querySelector('.rs-locked');
+    return {
+      walled: Boolean(locked),
+      // The form must not be rendered at all. A disabled form is worse than an
+      // honest wall, and a rendered one would mean the gate is client-side.
+      formPresent: Boolean(document.querySelector('.rs-main .rs-card')),
+      heading: locked?.querySelector('h2')?.textContent?.trim() || null,
+      // Names every type, not just report requests — the copy said "report an
+      // issue" while the rule covered all three.
+      namesEveryType: /defect/i.test(locked?.textContent || '')
+        && /enhancement/i.test(locked?.textContent || '')
+        && /report request/i.test(locked?.textContent || ''),
+      signInHref: locked?.querySelector('a[href="/admin/login"]')?.getAttribute('href') || null,
+      boardHref: locked?.querySelector('a[href="/public"]')?.getAttribute('href') || null,
+    };
+  });
+  record(
+    'signed out, the submit page is a wall and not a form',
+    wall.walled && !wall.formPresent,
+    `wall=${wall.walled} form rendered=${wall.formPresent} heading="${wall.heading}"`,
+  );
+  record(
+    'the wall names all three request types, not just report requests',
+    wall.namesEveryType,
+    wall.namesEveryType ? '' : 'the copy still describes one type',
+  );
+  record(
+    'and it offers somewhere to go: a sign-in link, and the board you can still read',
+    // A dead wall is the failure this closes. There was deliberately no button
+    // while SSO was the only route in; the local login accepts a `rep` account,
+    // so there is now somewhere to send them.
+    wall.signInHref === '/admin/login' && wall.boardHref === '/public',
+    `sign in → ${wall.signInHref}, board → ${wall.boardHref}`,
+  );
+
   for (const viewport of VIEWPORTS) {
     await anonymousPage.setViewportSize({ width: viewport.width, height: viewport.height });
-    await anonymousPage.waitForTimeout(140);
-    const who = await anonymousPage.evaluate(() => {
-      const summary = document.querySelector('#rs-summary_of_issue');
-      const name = document.querySelector('#rs-created_by');
-      const card = summary?.closest('.rs-card');
-      const pad = card ? Number.parseFloat(getComputedStyle(card).paddingLeft) : 0;
-      const summaryBox = summary?.getBoundingClientRect();
-      const nameBox = name?.getBoundingClientRect();
-      return {
-        asksForName: Boolean(name),
-        nameWidth: nameBox ? Math.round(nameBox.width) : null,
-        summaryShort: card
-          ? Math.round(card.getBoundingClientRect().width - 2 * pad - summaryBox.width)
-          : null,
-        sharesLine: Boolean(nameBox) && Math.abs(nameBox.top - summaryBox.top) < 8,
-        nameAbove: Boolean(nameBox) && nameBox.top < summaryBox.top,
-      };
-    });
-    record(
-      `an anonymous filer is asked their name ABOVE the summary — ${viewport.name}`,
-      who.asksForName
-        && who.sharesLine === false
-        && who.nameAbove
-        && Math.abs(who.summaryShort) <= 2,
-      `name ${who.nameWidth}px, above=${who.nameAbove}, shares line=${who.sharesLine}, summary ${who.summaryShort}px short`,
+    await anonymousPage.waitForFunction(
+      (width) => Math.abs(document.documentElement.clientWidth - width) <= 20,
+      viewport.width,
     );
     const offenders = await anonymousPage.evaluate(OVERFLOW_PROBE, '.app-main');
     record(
-      `the anonymous form has no clipped overflow — ${viewport.name}`,
+      `the sign-in wall has no clipped overflow — ${viewport.name}`,
       offenders.length === 0,
       offenders.length ? JSON.stringify(offenders.slice(0, 3)) : '',
     );
   }
-  await shoot(anonymousPage, 'submit-anonymous-desktop-light');
+  await shoot(anonymousPage, 'submit-anonymous-wall');
 
-  // ── The one type a stranger cannot file ──────────────────────────────────
-  // A report request is only ever visible to the person who filed it, so an
-  // anonymous one would belong to nobody. The form has to say so at the moment
-  // the type is chosen — not on the last click — and the other two types must
-  // stay open, or requiring an account for one type has quietly closed the
-  // portal to everybody.
+  // ── The endpoint is the control, not the wall ─────────────────────────────
+  // The wall is a courtesy. What actually closes the door is the POST refusing,
+  // and it has to refuse a DEFECT now — the type that was open until today —
+  // with the 401 + authRequired shape the form knows how to read, rather than the
+  // 400 "Requester Name is required" that means a blank field.
   await anonymousPage.setViewportSize({ width: VIEWPORTS[0].width, height: VIEWPORTS[0].height });
-  await anonymousPage.getByRole('button', { name: 'Report request' }).click();
-  await anonymousPage.waitForTimeout(160);
-  const locked = await anonymousPage.evaluate(() => {
-    const alerts = [...document.querySelectorAll('.rs-alert')].map((node) => node.textContent || '');
-    // EVERY submit button, not the first one. There are two — the readiness
-    // rail's (what a desktop user clicks) and the narrow-screen sticky bar's —
-    // and an early version of this check read only `querySelector`, passed on
-    // the sticky one, and missed that the rail's was still live.
-    const submits = [...document.querySelectorAll('.rs-submit')];
-    return {
-      says: alerts.find((text) => /sign in/i.test(text)) || null,
-      hasSignInLink: Boolean(document.querySelector('.rs-alert a[href="/admin/login"]')),
-      submitCount: submits.length,
-      submitDisabled: submits.length > 0 && submits.every((button) => button.disabled),
-      bar: document.querySelector('.rs-stickybar-left')?.textContent?.trim() || null,
-    };
+  const refused = await anonymous.request.post(`${API}/api/submissions`, {
+    headers: { 'Content-Type': 'application/json' },
+    data: {
+      type: 'defect',
+      // `applications` at the top of this function is a list of NAMES (there is a
+      // second, block-scoped one further up holding objects — do not reach for
+      // `.name` here).
+      application_name: applications[0],
+      created_by: 'Somebody With No Account',
+      summary_of_issue: 'An anonymous defect that must not be accepted',
+      screen_title: 'Anywhere',
+      what_happened_exact_details: 'Filed with no session at all.',
+    },
   });
+  const refusedBody = await refused.json().catch(() => ({}));
   record(
-    'signed out, choosing Report request explains that it needs an account',
-    Boolean(locked.says) && locked.hasSignInLink,
-    locked.says ? `"${locked.says.replace(/\s+/g, ' ').trim().slice(0, 90)}…"` : 'no notice shown',
+    'an anonymous DEFECT is refused by the endpoint, not just hidden by the form',
+    refused.status() === 401 && refusedBody.authRequired === true,
+    `HTTP ${refused.status()} authRequired=${refusedBody.authRequired} "${String(refusedBody.error || '').slice(0, 70)}"`,
   );
   record(
-    'and EVERY submit button is disabled rather than failing on the last click',
-    locked.submitDisabled && locked.submitCount >= 2,
-    `${locked.submitCount} submit buttons, all disabled=${locked.submitDisabled}, bar="${locked.bar}"`,
+    'and a typed name does not substitute for an account',
+    refused.status() === 401,
+    'a claim is not an identity',
   );
-  await shoot(anonymousPage, 'submit-anonymous-report-locked');
 
-  await anonymousPage.getByRole('button', { name: 'Defect' }).click();
-  await anonymousPage.waitForTimeout(160);
-  const unlocked = await anonymousPage.evaluate(() => ({
-    stillWarns: [...document.querySelectorAll('.rs-alert')].some((node) => /sign in/i.test(node.textContent || '')),
-    submitDisabled: Boolean(document.querySelector('.rs-submit')?.disabled),
-  }));
+  // ── READING is still open, and that is the point of the distinction ───────
+  // "Everything needs a login" is easy to over-implement into locking the status
+  // board, which every requester reads and which carries no private data for a
+  // stranger (a report request is already withheld from one). If this check ever
+  // fails, the gate went on the wrong thing.
+  const boardPage = await anonymous.newPage();
+  await boardPage.goto(`${BASE}/public`, { waitUntil: 'networkidle' });
+  const boardOpen = await boardPage.$$eval('.sb-item', (nodes) => nodes.length).catch(() => 0);
   record(
-    'switching back to Defect clears it — the other types are still open to anyone',
-    !unlocked.stillWarns && !unlocked.submitDisabled,
-    `warns=${unlocked.stillWarns} disabled=${unlocked.submitDisabled}`,
+    'the status board is still readable with no session — the gate is on FILING',
+    boardOpen > 0,
+    `${boardOpen} rows on the board signed out`,
   );
+  await boardPage.close();
 
   const realErrors = consoleErrors.filter((t) => !/401|Unauthorized/i.test(t));
   record('console is clean', realErrors.length === 0, realErrors.slice(0, 3).join(' | '));

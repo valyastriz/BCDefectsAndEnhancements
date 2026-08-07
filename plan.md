@@ -5,193 +5,222 @@ per-app details.
 
 ---
 
-# HANDOFF — pick this up cold (updated 2026-08-06)
+## The documentation set, the reseed, and sign-in on every request (2026-08-07, sixteenth pass)
 
-Everything below this line up to the `---` is the live work queue. It is written to
-be read by someone with no memory of the session that produced it. The dated
-sections after it are the historical record and unchanged.
+**The HANDOFF block that used to sit at the top of this file is gone**, reconciled
+into this section per §5 step 7. Feature work on report requests is complete
+(fifteen passes, 2026-08-06 → 08-07 — the dated sections below). This pass closed
+§5 step 6 and the one owner change that came out of writing it.
 
-## START HERE — the state, in one page (2026-08-06, end of the seventh pass)
+### 1. The database was reseeded, and there is now a script for both halves
 
-**Phase 1 is built, verified and deployed.** Everything below this heading is the
-record of HOW, in the order it happened; this block is WHERE THINGS STAND. If the
-two ever disagree, this block is newer.
+The owner authorised deleting every existing ticket so the documentation
+screenshots would stop reading "Testing". Two new scripts, both dry-run by default:
 
-**Nothing is in flight.** `main` is clean, pushed, and deployed (`62653b7` is the
-last commit). Fifteen passes shipped, 2026-08-06 into 2026-08-07:
+- **`npm run purge:submissions`** — every submission and its children, in dependency
+  order (hours, assignments, attachments, status events, routings, embeddings).
+  `--apply` **also requires `--confirm=<count>`** matching the live table, so *the
+  plan you read is the plan that executes*; if somebody files a ticket in between,
+  it refuses. It names what it KEEPS as well as what it removes, because on a shared
+  database the interesting question is what survives — users, grants, view
+  preferences, every lookup value, `excel_import_runs` (not a child of a submission,
+  and still true after the rows it inserted are gone) and `user_sessions`.
+  It also removes the **stored files**, and reports the ones it cannot reach.
+- **`npm run seed:realistic`** — 39 requests built to make every surface draw
+  something real. It **refuses a non-empty table** unless `--allow-existing`, because
+  seeding twice doubles every ticket indistinguishably.
 
-| Commit | What |
+**Two things the purge dry run found that a total would have hidden.** Ten of the
+seventeen attachment files live in Supabase Storage and **this box has no
+credentials for it**, so those objects stay in the bucket as orphans; six more point
+at local paths whose files were never on this machine; exactly one was here. And
+**two attachment rows shared one stored object** (a resubmission copies the row and
+keeps `file_path`), so anything deleting files has to dedupe by target. Both are in
+the script's own comments.
+
+**A bug in the first version, worth recording:** it resolved local `file_path`
+against the **repo root** and reported every local file as already missing. The base
+is `server/` — `helpers/storage.js` computes it from `server/src/helpers`. A
+put-back-style script that silently finds nothing to do is the worst kind.
+
+**The seeded set:** 15 defects · 9 enhancements · 15 report requests · 4 cleanup
+tasks; 25 Billing Center · 12 Policy Center · 2 Other; **15 of the 16 statuses as a
+live value**, including all three report-only ones; 12 new dashboards and 3 changes;
+9 approvals; 4 delivered; **23 hours entries by four analysts across three months**
+so the throughput page is not empty at its default; a 9-row assignment trail
+including one reassignment; two hand-offs with their ledger rows; a duplicate
+pointing at its original; 1 retired; 34 public / 5 private.
+
+**One modelling rule came out of the reseed and is now stated in the seed script:**
+**nothing is ever delivered in `Other`, and no hours are ever logged against it.**
+`Other` means "nobody knows whose data this is yet", and by the time somebody has
+built the report they plainly know — so work happens after the request is routed
+OUT. The delivered cross-system request therefore sits in Billing Center with its
+hand-off recorded, rather than in Other. This is what makes the throughput page's
+per-card empty state checkable at all (see 4 below).
+
+**No attachments are seeded, deliberately:** a file needs bytes, and neither this box
+nor the deployed instance can be given a file the other can read. A row pointing at
+bytes that are not there is worse than an empty Files tab.
+
+### 2. The screenshot harness exists — `client/scripts/capture-screenshots.mjs`
+
+**62 shots, four sessions, both themes, two viewports, one command.** This was §5
+step 6's biggest item and the reason 41 hand-shot screenshots had gone stale within
+a day.
+
+**The manifest is an OUTPUT, not an input.** `docs/handoff/screenshot-manifest.json`
+is written from the script's `SHOTS` registry at the end of a full run, so it cannot
+list a shot the script could not take. A manifest read as *input* can, and then the
+two disagree silently in the direction that makes the documentation wrong. Its
+`source` line now says the hosted database, which the owner confirmed is fine to
+photograph — the old "no production data" line was wrong.
+
+Design points that each fixed a real failure in this pass:
+
+- **Sign in once per account and reuse `storageState`.** The first version made six
+  logins; `/api/auth/login` allows ten per fifteen minutes, so two runs back to back
+  started answering 429. It now signs in three times and **says explicitly** that a
+  429 is a rate limit rather than a broken check.
+- **`document.fonts.ready`, all images complete, two animation frames** before every
+  shutter, or a shot catches the fallback font and every width in it is a lie.
+- **Every shot is size-checked.** A screenshot call that "worked" and wrote 0 bytes
+  produces a manifest describing pictures nobody can open.
+- **A failed shot photographs its own failure state** to `_failed-<name>.png`. A
+  timed-out selector says what was *not* there; the picture says what **was** — which
+  is the half that tells you whether the probe or the product is wrong. **Three of
+  this pass's five failures were diagnosed from that picture alone.**
+- **Stale files are pruned** on a fully-green run, each deletion named. 40 orphans
+  went on the first run.
+- **It writes exactly once** — two rows through the Excel import, because the
+  client's step 3 is a real import — and removes them through
+  `removeVerificationSubmissions.js`, printing the count.
+
+**The output path was wrong on the first full run** (`client/docs/...` instead of
+`docs/...`, one `..` short) and wrote a complete 62-shot set into a directory that
+should not exist. Caught by reading the log's first line.
+
+**Five probe failures, all of them the probe and not the product** — added to §0.3's
+trap table:
+
+| The probe did | The truth |
 |---|---|
-| `dfd944f` | Throughput page, report-request statuses, admin add/import/export parity |
-| `f54c4e0` | Report requests through Excel, both directions |
-| `d5fedf1` | Three submit-form fixes the owner found on the live site |
-| `2cecec0` | Five more owner items (+ the Report tab showing the request at all) |
-| `fc44be1` | The application picker's styling, and the "Other" queue |
-| `562e900` | "Requester Name is required" while signed in — a lapsed session, told honestly |
-| `7ee3003` | Sessions that survive a deploy — the persistent store, and the cause removed |
-| `20e70fc` | Who may see a report request, and who may say so — the private-report rule, rep logins, type-scoped grants |
-| `4b47489` | The detail modal, told apart by type — Delivery notes, the unlocked ticket number, Reviewer |
-| `0927f4d` | Two queues, two column sets — and a search that stops ruling |
-| `7f0ac67` | Delivery notes through Excel, both ways — the owner corrected the reasoning |
-| `23edc7a` | Only `New` wears the queue's left stripe |
-| `1c22f94` | The EasyVista catalog is GTS's to set — off the Access page, into the environment |
-| `62653b7` | Managing metadata is super-user only |
+| Waited for `.sb-stop` after opening the first board row | That row was a **Duplicate**, and a ticket that has ENDED draws prose, not a track |
+| Attached the import file, then chose the mode | `analyzeImportFile` returns early with "Choose Import As … before selecting a file", so **no request ever fired** |
+| Waited for `.xl-maps` to be visible | It is inside a **collapsed** `<details>`, and `waitForSelector` defaults to `visible` |
+| Waited for "a `/api/admin/submissions` response" after switching queue | Resolved on the request already in flight for the previous filter, so the click landed on a **stale defect row** while the table showed report requests |
+| Matched `#(\d+)` on a table **row**'s textContent | Cells run together, so `#222` + `8/6/2026` captured **2228** |
 
-**No decision is outstanding.** The one that was — whether to persist sessions —
-was answered "do it" by the owner and shipped as `7ee3003`. See the eighth-pass
-section.
+The last two are the same lesson twice: **wait on the rendered DOM, not on a
+response that might be somebody else's, and read the narrowest element that holds
+the value.**
 
-**The last three passes are eleven items the owner found while testing.** They
-are recorded in full under "Eleven from the owner" below. Three of them were not
-the small changes they looked like: the Access page could not express a
-type-scoped grant AND silently escalated one on every save; report requests were
-readable by anyone on the board; and filing one anonymously left it belonging to
-nobody. **Two new columns landed on the hosted database** — `submissions.delivery_notes`
-(`npm run migrate:delivery-notes`) and the `user_sessions` table.
+### 3. Filing requires signing in — every request type (owner's change)
+
+The owner read the draft manual and corrected it: *"it says a defect or enhancement
+can be sent without signing in. not really true, all pages should now require sso
+(but in our case, since we don't have the part fully set up, just a regular signin,
+before any report or anything can be filed)"* — and then *"since we've made the
+logins, we might as well do that."*
+
+**`config.SUBMIT_REQUIRES_AUTH` now defaults to `true`**, in code rather than in an
+environment variable, because a deploy takes the code and not this machine's `.env`.
+
+**The comment that used to justify the old default asserted a constraint that no
+longer holds**, and that is the interesting part. It read: *"SSO is the only way a
+REP can sign in — the local login is admin-only. Forcing this on while
+AUTH_MODE=local would leave the submit form reachable by nobody."* True when it was
+written. **The `rep` account role from the ninth pass removed it** — `pc_rep` and
+`bc_rep` sign in through the local login today. The report branch had required a
+session since the eleventh pass for a stronger reason; there was never an argument
+for the other two types being different, only the missing login.
+
+- **`filingRequiresSignIn(requestType, submitRequiresAuth)`** in `src/constants.js`
+  holds both clauses as one pure function, and the second is the one a tidy-up would
+  delete as redundant: **a report request requires a session even if the global
+  switch is off**, because that follows from the visibility rule rather than from a
+  preference. `test/submitRequiresAuth.test.js` pins the matrix — 8 new tests, 378
+  total.
+- **The client already had the wall** (`viewer.submitRequiresAuth && !isAuthenticated`
+  renders `.rs-locked` instead of the form), so the server flip was enough to arm
+  it. Two things were not: its copy named only reports, and it deliberately had **no
+  sign-in button** because there was nowhere to send anybody. There is now.
+- **`verify-submit-form.mjs`'s session-less pass was rewritten.** It used to measure
+  the anonymous form's layout — a branch that no longer exists. It now checks a wall
+  with a way past it, the **endpoint** refusing an anonymous defect with
+  `401 authRequired` (the form's wall is a courtesy, not the control), and — the one
+  that catches over-implementing this — **that the status board is still readable
+  with no session.** "Everything needs a login" is easy to over-implement into
+  locking the reading everybody is still meant to do. **The gate is on FILING.**
+
+### 4. Three documents, and the two READMEs are one
+
+- **[`docs/DEVELOPER_HANDOFF.md`](docs/DEVELOPER_HANDOFF.md)** — the root `README.md`
+  (1196 lines) and `docs/handoff/README.md` (2560 lines) overlapped and both went
+  stale in different places. They are now **one** document carrying the how AND the
+  why, with the reasoning from this file's dated sections woven in where it belongs
+  plus a chronological **decision record** (Part IX) that keeps the corrections
+  visible. `docs/handoff/README.md` is deleted; `docs/handoff/` holds only the
+  screenshots and their manifest.
+- **[`docs/USER_MANUAL.md`](docs/USER_MANUAL.md)** — every feature and how to use it,
+  split for the two audiences, using all 62 screenshots. **It carries the test
+  logins**, at the owner's request, so the app can be opened and driven without
+  asking anyone.
+- **[`docs/NEXT_STEPS.md`](docs/NEXT_STEPS.md)** — this is a **Rebuild** (not Retired,
+  not Hardened in place), it needs **prioritising by the Customer Interactions
+  team**, and **Valya would like to remain product owner** if that is an option.
+- **The root `README.md` is now a short orientation page** pointing at the three,
+  plus quick start and the verification commands. It had become a second half-copy of
+  the handoff.
+
+### 5. The verification sweep, and two checks that were resting on the data
+
+**All green: 321 harness checks across seven scripts, 378 server tests, client lint
+and production build clean.**
+
+| Script | |
+|---|---|
+| `verify-admin-data-entry.mjs` | 121/121 |
+| `verify-submit-form.mjs` | 60/60 |
+| `verify-throughput-page.mjs` | 52/52 |
+| `verify-metadata-page.mjs` | 30/30 |
+| `verify-public-board.mjs` | 21/21 |
+| `verify-report-import-export.mjs` | 20/20 |
+| `verify-session-store.mjs` | 17/17 |
+
+The database ends where it started: **39 submissions, 0 `VERIFY` leftovers**, 23
+hours entries, 9 assignments, 2 routings, 114 status events.
+
+**`verify-throughput-page.mjs` failed three checks against a working page**, and all
+three were the same mistake: **absolute assertions against shared data.** It had
+been written when the queue held no delivered report requests and no logged hours at
+all, so it asserted `delivered === 2`, `total_hours === 10.75`, and at the end
+`delivered === 0` — and its empty-state check took *"whichever application is not the
+fixture's"* and assumed it was quiet.
+
+Fixed properly rather than by loosening:
+
+- **Every number is now a DELTA** against a baseline taken before the fixture exists.
+  The put-back check compares against that baseline instead of against zero; against
+  zero it reported the seeded demonstration data as "left behind" by a run that had
+  cleaned up perfectly.
+- **The empty-state check names `Other` explicitly**, and the seed states the
+  modelling rule that makes it empty **by construction rather than by accident** (see
+  1 above). The fixture is also now steered away from `Other`, since two delivered
+  fixtures with hours would be exactly the thing that check looks for the absence of.
+- **One absolute was kept on purpose:** `selfAnswer.analysts.length === 1` is not a
+  count of the fixture, it is the privacy rule itself.
+
+> **The general lesson, and it applies to any harness on shared data:** a check that
+> asserts a total measures the fixture and the world at once. Measure the change.
 
 ---
 
-## THE ONLY WORK LEFT: a full test pass, then the documentation (2026-08-07)
+## Report requests — Phase 1, in fifteen passes (2026-08-06 → 08-07)
 
-The owner has finished their testing round — fifteen passes came out of it, all
-shipped. **Feature work is done.** What remains is one verification sweep and
-four deliverables. Everything in this block is new scope; nothing above it is
-outstanding.
+What follows is the record of HOW, in the order it happened. Fifteen passes, all
+shipped. Nothing here is outstanding.
 
-### 1. Reseed the database with realistic data — AUTHORISED, and it is a first step
-
-**The owner has explicitly authorised deleting EVERY existing ticket and creating
-new, realistic ones**, so the screenshots do not all read "Testing". This
-overrides the standing rule elsewhere in this file that tickets without a
-`VERIFY` marker (#117, #131, #143 among them) are the owner's and must be left
-alone. That rule is **lifted for this reseed only**; once the new data is in,
-put-it-back applies again to the new data.
-
-Two things make this less trivial than it sounds:
-- **There is no submission DELETE endpoint, on purpose.**
-  `npm run remove:verification-tickets` refuses any id whose summary does not
-  start with `VERIFY`, so it cannot do this. A purge script has to be written,
-  and it must clear the children too — `submission_status_events`,
-  `request_time_entries`, `request_assignments`, `attachments`,
-  `submission_embeddings` — or it will strand orphans and break the throughput
-  page. Dry-run by default, `--apply` to write, like every other script in
-  `server/scripts/`.
-- **Seed data has to be worth screenshotting.** All four types, both branches of
-  a report request, a spread across the three applications, every status
-  including the report-only ones, some with hours logged and an approval, some
-  public and some not, believable names and summaries. `server/src/seedSampleData.js`
-  is the existing shape to build on.
-
-**Screenshots may use this production data** — the owner said so. The existing
-`docs/handoff/screenshot-manifest.json` records
-`"no production data"` in its `source` field; that line is now wrong and must be
-updated when the shots are retaken.
-
-### 2. The screenshot harness — write it before shooting anything
-
-Still does not exist. The seven verify scripts take `--shots <dir>` and already
-own the login, viewport (1500x950@2x desktop, 390x844@2x mobile),
-`reducedMotion: reduce` and `localStorage['bc-theme']` scaffolding a
-manifest-driven capture needs. **41 shots exist from 2026-08-05 and are stale.**
-Shooting by hand means re-shooting by hand; 43+ were already re-shot once after a
-rename.
-
-### 3. Three documents (the owner's words, kept)
-
-**(a) Developer handoff — ONE document combining both current READMEs.** Root
-`README.md` (1196 lines) and `docs/handoff/README.md` (2560 lines) both exist and
-overlap. It must carry **the how AND the why**: "all of the ideas and decisions
-and reason for the app". Most of that reasoning is in THIS file, in the dated
-pass sections — they are the source, not an afterthought. Do not summarise the
-decisions away; a rebuild team needs to know why `request_type` is `''` and not
-NULL, why a report request is private, why the insert columns are positional,
-why sessions are in Postgres.
-
-**(b) User manual** — every piece of functionality and how to use it, for the
-people who file and triage requests. This is the one the screenshots are for.
-
-**(c) Next steps — short.** This app was built in the **Citizen Developers
-program**, where non-developer employees vibe-code solutions. Each app ends as
-**Retired** (wrong solution), **Hardened in place** (taken as-is, brought to
-company standards, deployed), or **Rebuild** (developers re-create it from the
-prototype). This document states: **this is a Rebuild**, it needs to be
-**prioritised by the Customer Interactions team**, and **Valya would like to
-remain product owner going forward if that is an option.**
-
-### 4. The verification sweep
-
-All seven scripts green, `npm test`, `npm run lint`, `npm run build`. Then
-reconcile this HANDOFF block into the dated record below and delete it (§5 step 7).
-
-**Six working accounts exist on the hosted database** (fifth pass), all with the
-seeded password from `.env`, none a super user, none a `manager`:
-`pc_app_admin` · `bc_app_admin` (defects + enhancements) ·
-`pc_report_analyst` · `bc_report_analyst` (report requests only) ·
-`pc_owner_analyst` · `bc_owner_analyst` (both). `admin` is still the super user.
-There are three applications now: Billing Center, Policy Center and **Other**, the
-queue a report request lands in when nobody knows whose data it is yet.
-
-**Four traps that cost real time today. All four are in §0.3 in full:**
-1. **Do not pipe a verify script through `head`** — SIGPIPE kills the run before its
-   cleanup and leaves fixtures in the shared database. Redirect to a file.
-2. **`/api/auth/login` allows 10 attempts per 15 minutes per IP.** A burst of
-   re-runs starts answering 429, and a 429 mid-run looks exactly like a broken
-   check.
-3. **Read the submission count from
-   `server/scripts/removeVerificationSubmissions.js`, never from a number written
-   in this file.** It moves as the owner tests: 83 on the morning of 2026-08-06,
-   86 by 2026-08-07. ~~Tickets without a `VERIFY` marker are theirs — #117, #131
-   and #143 must not be removed.~~ **That rule is LIFTED as of 2026-08-07: the
-   owner authorised deleting every ticket and reseeding realistic data for the
-   documentation screenshots** (see the block at the top). It applies again, to
-   the new data, once that reseed is done. A fixture of your own left behind is
-   still your mistake to clear.
-4. **A browser probe is wrong more often than the code is.** Three of today's new
-   checks failed against working code: a fixed sleep that read the previous
-   filter's rows, a `.dm-pane` class that does not exist, and `.submission` on a
-   detail response that is flat. Wait on the response whose URL carries the
-   expected query, and read the shape before asserting on it.
-   **Three more joined them across passes 9–14**, all the same mistake in
-   different clothes: `\s` as a word boundary against a sortable header whose
-   caret is glued to the label (`▼Status`); `button:has-text("Save")` where the
-   real button is "Save Changes" and renders in the header AND the footer; and
-   Escape-and-sleep to close a modal, which leaves `.bs-modal-backdrop` swallowing
-   every later click and surfaces hundreds of lines away as an unrelated failure.
-   **Click and wait for the response, not for a number of milliseconds. Prove a
-   modal closed. Read the real DOM before writing the selector.**
-
-**And one lesson worth carrying:** the SIGNED-IN branch is not the branch a
-requester sees. Two of the owner's five submit-form complaints were only ever
-visible to a viewer with no session — which is everybody who files a request —
-because nobody signs in to file. `verify-submit-form.mjs` now opens the form in a
-second, session-less context for exactly that reason.
-
-**Approved mockups — these are the build contract, not sketches:**
-1. Submit form, report branch (v3) — https://claude.ai/code/artifact/075982a2-0670-4d48-b02d-ba92b420b0b7
-2. Delivery pane (v3) — https://claude.ai/code/artifact/9d716633-70b6-45f0-94c4-44ad493be76c
-3. Throughput page (v2) — https://claude.ai/code/artifact/e6bffd90-c76a-49a4-b042-0aa2ba904835
-
-**Merged and deployed:** PR #12 (schema, authorisation sweep, backend), PR #13
-(submit form), PR #14 (Delivery pane, handover trail, approval evidence).
-
-**Verified:** 370 server tests, client lint and production build clean, and **319
-harness checks** across seven committed scripts at 1500/820/390 in both themes — 121
-admin data entry, 60 submit form, 52 throughput, 30 metadata, 21 public board, 20
-spreadsheet round trip, 15 session store. **All seven were run green at the eleventh
-pass**, and the round trip again at the twelfth (it now compares 16 fields, not 15,
-and names Approved By / Approved Date / Delivery Notes as mappable rather than
-checking three columns and hoping the rest came with them). Every script that writes ends by printing the hosted count back where it
-found it; it is 86.
-
-**Six working accounts became eight**, and a second KIND of account exists.
-`users.role` is now the door with two values that may sign in: `admin` (the six
-triage accounts) and **`rep`** — `pc_rep` and `bc_rep`, who hold no grants at all,
-are refused by `ensureAdmin`, and see no Admin link in the header. They exist
-because a report request is only visible to the person who filed it, and that
-needs somebody to be. Same seeded password; `npm run seed:team-accounts`.
-
-The second pass shipped as `dfd944f` on `main`. The spreadsheet round trip that
-followed it is the third pass — see "The spreadsheet round trip" below.
 
 ### The schema is APPLIED to the hosted database
 
@@ -493,6 +522,12 @@ removes it again.
    asked for it, and handing it out because an account sounds senior is a privacy
    decision made by accident. Add it deliberately if a product owner should see
    their team's figures rather than only their own.
+
+> **Every ticket named below is gone.** The sixteenth pass purged the table and
+> reseeded it with the 39-request demonstration set, so `#117`, `#131` and `#143`
+> no longer exist and the baseline is 39, not 83–86. The counts are left as written
+> because they are what the checks of the day were measuring; **read the live count
+> from `removeVerificationSubmissions.js`, never from a number in this file.**
 
 **The hosted baseline is 84 now, not 83** — #117 "Testing a report request" is the
 owner's own, filed through the live form. It is Billing Center because that is what
@@ -972,33 +1007,45 @@ branch). Two remain, both needing a decision:
    defects portal. **Named for the destination deliberately** — the alternative
    was re-shooting 43+ desktop screenshots a second time when the other request
    types land. Do not narrow it again.
-3. **The verification harness is committed now.** `client/scripts/` holds five
-   Playwright scripts and two shared probes; they are the record of what has been
-   checked by eye and by measurement, and they run against the real app:
+3. **The verification harness is committed.** `client/scripts/` holds **seven**
+   verification scripts, the **screenshot harness**, and two shared probes. They are
+   the record of what has been checked by eye and by measurement, and they run
+   against the real app:
    - `verify-admin-data-entry.mjs` — the three §2c dialogs, the redirect dialog,
      and the report-request Delivery pane. **Writes** one report request through
-     the dialog and removes it. 102 checks.
+     the dialog and removes it.
    - `verify-metadata-page.mjs` — the §2a page. Makes ONE reversible write and
-     proves it undid it. 26 checks.
-   - `verify-submit-form.mjs` — the §2b form. Read-only. 32 checks.
-   - `verify-throughput-page.mjs` — both views of the throughput page, in two real
-     sessions (`admin` is a manager, `lead_admin` is not). **Writes** two delivered
-     report requests with hours logged by two people, and removes all of it. 52
-     checks.
+     proves it undid it, by fingerprinting every lookup value before and after.
+   - `verify-submit-form.mjs` — the §2b form's heights, field counts and duplicate
+     scoping, **plus what a session-less visitor gets** (a wall, the endpoint
+     refusing an anonymous defect, and the board still readable). **Writes** one
+     report request and removes it.
+   - `verify-throughput-page.mjs` — both views, in two real sessions (`admin` is a
+     manager, `lead_admin` is not). **Writes** two delivered report requests with
+     hours logged by two people, and removes all of it. **Every number it asserts
+     is a DELTA against a baseline it takes first** — see the sixteenth pass.
    - `verify-public-board.mjs` — the per-type track, the parked state, the type
-     chip and the stage tiles. **Writes** one public report request, walks it
-     through its statuses, and removes it. 17 checks.
+     chip, the stage tiles, and that a report request is invisible to a stranger.
+     **Writes** one public report request, walks it through its statuses, removes it.
    - `verify-report-import-export.mjs` — the spreadsheet round trip: export a
      filled report request, re-import the portal's own file, compare every column,
      and check all three refusal paths. **Writes** four report requests and removes
-     them. Needs no browser for most of it (it drives the API directly) and builds
-     its fixture sheets with `xlsx`, a client devDependency. 19 checks.
+     them. Needs no browser for most of it and builds its fixture sheets with
+     `xlsx`, a client devDependency.
    - `verify-session-store.mjs` — sessions outlive a restart. **Brings its own
      servers** on port 4100 (spawn, sign in, kill, spawn again, present the same
      cookie) because no single process can show this, so it needs neither :4000
      nor Vite nor a browser. Runs the same sequence with `SESSION_STORE=memory` as
      a control, where the session must be LOST. **Writes** session rows only,
-     signs out of them, and prints the `user_sessions` count. 15 checks.
+     signs out of them, and prints the `user_sessions` count.
+   - **`capture-screenshots.mjs`** — the documentation set. 62 shots, four sessions,
+     both themes, two viewports. **Writes the manifest** rather than reading it, so
+     it cannot describe a shot it did not take. Signs in once per account and reuses
+     `storageState`; waits for `document.fonts.ready` before every shutter;
+     size-checks every file; **photographs its own failure state** to
+     `_failed-<name>.png`; prunes stale files on a green run. **Writes** two rows
+     through the Excel import (the client's step 3 is a real import) and removes
+     them.
    - `lib/overflow-probe.mjs` — the per-container overflow probe every one of them
      uses. Read its header before changing it: each exclusion in it is there
      because a false positive buried a real finding.
@@ -1007,28 +1054,47 @@ branch). Two remain, both needing a decision:
      while passing every other check.
 
    All of them except `verify-session-store.mjs` need the server on :4000 and Vite
-   on :5173 already running, and take an optional `--shots <dir>`. If Vite has been running across a lot of edits its
-   module graph can go stale and a page will fail to mount with a bogus "does not
-   provide an export named …" — restart it rather than debugging the source.
+   on :5173 already running, and the verify scripts take an optional `--shots <dir>`.
+   If Vite has been running across a lot of edits its module graph can go stale and a
+   page will fail to mount with a bogus "does not provide an export named …" —
+   restart it rather than debugging the source.
 
-   **A script that writes ends by proving it put the data back.** The three that
-   write print the submission count from
-   `server/scripts/removeVerificationSubmissions.js`
+   **A script that writes ends by proving it put the data back**, printing the
+   submission count from `server/scripts/removeVerificationSubmissions.js`
    (`npm run remove:verification-tickets -- <ids> --apply`, dry-run without
    `--apply`), which refuses any id whose summary does not start with `VERIFY` —
    there is no submission DELETE endpoint, on purpose, so this is the only way a
    fixture leaves. Ticket ids advance permanently (a sequence does not roll back);
-   the COUNT returning to 83 is the invariant, not the ids.
+   **the COUNT returning to where it started is the invariant, not the ids, and not a
+   number written in this file.** Read it from the removal script.
+
+   > **Two scripts now delete tickets, for two different jobs.**
+   > `removeVerificationSubmissions.js` takes explicit ids and refuses anything
+   > without the `VERIFY` marker. `purgeSubmissions.js` takes *everything*, and its
+   > `--apply` additionally requires `--confirm=<count>` matching the live table.
+   > Both are dry-run by default. Loosening the narrow one would have left the portal
+   > with no script that cannot destroy real data.
 
    **Do not pipe these scripts through `head`.** SIGPIPE kills the run before its
    cleanup, which is how #89 and #90 were left behind mid-session and had to be
    removed by hand. Redirect to a file and read the file.
 
-   `/api/auth/login` allows **10 attempts per 15 minutes per IP**. One full pass of
-   the six page scripts is six logins, so a burst of re-runs starts answering 429 —
-   and a 429 mid-run looks exactly like a broken check. The limiter is in-memory
-   per process (`middleware/rateLimit.js`), which is why the session-store script,
-   whose every boot is a fresh process, is exempt.
+   `/api/auth/login` allows **10 attempts per 15 minutes per IP**, so a burst of
+   re-runs starts answering 429 — and a 429 mid-run looks exactly like a broken
+   check. Restarting the server resets it. The limiter is in-memory per process
+   (`middleware/rateLimit.js`), which is why the session-store script, whose every
+   boot is a fresh process, is exempt.
+
+   **A browser probe is wrong more often than the code is.** Fifteen checks have now
+   failed against working code, and every one was the same mistake in different
+   clothes. The full table is in
+   [`docs/DEVELOPER_HANDOFF.md`](docs/DEVELOPER_HANDOFF.md#the-four-traps-this-harness-was-built-around);
+   the rule it reduces to is:
+
+   > **Wait for the RESPONSE whose URL carries the expected query — or better, for
+   > the rendered DOM. Prove a modal closed. Read the real DOM, and the narrowest
+   > element that holds the value, before writing the selector. Never assert a total
+   > against shared data; assert the change.**
 
 ## 1. Landed and verified (2026-08-05, first pass)
 
@@ -1724,18 +1790,14 @@ future scope, not current work.
 5. **Build Phase 1** — mockups first (submit-form branch, detail-modal fields,
    throughput page), then the additive schema, then admin add/import/export
    parity.
-6. **Only then screenshots and docs.** The manifest
-   (`docs/handoff/screenshot-manifest.json`) needs *extending*, not just
-   re-shooting, and more of it than before: `18-admin-backdated-modal.png` becomes
-   several (New vs Historical × Defect/Enhancement/Cleanup, then × report request),
-   the import modal gains its three steps and its result, the export dialog is a
-   new shot, the metadata page gains its dropdown/mobile states, the submit form's
-   heights all changed, and report requests add whole sections to
-   `docs/handoff/README.md` and `README.md`. The portal name is settled (§0.2), so
-   this is no longer blocked. **Write the capture script this time** — the three
-   verification scripts in `client/scripts/` already take `--shots <dir>` and share
-   the login/viewport/theme scaffolding a manifest-driven capture needs.
-7. Reconcile this HANDOFF block into the dated record below and delete it.
+~~6. Only then screenshots and docs.~~ **Done, sixteenth pass.**
+   `client/scripts/capture-screenshots.mjs` takes all 62 and **writes** the manifest
+   rather than reading it. The Add-a-ticket shot became six (New vs Historical ×
+   four type segments, the report segment × its two branches), the import modal got
+   its three steps plus its result, and the export dialog got two. The two READMEs
+   became one document — see the sixteenth pass, item 4.
+~~7. Reconcile this HANDOFF block into the dated record below and delete it.~~
+   **Done, sixteenth pass** — this file now opens on that dated section.
 
 ## 6. Session notes worth keeping
 
@@ -1828,7 +1890,7 @@ Not fixed, and deliberately: the ISO-strings-in-`TEXT` timestamp columns. `updat
 doubles as the optimistic-concurrency token and is compared as a **string** (read-time
 check plus the `UPDATE ... WHERE`), so a native-timestamp conversion would fail the JSON
 round-trip on precision and 409 every save. Specified for the rebuild instead, in
-`docs/handoff/README.md`.
+[`docs/DEVELOPER_HANDOFF.md`](docs/DEVELOPER_HANDOFF.md#timestamps-what-a-conversion-has-to-handle).
 
 250 server tests (7 new), client lint green. Verified end to end against a local instance:
 `1234567.89` and `0.07` round-trip exactly as JSON numbers, an uncosted ticket reads

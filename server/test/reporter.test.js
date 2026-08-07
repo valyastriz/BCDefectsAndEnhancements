@@ -169,8 +169,11 @@ test('a missing User model does not bind a reporter', async () => {
 });
 
 // ── requireAuthenticated: the anonymous path closes entirely ─────────────────
-// Config gates this on SSO being live, because the local login is admin-only —
-// turning it on sooner would leave the submit form reachable by nobody.
+// This is now the DEFAULT for every request type (config.SUBMIT_REQUIRES_AUTH,
+// on since 2026-08-07). It used to be gated on SSO being live because the local
+// login was admin-only; the `rep` account role removed that constraint. Which
+// types get this treatment is pinned in test/submitRequiresAuth.test.js — these
+// tests are about what resolveReporter does once it is asked for.
 const REQUIRE = { requireAuthenticated: true };
 
 test('an anonymous filer is refused with 401, not asked for a name', async () => {

@@ -115,6 +115,31 @@ function statusesForRequestType(type, statuses) {
 const SUBMISSION_TYPE_REPORT = 'report';
 const DEFAULT_SUBMISSION_TYPES = ['defect', 'enhancement', SUBMISSION_TYPE_REPORT];
 
+/**
+ * Does filing THIS type need a signed-in person?
+ *
+ * A pure function, and its own function, because it is a policy with two clauses
+ * and the second one is easy to lose:
+ *
+ *   1. `submitRequiresAuth` (config.SUBMIT_REQUIRES_AUTH, which now defaults ON)
+ *      covers every type. Every request is filed under somebody's name.
+ *   2. A REPORT REQUEST requires a session EVEN IF that switch is turned off,
+ *      because it is not a general preference there — it follows from the
+ *      visibility rule. A report request is visible only to the person who filed
+ *      it (helpers/reportVisibility.js), so an anonymous one belongs to nobody:
+ *      unfindable by its own requester and hidden from everyone else. Filing it
+ *      would be writing a row nobody can ever read.
+ *
+ * The `|| isReport` clause used to sit inline in the route as
+ * `SUBMIT_REQUIRES_AUTH || isReportRequest`. It is here so that turning the
+ * global switch off — which is what SUBMIT_REQUIRES_AUTH=false is for — cannot
+ * quietly re-open the anonymous path for the one type that must never have it.
+ */
+function filingRequiresSignIn(requestType, submitRequiresAuth) {
+  if (submitRequiresAuth) return true;
+  return String(requestType || '').trim().toLowerCase() === SUBMISSION_TYPE_REPORT;
+}
+
 // How often a requested report will be used. A fixed cadence scale rather than a
 // managed lookup: it is not a database-managed entity the way an application is,
 // and free text would give an analyst "Daily", "daily" and "every day" as three
@@ -547,5 +572,6 @@ module.exports = {
   REPORT_ONLY_STATUSES,
   REPORT_DELIVERED_STATUS,
   statusesForRequestType,
+  filingRequiresSignIn,
   DEFAULT_LEVELS_OF_EFFORT,
 };

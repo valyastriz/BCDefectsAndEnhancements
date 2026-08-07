@@ -3702,6 +3702,10 @@ select.dm-prow-input { cursor: pointer; }
 }
 .rs-locked h2 { margin: 0; font-size: 20px; font-weight: 650; text-wrap: balance; }
 .rs-locked p { margin: 0; color: var(--color-muted); font-size: 14.5px; }
+/* The action, not a sentence — so the link inside it is not inheriting the muted
+   body colour every other <p> on this card sets. */
+.rs-locked-act { margin: 4px 0 0; }
+.rs-locked-act .bs-btn { text-decoration: none; }
 .rs-locked-alt { font-size: 13px; }
 
 /* Who the ticket is filed as, when the server already knows.

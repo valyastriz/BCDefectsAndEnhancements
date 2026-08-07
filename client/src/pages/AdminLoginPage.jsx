@@ -43,7 +43,7 @@ export function AdminLoginPage({ user, onLogin }) {
     <div className="login-wrap">
       <Card
         title="Sign In"
-        subtitle="Sign in to file a report request and to follow the ones you filed. The triage team signs in here too."
+        subtitle="Sign in to file a request and to follow the ones you filed. The triage team signs in here too."
       >
         <form className="bs-form" onSubmit={submit}>
           <Input

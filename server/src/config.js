@@ -62,19 +62,29 @@ const toPositiveInt = (value, fallback) => {
 };
 
 // ── Who may file a ticket ────────────────────────────────────────────────────
-// The end state is that filing requires a signed-in person: a report is from
-// somebody, and an anonymous POST to /api/submissions is both unattributable and
-// an open door.
+// FILING REQUIRES A SIGNED-IN PERSON. A request is from somebody: a ticket that
+// belongs to nobody is unfindable by its own requester, unanswerable when triage
+// needs to ask a question about it, and an anonymous POST to /api/submissions is
+// an open door on a public URL.
 //
-// It follows AUTH_MODE rather than being hardcoded on because SSO is the only
-// way a REP can sign in — the local login is admin-only. Forcing this on while
-// AUTH_MODE=local would leave the submit form reachable by nobody and take the
-// portal's whole purpose offline.
+// This used to default to `AUTH_MODE === 'sso'`, and the reason was real at the
+// time: SSO was going to be the only way a REP could sign in, the local login
+// was admin-only, and arming this while AUTH_MODE=local would have left the
+// submit form reachable by nobody and taken the portal's whole purpose offline.
 //
-// So it arms itself the moment SSO is switched on. SUBMIT_REQUIRES_AUTH=true
-// forces it earlier (for testing the locked-out path), and =false would hold it
-// open past the SSO cutover.
-const SUBMIT_REQUIRES_AUTH = toBool(process.env.SUBMIT_REQUIRES_AUTH, AUTH_MODE === 'sso');
+// THAT CONSTRAINT IS GONE. `users.role` now has a second value that may sign in
+// — `rep` (see ACCOUNT_ROLES_THAT_MAY_SIGN_IN in constants.js, and the `pc_rep` /
+// `bc_rep` accounts seedTeamAccounts.js creates) — so a requester can sign in
+// through the local login today, with no identity provider involved. The report
+// branch has required a session since the eleventh pass for exactly the reason
+// above; there was never an argument for the other two types being different,
+// only the missing login.
+//
+// So it defaults ON, in code rather than in an environment variable, because a
+// deploy takes the code and not this machine's `.env`. `SUBMIT_REQUIRES_AUTH=false`
+// re-opens the anonymous path for an environment that has to have it — a
+// deliberate, named decision, which is the right shape for taking a door off.
+const SUBMIT_REQUIRES_AUTH = toBool(process.env.SUBMIT_REQUIRES_AUTH, true);
 
 // Master switch: 'openai' or 'anthropic'. Flip this per environment (demo vs
 // work). It drives BOTH the summary vendor and the embeddings vendor, so a

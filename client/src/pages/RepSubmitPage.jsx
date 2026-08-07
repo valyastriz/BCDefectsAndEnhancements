@@ -332,17 +332,22 @@ export function RepSubmitPage() {
     return (
       <div className="rs-page">
         <section className="rs-locked">
-          <h2>Sign in to report an issue</h2>
+          <h2>Sign in to file a request</h2>
           <p>
-            Reports are filed under your name so the team can come back to you with
-            questions and you can follow your own tickets. Sign in with your work
-            account to continue.
+            Every request — a defect, an enhancement or a report request — is filed
+            under your name, so the team can come back to you with questions and you
+            can follow the ones you filed. Sign in with your work account to
+            continue.
           </p>
-          {/* No sign-in button on purpose: there is no SSO login route to point
-              at yet, and a dead button is worse than none. Under a real provider
-              the redirect happens before this page ever renders — this state is
-              the fail-safe for when it somehow doesn't. Wire the provider's
-              login URL here when SSO lands. */}
+          {/* A real button now, where there deliberately was none. Under SSO the
+              provider redirects before this page renders and this state is only a
+              fail-safe — but SSO is not wired yet, and the local login DOES accept
+              a requester (users.role = 'rep'), so there is somewhere to send them.
+              A dead button was worse than none; a live one is better than both.
+              Replace the target with the provider's login URL when SSO lands. */}
+          <p className="rs-locked-act">
+            <Link className="bs-btn bs-btn-primary" to="/admin/login">Sign in</Link>
+          </p>
           <p className="rs-locked-alt">
             You can still <Link to="/public">read the status board</Link> without signing in.
           </p>

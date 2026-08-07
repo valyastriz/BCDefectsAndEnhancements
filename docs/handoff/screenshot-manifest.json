@@ -1,54 +1,517 @@
 {
-  "captured": "2026-08-05",
-  "source": "isolated local instance — server :4001 forced DB_MODE=local DB_PROVIDER=sqljs, client :5175; seeded sample data only, no production data",
+  "captured": "2026-08-07",
+  "capturedBy": "client/scripts/capture-screenshots.mjs",
+  "source": "the hosted Supabase database, seeded by server/scripts/seedRealisticSubmissions.js — production data, which the owner confirmed is entirely test data and fine to photograph. Server on :4000, Vite on :5173.",
   "capture": {
     "browser": "Chromium (Playwright)",
     "desktop": "1500x950 @2x",
     "mobile": "390x844 @2x",
     "reducedMotion": "reduce",
-    "theme": "forced via localStorage['bc-theme']"
+    "theme": "forced via localStorage['bc-theme'] in an addInitScript, before the app mounts",
+    "settle": "document.fonts.ready, all images complete, two animation frames"
+  },
+  "accounts": {
+    "anon": "no session — what every requester sees",
+    "bc_rep": "a requester with report requests of their own; the only way the report-request track appears on the board",
+    "admin": "super user and a manager, so the throughput page answers with the team composition",
+    "analyst": "bc_report_analyst — one grant, narrowed to report requests on Billing Center"
   },
   "screenshots": [
-    { "file": "01-submit-page-empty.png", "route": "/", "state": "Rep submit form, initial state" },
-    { "file": "02-submit-defect-selected.png", "route": "/", "state": "Defect branch of the form" },
-    { "file": "03-submit-filled.png", "route": "/", "state": "Part-way through completion; readiness rail ticking off" },
-    { "file": "03b-submit-duplicate-check.png", "route": "/", "state": "Pre-submit duplicate check — 6 similar tickets found (live AI call)" },
-    { "file": "04-submit-validation-errors.png", "route": "/", "state": "Client-side validation after a submit attempt" },
-    { "file": "05-status-board.png", "route": "/public", "state": "Public status board, default view" },
-    { "file": "06-status-board-filters-open.png", "route": "/public", "state": "Grouped filter panel opened" },
-    { "file": "07-status-board-row-expanded.png", "route": "/public", "state": "Row expanded to its detail block" },
-    { "file": "08-status-board-scope-all.png", "route": "/public", "state": "Active / Retired / All scope control set to All" },
-    { "file": "09-ai-search-panel.png", "route": "/public", "state": "AI Ticket Search panel expanded" },
-    { "file": "09b-status-board-empty-state.png", "route": "/public", "state": "Empty state — 'Nothing matches those filters' (tiles still show whole-board counts)" },
-    { "file": "09c-ai-search-results.png", "route": "/public", "state": "Real AI search result: 2 keyword matches, no endorsed semantic matches" },
-    { "file": "10-admin-login.png", "route": "/admin/login", "state": "Admin sign-in" },
-    { "file": "11-admin-queue.png", "route": "/admin", "state": "Admin queue, default view" },
-    { "file": "12-admin-filters-open.png", "route": "/admin", "state": "Admin grouped filter panel (12 controls)" },
-    { "file": "12b-admin-ai-search-open.png", "route": "/admin", "state": "AI Ticket Search expanded on the queue" },
-    { "file": "13-admin-customize-view.png", "route": "/admin", "state": "Customize View — per-admin columns and filters" },
-    { "file": "14-admin-detail-modal.png", "route": "/admin", "state": "Ticket detail modal, Report tab, all 6 tabs visible" },
-    { "file": "15-detail-tab-1-report.png", "route": "/admin", "state": "Detail modal — Report tab (read-only record)" },
-    { "file": "15-detail-tab-2-files.png", "route": "/admin", "state": "Detail modal — Files tab" },
-    { "file": "15-detail-tab-3-history.png", "route": "/admin", "state": "Detail modal — History tab (status trail + provenance)" },
-    { "file": "15-detail-tab-4-triage.png", "route": "/admin", "state": "Detail modal — Triage tab (the landing tab)" },
-    { "file": "15-detail-tab-5-impact.png", "route": "/admin", "state": "Detail modal — Impact tab" },
-    { "file": "15-detail-tab-6-easyvista-submission.png", "route": "/admin", "state": "Detail modal — EasyVista Submission tab" },
-    { "file": "15z-detail-modal-scrolled.png", "route": "/admin", "state": "Detail modal scrolled, showing the pinned action bar" },
-    { "file": "16-admin-bulk-actions.png", "route": "/admin", "state": "Bulk action bar with rows selected" },
-    { "file": "17-admin-new-ticket-menu.png", "route": "/admin", "state": "New ticket menu — backdated vs cleanup" },
-    { "file": "18-admin-backdated-modal.png", "route": "/admin", "state": "Backdated ticket entry" },
-    { "file": "19-admin-cleanup-modal.png", "route": "/admin", "state": "Cleanup task entry" },
-    { "file": "20-admin-data-menu.png", "route": "/admin", "state": "Data menu — Excel import / export" },
-    { "file": "21-admin-export-modal.png", "route": "/admin", "state": "Export field picker" },
-    { "file": "22-admin-import-modal.png", "route": "/admin", "state": "Excel import, pre-analysis" },
-    { "file": "23-admin-metadata.png", "route": "/admin/metadata", "state": "Metadata / lookup manager" },
-    { "file": "24-admin-access.png", "route": "/admin/access", "state": "Access management (super-user only)" },
-    { "file": "25-dark-submit-page.png", "route": "/", "state": "Submit form, dark theme" },
-    { "file": "26-dark-status-board.png", "route": "/public", "state": "Status board, dark theme" },
-    { "file": "27-dark-admin-queue.png", "route": "/admin", "state": "Admin queue, dark theme" },
-    { "file": "28-mobile-submit-page.png", "route": "/", "state": "Submit form at 390px" },
-    { "file": "29-mobile-status-board.png", "route": "/public", "state": "Status board at 390px" },
-    { "file": "30-mobile-status-board-expanded.png", "route": "/public", "state": "Expanded row at 390px" },
-    { "file": "31-mobile-admin-queue.png", "route": "/admin", "state": "Admin queue at 390px — known weak surface, see handoff section 6.9" }
+    {
+      "file": "00-submit-signin-required.png",
+      "route": "/",
+      "as": "anon",
+      "theme": "light",
+      "viewport": "1500x950",
+      "state": "What a visitor with no session sees at the submit page: filing requires a signed-in person, for every request type. Not a disabled form — the form is not rendered at all, and the endpoint refuses the POST regardless"
+    },
+    {
+      "file": "01-submit-page-empty.png",
+      "route": "/",
+      "as": "bc_rep",
+      "theme": "light",
+      "viewport": "1500x950",
+      "state": "Submit a service request, signed in — initial state, no request type chosen yet. \"Filing as\" states who the ticket will belong to, and the name field is gone because the server takes the identity from the session and discards anything the body claims"
+    },
+    {
+      "file": "02-submit-defect.png",
+      "route": "/",
+      "as": "bc_rep",
+      "theme": "light",
+      "viewport": "1500x950",
+      "state": "Defect branch — the questions asked about something that is broken"
+    },
+    {
+      "file": "03-submit-defect-filled.png",
+      "route": "/",
+      "as": "bc_rep",
+      "theme": "light",
+      "viewport": "1500x950",
+      "state": "Defect part-way through, with the readiness rail ticking items off"
+    },
+    {
+      "file": "04-submit-enhancement.png",
+      "route": "/",
+      "as": "bc_rep",
+      "theme": "light",
+      "viewport": "1500x950",
+      "state": "Enhancement branch — a shorter form, because nothing is broken to describe"
+    },
+    {
+      "file": "06-submit-report-new.png",
+      "route": "/",
+      "as": "bc_rep",
+      "theme": "light",
+      "viewport": "1500x950",
+      "state": "Report request, NEW dashboard branch — measures and where they come from. Which application the DATA comes from is asked and never defaulted: it decides which analysts ever see the request"
+    },
+    {
+      "file": "07-submit-report-change.png",
+      "route": "/",
+      "as": "bc_rep",
+      "theme": "light",
+      "viewport": "1500x950",
+      "state": "Report request, CHANGE branch — which report, and what should change about it. Only the chosen branch's answers are stored, so the other branch cannot sit on the row contradicting the one that was asked"
+    },
+    {
+      "file": "08-submit-validation.png",
+      "route": "/",
+      "as": "bc_rep",
+      "theme": "light",
+      "viewport": "1500x950",
+      "state": "What a submit attempt with nothing filled in says, and where it says it — per field, not one banner. \"You can press Submit with fields empty — we will point them out first\" is a promise the form keeps"
+    },
+    {
+      "file": "10-board-signed-out.png",
+      "route": "/public",
+      "as": "anon",
+      "theme": "light",
+      "viewport": "1500x950",
+      "state": "Public status board, signed out — defects and enhancements only. No report request appears at all: they are visible to the person who filed them and nobody else"
+    },
+    {
+      "file": "11-board-row-expanded.png",
+      "route": "/public",
+      "as": "anon",
+      "theme": "light",
+      "viewport": "1500x950",
+      "state": "A row opened to its four-stop track: Reported → Approved → With Service Desk → Deployed, with a date under each stop it actually reached and an em dash under the ones it has not"
+    },
+    {
+      "file": "12-board-filters-open.png",
+      "route": "/public",
+      "as": "anon",
+      "theme": "light",
+      "viewport": "1500x950",
+      "state": "The grouped filter panel a requester can narrow the board with"
+    },
+    {
+      "file": "13-board-report-track.png",
+      "route": "/public",
+      "as": "bc_rep",
+      "theme": "light",
+      "viewport": "1500x950",
+      "state": "The same board as the person who filed the report requests: theirs travel a DIFFERENT track — Reported → Approved → In progress → Delivered — and never mention the Service Desk hand-off a report request does not make"
+    },
+    {
+      "file": "14-board-ai-search.png",
+      "route": "/public",
+      "as": "anon",
+      "theme": "light",
+      "viewport": "1500x950",
+      "state": "Ticket search opened — \"Closest matches\", which describes what it found and deliberately never rules on whether a request has already been reported"
+    },
+    {
+      "file": "20-admin-login.png",
+      "route": "/admin/login",
+      "as": "anon",
+      "theme": "light",
+      "viewport": "1500x950",
+      "state": "Admin sign-in. Two kinds of account may sign in: admin (triage) and rep (a requester following their own requests)"
+    },
+    {
+      "file": "21-admin-queue.png",
+      "route": "/admin",
+      "as": "admin",
+      "theme": "light",
+      "viewport": "1500x950",
+      "state": "The triage queue as a super user, all applications. Only New wears the left stripe — every status having its own colour made the stripe distinguish nothing"
+    },
+    {
+      "file": "22-admin-queue-kind-switch.png",
+      "route": "/admin",
+      "as": "admin",
+      "theme": "light",
+      "viewport": "1500x950",
+      "state": "The one-click switch between the two kinds of work, set to Report requests — a different column set, and its own saved layout"
+    },
+    {
+      "file": "23-admin-filters-open.png",
+      "route": "/admin",
+      "as": "admin",
+      "theme": "light",
+      "viewport": "1500x950",
+      "state": "The grouped admin filter panel"
+    },
+    {
+      "file": "24-admin-customize-view.png",
+      "route": "/admin",
+      "as": "admin",
+      "theme": "light",
+      "viewport": "1500x950",
+      "state": "Customize View — which columns and which filters this admin sees, saved per admin and per queue"
+    },
+    {
+      "file": "25-admin-bulk-actions.png",
+      "route": "/admin",
+      "as": "admin",
+      "theme": "light",
+      "viewport": "1500x950",
+      "state": "The bulk action bar, with rows selected — retire, unretire and change visibility in one pass"
+    },
+    {
+      "file": "26-admin-scope-one-application.png",
+      "route": "/admin",
+      "as": "admin",
+      "theme": "light",
+      "viewport": "1500x950",
+      "state": "The queue scoped to one application. An admin sees only the applications they hold a grant on; a super user may switch between all of them"
+    },
+    {
+      "file": "27-admin-queue-analyst.png",
+      "route": "/admin",
+      "as": "analyst",
+      "theme": "light",
+      "viewport": "1500x950",
+      "state": "The same queue as bc_report_analyst, whose single grant covers report requests on Billing Center only. No defect is on this screen, and no Manage metadata in the menu"
+    },
+    {
+      "file": "30-detail-triage.png",
+      "route": "/admin",
+      "as": "admin",
+      "theme": "light",
+      "viewport": "1500x950",
+      "state": "Ticket detail — the Triage tab, which is where it opens: status, reviewer, decision notes and the assignee"
+    },
+    {
+      "file": "31-detail-report-tab.png",
+      "route": "/admin",
+      "as": "admin",
+      "theme": "light",
+      "viewport": "1500x950",
+      "state": "The Report tab — what the requester actually wrote, read-only, because a triage decision must not be able to rewrite the report it was made from"
+    },
+    {
+      "file": "32-detail-impact.png",
+      "route": "/admin",
+      "as": "admin",
+      "theme": "light",
+      "viewport": "1500x950",
+      "state": "The Impact tab on a defect — dollar impact, policies affected and how often it happens"
+    },
+    {
+      "file": "33-detail-history.png",
+      "route": "/admin",
+      "as": "admin",
+      "theme": "light",
+      "viewport": "1500x950",
+      "state": "The History tab — every status change with who made it and when, plus where the ticket came from"
+    },
+    {
+      "file": "34-detail-files.png",
+      "route": "/admin",
+      "as": "admin",
+      "theme": "light",
+      "viewport": "1500x950",
+      "state": "The Files tab. Empty on this data set: the seed writes no attachments, because a row pointing at bytes that are not there is worse than an empty tab"
+    },
+    {
+      "file": "35-detail-service-desk.png",
+      "route": "/admin",
+      "as": "admin",
+      "theme": "light",
+      "viewport": "1500x950",
+      "state": "The Service Desk tab — the hand-off downstream, and the incident number behind a lock, because for every ticket the portal sent that number is its own record of what it did"
+    },
+    {
+      "file": "36-detail-report-request.png",
+      "route": "/admin",
+      "as": "admin",
+      "theme": "light",
+      "viewport": "1500x950",
+      "state": "A REPORT REQUEST's Report tab — its own layout: what it is for, who to ask or which report, and what they need. It asked a defect's questions until the fifth pass, so an analyst could open one and not read what had been requested"
+    },
+    {
+      "file": "37-detail-delivery-pane.png",
+      "route": "/admin",
+      "as": "admin",
+      "theme": "light",
+      "viewport": "1500x950",
+      "state": "The Delivery pane — the analyst's half of a report request: go-ahead, level of effort, hours by person and day, the assignment trail and the delivery notes"
+    },
+    {
+      "file": "38-detail-actions-menu.png",
+      "route": "/admin",
+      "as": "admin",
+      "theme": "light",
+      "viewport": "1500x950",
+      "state": "The More actions menu — retire, change visibility, and Redirect, which moves a ticket to another application's queue and records the hand-off"
+    },
+    {
+      "file": "40-add-ticket-new-defect.png",
+      "route": "/admin",
+      "as": "admin",
+      "theme": "light",
+      "viewport": "1500x950",
+      "state": "Add a ticket → New ticket → Defect. An admin filing on somebody else's behalf"
+    },
+    {
+      "file": "41-add-ticket-historical-defect.png",
+      "route": "/admin",
+      "as": "admin",
+      "theme": "light",
+      "viewport": "1500x950",
+      "state": "Add a ticket → Historical ticket → Defect. The backdated mode: it asks for the dates and the status the ticket already had, and builds the timeline from them"
+    },
+    {
+      "file": "42-add-ticket-historical-enhancement.png",
+      "route": "/admin",
+      "as": "admin",
+      "theme": "light",
+      "viewport": "1500x950",
+      "state": "Add a ticket → Historical ticket → Enhancement"
+    },
+    {
+      "file": "43-add-ticket-cleanup.png",
+      "route": "/admin",
+      "as": "admin",
+      "theme": "light",
+      "viewport": "1500x950",
+      "state": "Add a ticket → Cleanup, tagged Internal only. A cleanup is stored as a flag on a defect or an enhancement plus its own status — the tag row is what records which, and \"Internal only\" is the one that was never anybody's bug report"
+    },
+    {
+      "file": "44-add-ticket-report-new.png",
+      "route": "/admin",
+      "as": "admin",
+      "theme": "light",
+      "viewport": "1500x950",
+      "state": "Add a ticket → Report request → Something new. Asks for the measures and where they come from"
+    },
+    {
+      "file": "45-add-ticket-report-change.png",
+      "route": "/admin",
+      "as": "admin",
+      "theme": "light",
+      "viewport": "1500x950",
+      "state": "Add a ticket → Report request → A change to one they already use. Asks which report FIRST, because you cannot describe what should happen to a report before saying which one it is"
+    },
+    {
+      "file": "50-export-fields.png",
+      "route": "/admin",
+      "as": "admin",
+      "theme": "light",
+      "viewport": "1500x950",
+      "state": "Export to Excel — the field picker, grouped, with presets. The groups come from the SERVER's field list, so a new column cannot be exportable and unlisted"
+    },
+    {
+      "file": "51-export-report-group.png",
+      "route": "/admin",
+      "as": "admin",
+      "theme": "light",
+      "viewport": "1500x950",
+      "state": "The Report request group of export fields, expanded — including Approved By, Approved Date, Delivery Notes and Hours Logged, which is SUM(hours) computed on read and never a stored column"
+    },
+    {
+      "file": "52-import-step1.png",
+      "route": "/admin",
+      "as": "admin",
+      "theme": "light",
+      "viewport": "1500x950",
+      "state": "Import from Excel, step 1 — pick a file and say which kind of ticket the sheet holds. The mode forces the type of every row, which is why a report sheet needs its own"
+    },
+    {
+      "file": "53-import-step2-columns.png",
+      "route": "/admin",
+      "as": "admin",
+      "theme": "light",
+      "viewport": "1500x950",
+      "state": "Import step 2 — what each column of the sheet became, with the \"Review all N mappings\" fold opened. Most columns match themselves; the point of the step is the ones that did not. The first rows are shown as they WILL be imported, before anything is written"
+    },
+    {
+      "file": "54-import-step3-result.png",
+      "route": "/admin",
+      "as": "admin",
+      "theme": "light",
+      "viewport": "1500x950",
+      "state": "Import step 3 — what landed. Rows that came in MINUS a field get their own quieter warnings banner, separate from rows that were skipped, because one list for both would make the difference invisible"
+    },
+    {
+      "file": "60-metadata.png",
+      "route": "/admin/metadata",
+      "as": "admin",
+      "theme": "light",
+      "viewport": "1500x950",
+      "state": "Manage metadata — every lookup the portal offers. Editing one renames or withdraws a value on every ticket that holds it, so the three WRITES are super-user only while the READ stays open to every admin"
+    },
+    {
+      "file": "61-metadata-statuses.png",
+      "route": "/admin/metadata",
+      "as": "admin",
+      "theme": "light",
+      "viewport": "1500x950",
+      "state": "The Statuses panel. Three values are marked \"Report requests only\" — one table serves every type, and without the marking an admin has no way to know which dropdown a value appears in"
+    },
+    {
+      "file": "62-metadata-consequence.png",
+      "route": "/admin/metadata",
+      "as": "admin",
+      "theme": "light",
+      "viewport": "1500x950",
+      "state": "What a lookup edit says it will do before it does it — the consequence line, and the lock on a name that is in use"
+    },
+    {
+      "file": "63-access.png",
+      "route": "/admin/access",
+      "as": "admin",
+      "theme": "light",
+      "viewport": "1500x950",
+      "state": "Access management, super-user only. A grant is (person, application, role, request type) — an analyst is an admin grant narrowed to report requests, and a combination the three named scopes cannot express reads as Mixed rather than being rounded to the nearest one"
+    },
+    {
+      "file": "64-throughput-team.png",
+      "route": "/admin/throughput",
+      "as": "admin",
+      "theme": "light",
+      "viewport": "1500x950",
+      "state": "Reporting throughput as a MANAGER — the team composition, with a bar per analyst. The server decides which of the two shapes to answer with; it is not the personal view with rows hidden"
+    },
+    {
+      "file": "65-throughput-team-table.png",
+      "route": "/admin/throughput",
+      "as": "admin",
+      "theme": "light",
+      "viewport": "1500x950",
+      "state": "The same page with the per-analyst table opened"
+    },
+    {
+      "file": "66-throughput-self.png",
+      "route": "/admin/throughput",
+      "as": "analyst",
+      "theme": "light",
+      "viewport": "1500x950",
+      "state": "The same page as somebody who is NOT a manager: four tiles about them, two column charts, and no .tp-bars anywhere — so there is no per-colleague mark on the screen at all. The narrowing is in the QUERY, not in the browser"
+    },
+    {
+      "file": "70-dark-submit.png",
+      "route": "/",
+      "as": "bc_rep",
+      "theme": "dark",
+      "viewport": "1500x950",
+      "state": "Submit form, dark theme"
+    },
+    {
+      "file": "71-dark-board.png",
+      "route": "/public",
+      "as": "anon",
+      "theme": "dark",
+      "viewport": "1500x950",
+      "state": "Public status board, dark theme"
+    },
+    {
+      "file": "72-dark-admin-queue.png",
+      "route": "/admin",
+      "as": "admin",
+      "theme": "dark",
+      "viewport": "1500x950",
+      "state": "Admin queue, dark theme"
+    },
+    {
+      "file": "73-dark-throughput.png",
+      "route": "/admin/throughput",
+      "as": "admin",
+      "theme": "dark",
+      "viewport": "1500x950",
+      "state": "Throughput page, dark theme — the two chart colours have their own pair per theme and both were run through the contrast validator"
+    },
+    {
+      "file": "74-dark-metadata.png",
+      "route": "/admin/metadata",
+      "as": "admin",
+      "theme": "dark",
+      "viewport": "1500x950",
+      "state": "Manage metadata, dark theme"
+    },
+    {
+      "file": "75-dark-detail-report.png",
+      "route": "/admin",
+      "as": "admin",
+      "theme": "dark",
+      "viewport": "1500x950",
+      "state": "A report request's Delivery pane, dark theme"
+    },
+    {
+      "file": "80-phone-submit.png",
+      "route": "/",
+      "as": "bc_rep",
+      "theme": "light",
+      "viewport": "390x844",
+      "state": "Submit form at 390px — one field per row, and the three type segments stacked one per row"
+    },
+    {
+      "file": "80b-phone-signin-required.png",
+      "route": "/",
+      "as": "anon",
+      "theme": "light",
+      "viewport": "390x844",
+      "state": "The sign-in wall at 390px"
+    },
+    {
+      "file": "81-phone-submit-report.png",
+      "route": "/",
+      "as": "bc_rep",
+      "theme": "light",
+      "viewport": "390x844",
+      "state": "Report request branch at 390px"
+    },
+    {
+      "file": "82-phone-board.png",
+      "route": "/public",
+      "as": "anon",
+      "theme": "light",
+      "viewport": "390x844",
+      "state": "Public status board at 390px"
+    },
+    {
+      "file": "83-phone-board-expanded.png",
+      "route": "/public",
+      "as": "anon",
+      "theme": "light",
+      "viewport": "390x844",
+      "state": "An expanded row at 390px"
+    },
+    {
+      "file": "84-phone-admin-queue.png",
+      "route": "/admin",
+      "as": "admin",
+      "theme": "light",
+      "viewport": "390x844",
+      "state": "Admin queue at 390px"
+    },
+    {
+      "file": "85-phone-throughput.png",
+      "route": "/admin/throughput",
+      "as": "admin",
+      "theme": "light",
+      "viewport": "390x844",
+      "state": "Throughput page at 390px"
+    },
+    {
+      "file": "86-phone-metadata.png",
+      "route": "/admin/metadata",
+      "as": "admin",
+      "theme": "light",
+      "viewport": "390x844",
+      "state": "Manage metadata at 390px"
+    }
   ]
 }

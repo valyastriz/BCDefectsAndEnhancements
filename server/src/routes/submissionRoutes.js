@@ -2,7 +2,7 @@ const express = require('express');
 const dbApi = require('../../db');
 const { withDb } = require('../helpers/db');
 const { isBlank, toIsoOrNow, defectDateTimeIso, parseBooleanFlag } = require('../helpers/utils');
-const { SUBMISSION_TYPE_REPORT, REPORT_USAGE_FREQUENCIES } = require('../constants');
+const { SUBMISSION_TYPE_REPORT, REPORT_USAGE_FREQUENCIES, filingRequiresSignIn } = require('../constants');
 
 /** '' and whitespace are "not given", which is null in the database, not ''. */
 const blankToNull = (value) => {
@@ -69,18 +69,18 @@ router.post('/api/submissions', imageUpload.array('attachments', 3), async (req,
   // services/reporterService.js. A signed-in reporter's own name is used and the
   // submitted one discarded, so nobody can file under someone else's name.
   await dbApi.init();
-  // A REPORT REQUEST ALWAYS NEEDS A SIGNED-IN REQUESTER, whatever
-  // SUBMIT_REQUIRES_AUTH says for the other types. It is only ever visible to the
-  // person who filed it (publicRoutes), and an anonymous one would belong to
-  // nobody: unfindable by its own requester and hidden from everybody else, which
-  // is a request that may as well not have been filed. Enforced here, at the only
-  // door, rather than in the form that asks.
+  // FILING NEEDS A SIGNED-IN REQUESTER. `filingRequiresSignIn` holds both clauses
+  // — the global SUBMIT_REQUIRES_AUTH (now on by default) and the report
+  // request's own unconditional requirement, which survives that switch being
+  // turned off because it follows from the visibility rule rather than from a
+  // preference. Enforced here, at the only door, rather than in the form that
+  // asks; the form's own wall (RepSubmitPage) is a courtesy, not the control.
   const isReportRequest = normalizedType === SUBMISSION_TYPE_REPORT;
   const reporter = await resolveReporter(dbApi.getModels() || {}, req, req.body, {
-    requireAuthenticated: SUBMIT_REQUIRES_AUTH || isReportRequest,
+    requireAuthenticated: filingRequiresSignIn(normalizedType, SUBMIT_REQUIRES_AUTH),
     authRequiredMessage: isReportRequest
       ? 'Sign in to request a report — a report request is only visible to the person who filed it.'
-      : 'Sign in to submit a report',
+      : 'Sign in to file a request — every request is filed under the name of the person who made it.',
   });
   if (reporter.error) {
     return res.status(reporter.status || 400).json({

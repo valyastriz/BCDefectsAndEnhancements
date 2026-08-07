@@ -68,12 +68,14 @@ async function health() {
  * conditional resolved the way the environment should make it resolve — short of
  * adding an endpoint that reports configuration, which is not worth having.
  */
-async function boot(sessionStore) {
+async function boot(sessionStore, extraEnv = {}) {
   const child = spawn(process.execPath, ['src/index.js'], {
     cwd: SERVER_DIR,
     // NODE_ENV stays unset on purpose: production boots with sync({ alter: true })
     // against this same hosted database, and a verification run must never do that.
-    env: { ...process.env, PORT: String(PORT), SESSION_STORE: sessionStore, NODE_ENV: '' },
+    env: {
+      ...process.env, PORT: String(PORT), SESSION_STORE: sessionStore, NODE_ENV: '', ...extraEnv,
+    },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
 
@@ -234,7 +236,57 @@ async function run() {
       viewer?.viewer?.user?.username || '(anonymous)',
     );
 
-    // ── The honest expired path still exists, it just stops firing on deploys ─
+    // ── Filing now refuses an unsigned caller outright ───────────────────────
+    // Since 2026-08-07, SUBMIT_REQUIRES_AUTH defaults ON, so this is what the
+    // deployed configuration answers a caller with no usable session — for EVERY
+    // request type, not just report requests.
+    const refused = await fetch(`${base()}/api/submissions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'defect', summary_of_issue: 'VERIFY session store — must not be created' }),
+    });
+    const refusedBody = await refused.json().catch(() => ({}));
+    record(
+      'as it ships, an unsigned caller cannot file at all',
+      refused.status === 401 && refusedBody.authRequired === true,
+      `${refused.status} authRequired=${refusedBody.authRequired}`,
+    );
+
+    // Put the row back: signing out is how a session row leaves.
+    const loggedOut = await fetch(`${base()}/api/auth/logout`, { method: 'POST', headers: withCookie(pg.sid) });
+    record('signing out is accepted', loggedOut.ok, String(loggedOut.status));
+    const afterLogout = await whoAmI(pg.sid);
+    record(
+      'and the signed-out cookie no longer resolves to anyone',
+      afterLogout.status === 401,
+      String(afterLogout.status),
+    );
+
+    await stop(server);
+    server = null;
+
+    // ── The honest expired path still exists, on the one setting that reaches it ─
+    //
+    // These two branches are the seventh pass's work: a DEAD cookie and no typed
+    // name is "your session has expired" (401 `sessionExpired`), while NO cookie
+    // and no name is "Requester Name is required" (400) — the right words for a
+    // form that IS asking. Conflating them told a first-time visitor to sign in
+    // when the real problem was a blank field.
+    //
+    // They are unreachable as the app ships, because SUBMIT_REQUIRES_AUTH now
+    // refuses an unsigned caller before `resolveReporter` gets to either. That does
+    // NOT make them dead code: `SUBMIT_REQUIRES_AUTH=false` is a documented escape
+    // hatch, an 8-hour expiry and a pruned row both still land there, and
+    // test/reporter.test.js pins all five cases at the service level.
+    //
+    // So they are checked on a server booted with the anonymous path open — which
+    // this script can do, because bringing its own servers is what it is for. The
+    // alternative was deleting two checks because the default changed, and a
+    // behaviour that only one setting reaches is exactly the kind that rots
+    // unwatched.
+    console.log('\n── the honest failures, with SUBMIT_REQUIRES_AUTH=false ──');
+    server = await boot('pg', { SUBMIT_REQUIRES_AUTH: 'false' });
+
     const expired = await fetch(`${base()}/api/submissions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', cookie: 'bc_sid=s%3Anot-a-real-session.nope' },
@@ -259,14 +311,27 @@ async function run() {
       `${anonymous.status} ${anonymousBody.error || ''}`,
     );
 
-    // Put the row back: signing out is how a session row leaves.
-    const loggedOut = await fetch(`${base()}/api/auth/logout`, { method: 'POST', headers: withCookie(pg.sid) });
-    record('signing out is accepted', loggedOut.ok, String(loggedOut.status));
-    const afterLogout = await whoAmI(pg.sid);
+    // And the one thing that switch must NOT re-open: a report request still needs
+    // a session, because that follows from the visibility rule rather than from a
+    // preference (filingRequiresSignIn in server/src/constants.js).
+    const reportAnyway = await fetch(`${base()}/api/submissions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        type: 'report',
+        created_by: 'Somebody With No Account',
+        application_name: 'Billing Center',
+        summary_of_issue: 'VERIFY session store — must not be created',
+        what_happened_exact_details: 'x',
+        measures_and_sources: 'x',
+        is_new_dashboard: true,
+      }),
+    });
+    const reportBody = await reportAnyway.json().catch(() => ({}));
     record(
-      'and the signed-out cookie no longer resolves to anyone',
-      afterLogout.status === 401,
-      String(afterLogout.status),
+      'but a REPORT request still refuses, even with the switch off',
+      reportAnyway.status === 401 && reportBody.authRequired === true,
+      `${reportAnyway.status} authRequired=${reportBody.authRequired}`,
     );
 
     await stop(server);

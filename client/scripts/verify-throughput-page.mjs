@@ -228,9 +228,41 @@ async function run() {
   );
 
   const baselineTickets = await ticketCount(boss);
-  const applicationId = Number(analystViewer.adminApplicationIds[0]);
+  // ── The baseline this script measures AGAINST ──────────────────────────────
+  // Every number below is a DELTA, not an absolute. It used to assert absolutes —
+  // `delivered === 2`, `total_hours === 10.75`, and at the end `delivered === 0`
+  // — which was only ever true because the queue happened to hold no delivered
+  // report requests and no logged hours at all. The moment real data existed, a
+  // working page failed three checks and the put-back check called the seeded data
+  // "left behind". **An absolute assertion against shared data is a check that
+  // measures the fixture and the world at once.**
+  const ALL_TIME = 'from=2020-01-01&to=2099-12-31';
+  const baseAll = await boss.get(`/api/admin/throughput?${ALL_TIME}`);
+  // The window the page's default "Last 3 months" covers, computed once and reused
+  // so the baseline and the after-reading are the same question.
+  const window = (() => {
+    const now = new Date();
+    const start = new Date(now.getFullYear(), now.getMonth() - 2, 1);
+    const iso = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+    return `from=${iso(start)}&to=${iso(now)}`;
+  })();
+  // The fixture must NOT land in `Other`: the empty-state check further down asserts
+  // that Other has nothing delivered and no hours, and two delivered fixtures with
+  // hours logged against them would be exactly the thing it is looking for the
+  // absence of. `adminApplicationIds[0]` is whatever order the grants came back in,
+  // so this names what it needs rather than trusting that order.
+  const otherId = Number(
+    (bossViewer.applications || []).find((app) => String(app.name) === 'Other')?.id || 0,
+  );
+  const applicationId = Number(
+    analystViewer.adminApplicationIds.find((id) => Number(id) !== otherId)
+    ?? analystViewer.adminApplicationIds[0],
+  );
   const analystId = Number(analystViewer.user.id);
   const bossId = Number(bossViewer.user.id);
+  // Read AFTER applicationId is resolved, and before anything is written.
+  const baseTeam = await boss.get(`/api/admin/throughput?${window}&application_id=${applicationId}`);
+  const baseSelf = await analyst.get(`/api/admin/throughput?${window}&application_id=${applicationId}`);
   const days = fixtureDays();
   const created = [];
   // submission id → its hours entries, so the fixture can be taken back out the
@@ -295,14 +327,22 @@ async function run() {
     );
 
     // ── What the server answers each of them ────────────────────────────────
-    const window = (() => {
-      const now = new Date();
-      const start = new Date(now.getFullYear(), now.getMonth() - 2, 1);
-      const iso = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-      return `from=${iso(start)}&to=${iso(now)}`;
-    })();
     const teamAnswer = await boss.get(`/api/admin/throughput?${window}&application_id=${applicationId}`);
     const selfAnswer = await analyst.get(`/api/admin/throughput?${window}&application_id=${applicationId}`);
+    const rowFor = (answer, userId) => (answer.analysts || [])
+      .find((row) => Number(row.user_id) === Number(userId));
+    /** How much this fixture added to one person's figures. */
+    const delta = (after, before, userId) => {
+      const now = rowFor(after, userId) || { hours: 0, worked: 0, closed: 0 };
+      const was = rowFor(before, userId) || { hours: 0, worked: 0, closed: 0 };
+      return {
+        hours: Math.round((now.hours - was.hours) * 100) / 100,
+        worked: now.worked - was.worked,
+        closed: now.closed - was.closed,
+      };
+    };
+    const bossDelta = delta(teamAnswer, baseTeam, bossId);
+    const analystDelta = delta(teamAnswer, baseTeam, analystId);
 
     record(
       'the server names the view, and names a different one for each rank',
@@ -311,21 +351,33 @@ async function run() {
     );
     record(
       'the team answer credits both people, and only closed sums to delivered',
-      teamAnswer.delivered === 2
-        && teamAnswer.analysts.length === 2
-        && teamAnswer.analysts.reduce((sum, row) => sum + row.closed, 0) === 2
-        && teamAnswer.analysts.reduce((sum, row) => sum + row.worked, 0) === 4
-        && teamAnswer.total_hours === 10.75,
-      `delivered ${teamAnswer.delivered}, hours ${teamAnswer.total_hours}, ${teamAnswer.analysts.map((a) => `${a.name} ${a.hours}h w${a.worked}/c${a.closed}`).join(' · ')}`,
+      // The fixture adds 2 delivered, 10.75 hours, and — the point of the whole
+      // page — FOUR "worked on" against TWO "closed", because both people logged
+      // hours on both requests while each held one at the finish.
+      teamAnswer.delivered - baseTeam.delivered === 2
+        && Math.round((teamAnswer.total_hours - baseTeam.total_hours) * 100) / 100 === 10.75
+        && bossDelta.closed + analystDelta.closed === 2
+        && bossDelta.worked + analystDelta.worked === 4
+        && bossDelta.hours > 0 && analystDelta.hours > 0,
+      `Δdelivered ${teamAnswer.delivered - baseTeam.delivered}, Δhours ${Math.round((teamAnswer.total_hours - baseTeam.total_hours) * 100) / 100}`
+      + `, ${USER} Δ${bossDelta.hours}h w${bossDelta.worked}/c${bossDelta.closed}`
+      + `, ${ANALYST_USER} Δ${analystDelta.hours}h w${analystDelta.worked}/c${analystDelta.closed}`,
     );
     record(
       "the analyst's answer contains their own numbers and no colleague at all",
+      // The one absolute worth keeping: `analysts.length === 1` is not a count of
+      // the fixture, it is the privacy rule itself. A non-manager's answer must
+      // name exactly one person however much data exists.
       selfAnswer.analysts.length === 1
         && Number(selfAnswer.analysts[0].user_id) === analystId
-        && selfAnswer.total_hours === 5.5
-        && selfAnswer.delivered === 1
+        && Math.round((selfAnswer.total_hours - baseSelf.total_hours) * 100) / 100 === 5.5
+        // ONE, not two: `delivered` is narrowed to rows this person held at the
+        // finish (`deliveredCount` in deliveryService), and the fixture gives them
+        // one of its two.
+        && selfAnswer.delivered - baseSelf.delivered === 1
         && !JSON.stringify(selfAnswer).includes(`"user_id":${bossId}`),
-      `${selfAnswer.analysts.length} analyst, ${selfAnswer.total_hours}h, ${selfAnswer.delivered} delivered`,
+      `${selfAnswer.analysts.length} analyst, Δ${Math.round((selfAnswer.total_hours - baseSelf.total_hours) * 100) / 100}h`
+      + `, Δdelivered ${selfAnswer.delivered - baseSelf.delivered}`,
     );
 
     // ── The team page ───────────────────────────────────────────────────────
@@ -536,14 +588,35 @@ async function run() {
     }
 
     // ── The empty state, which is what the page looks like on day one ───────
-    // The other application has no report requests at all, so it is the real
-    // thing rather than a mocked one.
+    //
+    // `Other` is the application to ask, and NOT because it happens to be quiet.
+    // It is the queue a report request lands in when nobody knows whose data it is
+    // about yet, so by the time anybody has built the report they plainly know and
+    // it has been routed out. **Nothing is ever delivered in Other and no hours are
+    // ever logged against it** — see the note above the Other block in
+    // server/scripts/seedRealisticSubmissions.js, which states that as a modelling
+    // rule and keeps the data honouring it.
+    //
+    // This check used to take "whichever application is not the fixture's", which
+    // passed only while the data happened to leave one empty. It stopped passing
+    // the moment the seed spread real work across all three — a check resting on an
+    // accident of the data, which is the same class of mistake as a fixed sleep.
+    const EMPTY_APPLICATION = 'Other';
+    const emptyApplicationId = (bossViewer.applications || [])
+      .find((app) => String(app.name) === EMPTY_APPLICATION)?.id;
+    if (!emptyApplicationId) {
+      throw new Error(
+        `no "${EMPTY_APPLICATION}" application is readable by ${USER}. `
+        + 'Run `npm run seed:other-application -- --apply` from server/.',
+      );
+    }
     const emptyPage = await manager.newPage();
     await emptyPage.goto(`${BASE}/admin/throughput`, { waitUntil: 'networkidle' });
     await emptyPage.waitForSelector('.tp-card');
-    await emptyPage.selectOption('.tp-filters select[aria-label="Application"]', String(
-      (bossViewer.applications || []).map((app) => Number(app.id)).find((id) => id !== applicationId) || applicationId,
-    ));
+    await emptyPage.selectOption(
+      '.tp-filters select[aria-label="Application"]',
+      String(Number(emptyApplicationId)),
+    );
     // Waited for rather than slept through: the hosted database is a round trip
     // away and a fixed pause is how a check starts passing on a fast day only.
     await emptyPage.waitForSelector('.tp-empty h4');
@@ -553,7 +626,7 @@ async function run() {
       distinct: new Set([...document.querySelectorAll('.tp-empty p')].map((node) => node.textContent.trim())).size,
     }));
     record(
-      'an application with nothing delivered says which kind of nothing, per card',
+      `${EMPTY_APPLICATION}, where nothing is ever delivered, says which kind of nothing per card`,
       empty.empties.length === 3 && empty.distinct === 3,
       empty.empties.join(' · '),
     );
@@ -603,10 +676,15 @@ async function run() {
 
     record(
       'the database is left exactly as it was found',
+      // Compared against the BASELINE, not against zero. Against zero this reported
+      // the seeded demonstration data as "left behind" by a run that had cleaned up
+      // perfectly — the shared database is not empty and a put-back check that
+      // assumes it is measures the wrong thing.
       finalCount === baselineTickets
-        && finalThroughput.delivered === 0
-        && finalThroughput.total_hours === 0,
-      `${finalCount} tickets (baseline ${baselineTickets}), ${finalThroughput.delivered} delivered and ${finalThroughput.total_hours} hours left behind`,
+        && finalThroughput.delivered === baseAll.delivered
+        && finalThroughput.total_hours === baseAll.total_hours,
+      `${finalCount} tickets (baseline ${baselineTickets}), delivered ${finalThroughput.delivered}/${baseAll.delivered}`
+      + `, hours ${finalThroughput.total_hours}/${baseAll.total_hours}`,
     );
   }
 
