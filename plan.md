@@ -17,8 +17,8 @@ sections after it are the historical record and unchanged.
 record of HOW, in the order it happened; this block is WHERE THINGS STAND. If the
 two ever disagree, this block is newer.
 
-**Nothing is in flight.** `main` is clean, pushed, and deployed (`1c22f94` is the
-last commit). Fourteen passes shipped, 2026-08-06 into 2026-08-07:
+**Nothing is in flight.** `main` is clean, pushed, and deployed (`62653b7` is the
+last commit). Fifteen passes shipped, 2026-08-06 into 2026-08-07:
 
 | Commit | What |
 |---|---|
@@ -35,6 +35,7 @@ last commit). Fourteen passes shipped, 2026-08-06 into 2026-08-07:
 | `7f0ac67` | Delivery notes through Excel, both ways — the owner corrected the reasoning |
 | `23edc7a` | Only `New` wears the queue's left stripe |
 | `1c22f94` | The EasyVista catalog is GTS's to set — off the Access page, into the environment |
+| `62653b7` | Managing metadata is super-user only |
 
 **No decision is outstanding.** The one that was — whether to persist sessions —
 was answered "do it" by the owner and shipped as `7ee3003`. See the eighth-pass
@@ -107,9 +108,9 @@ second, session-less context for exactly that reason.
 **Merged and deployed:** PR #12 (schema, authorisation sweep, backend), PR #13
 (submit form), PR #14 (Delivery pane, handover trail, approval evidence).
 
-**Verified:** 366 server tests, client lint and production build clean, and **315
+**Verified:** 370 server tests, client lint and production build clean, and **319
 harness checks** across seven committed scripts at 1500/820/390 in both themes — 121
-admin data entry, 60 submit form, 52 throughput, 26 metadata, 21 public board, 20
+admin data entry, 60 submit form, 52 throughput, 30 metadata, 21 public board, 20
 spreadsheet round trip, 15 session store. **All seven were run green at the eleventh
 pass**, and the round trip again at the twelfth (it now compares 16 fields, not 15,
 and names Approved By / Approved Date / Delivery Notes as mappable rather than
@@ -686,6 +687,25 @@ the original bug.
 Also removed: the hook action, the api helper, the `PUT` behind `ensureSuperUser`
 and the service function. An unused write endpoint on a super-user route is a
 surface with nothing behind it.
+
+**14. Managing metadata is super-user only** (fifteenth pass). Editing a lookup
+renames or withdraws a value on every ticket that holds it, on the public board
+and in every export — and it is **not scoped by the per-application grants** the
+rest of the admin side runs on, so an admin for one application was editing every
+application's vocabulary.
+
+**The READ stays open to every admin, and must.** `GET /api/admin/meta/options`
+is where the queue's filters and the detail modal's dropdowns come from
+(`useAdminMeta` delegates to `useMetaManagement`, which reads exactly it).
+Narrowing that too would take every other admin's dropdowns away to protect
+values they can already read off any ticket. Only the three writes moved to
+`ensureSuperUser`.
+
+That asymmetry reads like an inconsistency, which is what a later tidy-up would
+"fix", so `test/metaRouteGuards.test.js` pins it from the router's own stack —
+including a sweep over every mutating `/api/admin/meta` route, so one ADDED later
+without the guard fails too. All four tests were confirmed to fail against a
+deliberately weakened route before being kept.
 
 **THE POSITIONAL-CONTRACT TRAP, PAID IN FULL.** `delivery_notes` was first slotted
 into `SUBMISSION_INSERT_COLUMNS` beside `release_notes`. That list is a positional
