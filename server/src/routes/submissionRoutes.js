@@ -3,6 +3,7 @@ const dbApi = require('../../db');
 const { withDb } = require('../helpers/db');
 const { isBlank, toIsoOrNow, defectDateTimeIso, parseBooleanFlag } = require('../helpers/utils');
 const { SUBMISSION_TYPE_REPORT, REPORT_USAGE_FREQUENCIES, filingRequiresSignIn } = require('../constants');
+const { refuseTypeForApplication } = require('../helpers/applicationScope');
 
 /** '' and whitespace are "not given", which is null in the database, not ''. */
 const blankToNull = (value) => {
@@ -98,7 +99,12 @@ router.post('/api/submissions', imageUpload.array('attachments', 3), async (req,
     created_by: reporter.createdBy,
     created_by_email: reporter.createdByEmail,
     type: normalizedType,
-    application_name: String(application_name || '').trim() || 'Billing Center',
+    // NOT defaulted to a named application. `|| 'Billing Center'` lived here and
+    // silently filed every request whose payload named none into one queue — the
+    // same hardcode the fifth pass removed from the enhancement branch, still
+    // sitting in the shared normaliser underneath it. The form asks on every branch
+    // now, and a blank is refused below rather than guessed at.
+    application_name: String(application_name || '').trim(),
     policy_num: policy_num || null,
     account_num: account_num || null,
     transaction_num: transaction_num || null,
@@ -126,12 +132,30 @@ router.post('/api/submissions', imageUpload.array('attachments', 3), async (req,
 
     normalized = {
       ...normalized,
-      application_name: normalized.application_name || 'Billing Center',
       steps_to_reproduce: normalized.steps_to_reproduce || '-',
       request: normalized.request || '-',
       date_time_of_error: defectDateTime,
       desired_completion_date: null,
     };
+  }
+
+  // ── WHICH APPLICATION, for every type ───────────────────────────────────────
+  // Asked on every branch of the form now, and refused here when it is missing.
+  //
+  // It used to be asked only of a report request and DERIVED for the other two,
+  // from the filer's own AD group or their most-filed application. That silently
+  // filed a Billing Center defect reported by somebody in Claims into whichever
+  // queue the derivation named — the same fault the fifth pass fixed for report
+  // requests, one type over, and the shared `|| 'Billing Center'` default above it
+  // meant a payload naming none landed in one queue regardless.
+  //
+  // A bug happened somewhere, and only the person who saw it knows where.
+  if (isBlank(normalized.application_name)) {
+    return res.status(400).json({
+      error: normalizedType === SUBMISSION_TYPE_REPORT
+        ? 'Choose which application the data comes from'
+        : 'Choose which application this is about',
+    });
   }
 
   // ── Report requests ─────────────────────────────────────────────────────
@@ -252,6 +276,18 @@ router.post('/api/submissions', imageUpload.array('attachments', 3), async (req,
     ]);
     if (missingLookupFields.length > 0) {
       return res.status(400).json({ error: formatMissingLookupError(missingLookupFields) });
+    }
+    // A reports-only application takes report requests and nothing else. Checked
+    // here, at the door, and not only hidden from the picker — the form not
+    // offering it is a courtesy; this is the control. See helpers/applicationScope.js
+    // for why a defect in a reports-only queue would be visible to nobody.
+    const wrongQueue = await refuseTypeForApplication(
+      lookupIds.application_id,
+      normalized.type,
+      normalized.application_name,
+    );
+    if (wrongQueue) {
+      return res.status(wrongQueue.status).json({ error: wrongQueue.error });
     }
     const createPayload = {
       created_at: now,

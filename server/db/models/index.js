@@ -388,6 +388,19 @@ function defineModels(sequelize) {
     // NOT CONFIGURED, and the send is refused rather than misrouted.
     easyvista_catalog_guid: { type: DataTypes.TEXT },
     easyvista_catalog_code: { type: DataTypes.TEXT },
+    // This application takes REPORT REQUESTS ONLY, and a reporting analyst created
+    // it by typing a name in.
+    //
+    // Why a column and not a convention: an application is a queue, and the submit
+    // form offers it. Without a flag, a rep filing a DEFECT could pick "Marketing
+    // Analytics" — a system the portal does not otherwise track — and the ticket
+    // would land in a queue with no defect admins, visible to nobody who could work
+    // it. The flag is what keeps it off the defect and enhancement pickers, and the
+    // endpoints refuse the combination rather than trusting the client to.
+    //
+    // 0 on every application that existed before this, so nothing changes for them:
+    // Billing Center and Policy Center take every type, and so does `Other`.
+    reports_only: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
   }, { tableName: 'applications', timestamps: false });
 
   const EnhancementRequestType = sequelize.define('EnhancementRequestType', {

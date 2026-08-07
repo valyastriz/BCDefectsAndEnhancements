@@ -12,10 +12,11 @@ import { USAGE_FREQUENCIES } from '../constants/reportConstants';
 const initialForm = {
   created_by: '',
   type: 'defect',
-  // `application_name` is deliberately NOT here. The form has no application
-  // picker, so holding one in form state only created somewhere for a hardcoded
-  // application name to live; it is derived from the viewer at send time instead
-  // (see homeApplicationName).
+  // Asked on EVERY branch, so it lives in the shared part of the form state. It
+  // used to be report-only, with the other two types deriving the application from
+  // the viewer at send time — which filed a Claims user's Billing Center defect
+  // into whichever queue that derivation named.
+  application_name: '',
   policy_num: '',
   account_num: '',
   transaction_num: '',
@@ -31,11 +32,6 @@ const initialForm = {
   // Title is `summary_of_issue`, Description is `what_happened_exact_details`
   // and "what's not working" is `request`, so those three are already above.
   //
-  // `application_name` IS here, unlike for the other two types — for a report
-  // request it is a question ("whose data is this about?"), and only the requester
-  // knows the answer. It is sent only on the report branch; everything else still
-  // derives the application from the viewer.
-  application_name: '',
   is_new_dashboard: true,
   needed_data: '',
   measures_and_sources: '',
@@ -60,11 +56,13 @@ const REQUIRED_FIELDS = {
     { key: 'screen_title', label: 'Screen title' },
     { key: 'date_of_error', label: 'Date it happened' },
     { key: 'what_happened_exact_details', label: 'What you saw' },
+    { key: 'application_name', label: 'Which application' },
   ],
   enhancement: [
     { key: 'created_by', label: 'Your name' },
     { key: 'summary_of_issue', label: 'One-line summary' },
     { key: 'request', label: 'What should change' },
+    { key: 'application_name', label: 'Which application' },
   ],
   // Deliberately minimal, and mirroring the server's own report branch. The
   // confirmed field list is a SAMPLE, so somebody blocked by a required question
@@ -158,24 +156,74 @@ export function RepSubmitPage() {
   // someone who has neither. The page never names an application itself: this is a
   // multi-application portal, and a hardcoded name silently files Policy Center's
   // tickets into Billing Center's queue.
+  // It is now a PREFILL and nothing more. It used to be what the other two types
+  // actually SENT, which is the bug: where somebody works is a good guess at where
+  // they saw a problem and a bad answer to "which application is this about". The
+  // picker asks, this fills it in, and the requester can change it.
+  //
+  // Never a reports-only application: `resolveHomeApplicationId` excludes them
+  // server-side, and a defect prefilled into a reports-only queue would be one
+  // click from being filed where no defect admin can see it.
   const homeApplicationName = useMemo(() => {
-    const list = Array.isArray(viewer.applications) ? viewer.applications : [];
+    const list = (Array.isArray(viewer.applications) ? viewer.applications : [])
+      .filter((app) => !app.reportsOnly);
     const home = list.find((app) => String(app.id) === String(viewer.homeApplicationId));
     return home?.name || list[0]?.name || '';
   }, [viewer.applications, viewer.homeApplicationId]);
 
-  // Every application this portal takes requests for. A report request ASKS which
-  // one, because "whose data is this about" is a question only the requester can
-  // answer — somebody in Claims can perfectly well need a report over billing
-  // data, and deriving it from their own membership filed those against the wrong
-  // queue silently. A defect still derives it: a bug happened where the person
-  // was, and they are already there.
-  const applicationOptions = useMemo(
-    () => (Array.isArray(viewer.applications) ? viewer.applications : []),
-    [viewer.applications],
-  );
-
   const [form, setForm] = useState(initialForm);
+  // Prefill the picker once the viewer answer lands, and only while it is still
+  // untouched — overwriting a choice the requester has already made would be worse
+  // than not prefilling at all. `/api/viewer` resolves after the first render, so
+  // this cannot be an initial state value.
+  //
+  // NOT on the report branch, deliberately. Where somebody works is a fair guess at
+  // where they saw a bug, and a poor one at whose DATA a report is about — the fifth
+  // pass fixed exactly that, after a report over billing data asked for by somebody
+  // in Claims went to whichever queue the derivation named. A prefill is weaker than
+  // a derivation (it is visible and changeable) but it still nudges toward the same
+  // wrong answer, on the one branch where the answer is least predictable. That
+  // question stays unanswered until the requester answers it.
+  useEffect(() => {
+    if (!homeApplicationName) return;
+    setForm((previous) => (previous.type === 'report' || previous.application_name
+      ? previous
+      : { ...previous, application_name: homeApplicationName }));
+  }, [homeApplicationName]);
+
+  // Switching TO a report request clears an application the prefill chose, for the
+  // same reason: it was a guess about a defect, and it must not survive as an answer
+  // to a different question. Switching away from one prefills again.
+  useEffect(() => {
+    setForm((previous) => {
+      if (previous.type === 'report') {
+        return previous.application_name === homeApplicationName && homeApplicationName
+          ? { ...previous, application_name: '' }
+          : previous;
+      }
+      return previous.application_name || !homeApplicationName
+        ? previous
+        : { ...previous, application_name: homeApplicationName };
+    });
+  }, [form.type, homeApplicationName]);
+
+  // Every application this portal takes THIS KIND of request for.
+  //
+  // A reports-only application was created by a reporting analyst typing a name in,
+  // for a system the portal does not otherwise track. It takes report requests and
+  // nothing else, so it is offered on that branch only: a defect filed against it
+  // would land in a queue with no defect admins, visible to nobody who could work
+  // it. The server refuses the combination too — this list is the courtesy, not the
+  // control (server/src/helpers/applicationScope.js).
+  //
+  // BELOW the form state on purpose: it reads `form.type`, and declaring it above
+  // put `form` in its own temporal dead zone — the page threw
+  // "Cannot access 'form' before initialization" and rendered nothing at all.
+  const applicationOptions = useMemo(() => {
+    const list = Array.isArray(viewer.applications) ? viewer.applications : [];
+    return form.type === 'report' ? list : list.filter((application) => !application.reportsOnly);
+  }, [viewer.applications, form.type]);
+
   const [files, setFiles] = useState([]);
   const [fileUrls, setFileUrls] = useState([]);
   const [error, setError] = useState('');
@@ -264,10 +312,12 @@ export function RepSubmitPage() {
       const payload = {
         ...form,
         created_by_email: '-',
-        // A report request carries the application the REQUESTER chose; everything
-        // else derives it from where they work. `form.application_name` is only
-        // ever set by the report branch's own picker.
-        application_name: (isReport && form.application_name) || homeApplicationName,
+        // Whatever the requester chose, on every branch. It used to be
+        // `(isReport && form.application_name) || homeApplicationName`, so the other
+        // two types sent where the FILER works rather than where the problem was.
+        // The server refuses a blank rather than defaulting one, so there is nothing
+        // to fall back to here either.
+        application_name: form.application_name,
         steps_to_reproduce: isDefect ? form.steps_to_reproduce || '-' : '-',
         // `request` carries the enhancement's ask, and on a report request it
         // carries "what's not working" — which is only asked of a change.
@@ -292,7 +342,7 @@ export function RepSubmitPage() {
         // The confirmation must echo the name the server actually recorded, not
         // the (ignored) form field, or a signed-in rep sees a blank "filed by".
         name: knownReporter ? knownReporter.displayName : form.created_by,
-        application: (isReport && form.application_name) || homeApplicationName,
+        application: form.application_name,
         fileCount: files.length,
       });
       setForm(initialForm);
@@ -593,6 +643,42 @@ export function RepSubmitPage() {
             {/* The type being filed decides what can be a duplicate of it: a
                 report request is only ever a duplicate of another report request,
                 while a defect and an enhancement stay eligible for each other. */}
+            {/* WHICH APPLICATION — asked on EVERY branch, and never derived.
+                It used to be a question only a report request was asked; the other
+                two types took it from the filer's own AD group, or their most-filed
+                application, or the portal's first one. So a Billing Center defect
+                reported by somebody in Claims was filed into whichever queue that
+                derivation named, silently — the same fault the fifth pass fixed for
+                report requests, one type over.
+
+                A bug happened somewhere, and only the person who saw it knows
+                where. The server refuses a blank now rather than guessing
+                (submissionRoutes). */}
+            <Field
+              name="application_name"
+              label={isReport ? 'Which application is the data from?' : 'Which application is this about?'}
+              required
+              help={isReport
+                ? `The system the numbers come out of, not the team asking for them.
+                   If it spans more than one, or you are not sure, choose Other —
+                   it goes to every reporting analyst and they will route it.`
+                : `Where you saw it. If it is not in the list, or you are not sure,
+                   choose Other — the triage team will route it to the right queue.`}
+              error={errorFor('application_name')}
+            >
+              <select
+                id="rs-application_name"
+                aria-describedby="rs-application_name-help"
+                value={form.application_name}
+                onChange={(e) => updateField('application_name', e.target.value)}
+              >
+                <option value="">Select one</option>
+                {applicationOptions.map((application) => (
+                  <option key={application.id} value={application.name}>{application.name}</option>
+                ))}
+              </select>
+            </Field>
+
             <DuplicateCheck query={form.summary_of_issue} requestType={form.type} />
           </section>
 
@@ -782,33 +868,9 @@ export function RepSubmitPage() {
                   </div>
                 </div>
 
-                {/* WHOSE DATA — asked, not assumed. This is the only type where
-                    the application is a question: a defect happened where the
-                    reporter was, but somebody in Claims can perfectly well need a
-                    report over billing data. It also decides which analysts ever
-                    see the request, so a silent default files it into the wrong
-                    team's queue — which is what it used to do. */}
-                <Field
-                  name="application_name"
-                  label="Which application is the data from?"
-                  required
-                  help="The system the numbers come out of, not the team asking for them.
-                        If it spans more than one, or you are not sure, choose Other —
-                        it goes to every reporting analyst and they will route it."
-                  error={errorFor('application_name')}
-                >
-                  <select
-                    id="rs-application_name"
-                    aria-describedby="rs-application_name-help"
-                    value={form.application_name}
-                    onChange={(e) => updateField('application_name', e.target.value)}
-                  >
-                    <option value="">Select one</option>
-                    {applicationOptions.map((application) => (
-                      <option key={application.id} value={application.name}>{application.name}</option>
-                    ))}
-                  </select>
-                </Field>
+                {/* The application question used to live here, asked of a report
+                    request alone. It is in the shared section above now, asked of
+                    every branch — see the comment there. */}
 
                 {/* Identity first on a change: you cannot usefully describe what
                     you want done to a report before saying which one it is. */}

@@ -444,10 +444,13 @@ router.post('/api/admin/submissions/import-xlsx', ensureAdmin, tempUpload.single
       const finalCleanupStatus = finalIsCleanup ? cleanupStatus : null;
 
       const applicationValue = String(getMappedImportValue(row, 'application_name', ['application_name', 'application'], normalizedColumnMappings, '') || '').trim();
-      let applicationName = applicationValue;
-      if (!applicationName) {
-        applicationName = defaultApplicationName || 'Billing Center';
-      }
+      // NOT `|| 'Billing Center'`. The check above already refuses a file with
+      // neither an Application column nor a chosen default, so reaching here with
+      // nothing means the row's own cell is blank — and the honest answer is the
+      // default the importer chose, not a named application this line happens to
+      // know. The same hardcode filed every un-named request into one queue on the
+      // public submit route until it was removed there too.
+      const applicationName = applicationValue || defaultApplicationName;
       const createdAt = toIsoOrNow(getMappedImportValue(row, 'created_at', ['created_at', 'reported_at', 'submitted_at', 'date_submitted'], normalizedColumnMappings, null));
       const closedDateRaw = getMappedImportValue(row, 'closed_date', ['closed_date', 'closed_at', 'date_closed'], normalizedColumnMappings, null);
       const updatedAtRaw = getMappedImportValue(row, 'updated_at', ['updated_at', 'status_update_at', 'last_updated_at'], normalizedColumnMappings, null);

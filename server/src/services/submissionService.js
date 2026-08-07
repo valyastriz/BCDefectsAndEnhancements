@@ -39,6 +39,7 @@ const { SUBMISSION_INSERT_COLUMNS, buildInsertPayload } = require('../helpers/su
 const { mapSubmission, mapPublicSubmission } = require('../helpers/mappers');
 const { emitAdminNotification, emitPublicUpdate, publicAudienceFor } = require('../socket');
 const { canReadSubmissionRow, canMutateApplication } = require('./viewerService');
+const { refuseTypeForApplication } = require('../helpers/applicationScope');
 const { recordAssignment, isAssignableTo } = require('./deliveryService');
 const { scheduleEmbeddingRefresh } = require('./embeddingIndexService');
 const {
@@ -664,6 +665,15 @@ async function createAdminSubmission(db, { body, username, viewer }) {
   if (!canMutateApplication(viewer, lookupIds.application_id, effectiveType)) {
     return { error: 'You do not administer this application', status: 403 };
   }
+  // And a reports-only application takes report requests and nothing else. A
+  // separate question from authorisation — this caller may well administer the
+  // queue; the queue just does not take defects. See helpers/applicationScope.js.
+  const wrongQueue = await refuseTypeForApplication(
+    lookupIds.application_id,
+    effectiveType,
+    body.application_name,
+  );
+  if (wrongQueue) return wrongQueue;
 
   // ── The report-request half of the payload ────────────────────────────────
   const isReportRequest = effectiveType === SUBMISSION_TYPE_REPORT;

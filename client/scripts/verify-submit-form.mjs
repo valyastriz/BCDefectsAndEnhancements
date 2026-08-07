@@ -63,8 +63,13 @@ if (SHOTS) mkdirSync(SHOTS, { recursive: true });
 // One control comes off when the viewer's name is already known: the reporter is
 // then stated as "Filing as", not asked for.
 const EXPECTED = {
-  defect: { fields: 10, controls: 12, cards: 4 },
-  enhancement: { fields: 3, controls: 5, cards: 3 },
+  // Both went up by ONE on 2026-08-07, when "Which application is this about?"
+  // became a question on every branch rather than a value derived from the filer's
+  // own AD group. This assertion exists to catch a field being LOST, and one was
+  // deliberately added — so the number moves and the reason is recorded here rather
+  // than the check being loosened.
+  defect: { fields: 11, controls: 13, cards: 4 },
+  enhancement: { fields: 4, controls: 6, cards: 3 },
   // Report requests (approved mockup v3, artifact 075982a2). Cards: Your
   // request · What you need · About the request · Screenshots. The two branches
   // ask a different number of questions, which is the whole point of the branch.
@@ -151,6 +156,39 @@ async function run() {
     heading === 'Submit a service request'
       && !applications.some((name) => heading.includes(name)),
     `"${heading}" (applications: ${applications.join(', ')})`,
+  );
+
+  // ── A DEFECT IS ASKED WHICH APPLICATION TOO, AND PREFILLED ───────────────
+  // Until 2026-08-07 only a report request was asked; a defect took the filer's own
+  // AD group, or their most-filed application, or the portal's first one. So a
+  // Billing Center defect reported by somebody in Claims was filed into whichever
+  // queue that named — the same fault the fifth pass fixed for report requests, one
+  // type over, and invisible because the answer was usually right.
+  const defectPicker = await page.evaluate(() => {
+    const select = document.querySelector('#rs-application_name');
+    if (!select) return null;
+    const label = select.closest('.rs-field')?.querySelector('label')?.textContent?.trim() || '';
+    return {
+      label,
+      value: select.value,
+      options: [...select.options].map((option) => option.textContent.trim()),
+    };
+  });
+  record(
+    'a defect is asked which application it is about',
+    Boolean(defectPicker) && defectPicker.label.startsWith('Which application is this about?'),
+    defectPicker ? `"${defectPicker.label}"` : 'no picker on the defect branch',
+  );
+  record(
+    'and it IS prefilled — a guess worth making, unlike on a report request',
+    Boolean(defectPicker) && defectPicker.value !== ''
+      && defectPicker.options.includes(defectPicker.value),
+    defectPicker ? `default "${defectPicker.value}" of ${defectPicker.options.length - 1}` : '',
+  );
+  record(
+    'and Other is offered, so a system the portal does not list still has a home',
+    Boolean(defectPicker) && defectPicker.options.includes('Other'),
+    defectPicker ? defectPicker.options.join(' · ') : '',
   );
 
   // ── Defect: the default shape ────────────────────────────────────────────
@@ -274,7 +312,12 @@ async function run() {
       : null;
   });
   record(
-    'a report request is asked which application the data comes from',
+    // `value === ''` is the load-bearing half. Every other branch PREFILLS this
+    // picker with the filer's home application, and a report request deliberately
+    // does not: where somebody works is a fair guess at where they saw a bug and a
+    // poor one at whose DATA a report is about. A prefill is weaker than the
+    // derivation the fifth pass removed, but it nudges toward the same wrong answer.
+    'a report request is asked which application the data comes from, and NOT prefilled',
     Boolean(applicationPicker)
       && applicationPicker.value === ''
       && applicationPicker.options.length > 2

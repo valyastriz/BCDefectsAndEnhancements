@@ -55,17 +55,39 @@ function resolveSessionIdentity(req) {
  * Active applications, in the order the pickers should show them.
  */
 async function listActiveApplications(models) {
-  const rows = await models.Application.findAll({
-    where: { is_active: 1 },
-    // Named, not implicit. Sequelize otherwise selects every column the MODEL
-    // declares, so adding a column to `applications` broke this query against any
-    // database that had not been migrated yet — and this one runs inside
-    // `attachViewer`, which guards most of the admin API. Ask for what is used.
-    attributes: ['id', 'name', 'sort_order'],
-    order: [['sort_order', 'ASC'], ['id', 'ASC']],
-    raw: true,
-  });
-  return rows.map((row) => ({ id: Number(row.id), name: String(row.name) }));
+  // Named, not implicit. Sequelize otherwise selects every column the MODEL
+  // declares, so adding a column to `applications` broke this query against any
+  // database that had not been migrated yet — and this one runs inside
+  // `attachViewer`, which guards most of the admin API. Ask for what is used.
+  //
+  // `reports_only` is asked for SEPARATELY, with a fallback, for exactly that
+  // reason: it is a new column, this query is load-bearing for most of the admin
+  // API, and a database that has not run `npm run migrate:reports-only-applications`
+  // yet must degrade to "no application is reports-only" rather than 500. That is
+  // the correct degradation — it offers every application everywhere, which is what
+  // the portal did before the column existed.
+  const base = ['id', 'name', 'sort_order'];
+  let rows;
+  try {
+    rows = await models.Application.findAll({
+      where: { is_active: 1 },
+      attributes: [...base, 'reports_only'],
+      order: [['sort_order', 'ASC'], ['id', 'ASC']],
+      raw: true,
+    });
+  } catch {
+    rows = await models.Application.findAll({
+      where: { is_active: 1 },
+      attributes: base,
+      order: [['sort_order', 'ASC'], ['id', 'ASC']],
+      raw: true,
+    });
+  }
+  return rows.map((row) => ({
+    id: Number(row.id),
+    name: String(row.name),
+    reportsOnly: Boolean(row.reports_only),
+  }));
 }
 
 /**
@@ -107,7 +129,12 @@ async function resolveHomeApplicationId(models, sequelize, { userId, groups }) {
     }
   }
 
-  const applications = await listActiveApplications(models);
+  // The portal's default, and it must NOT be a reports-only application. This is a
+  // prefill for the whole form, including the defect and enhancement branches, and
+  // a reports-only queue has no defect admins in it — landing somebody there by
+  // default would file their bug report where nobody who could work it can see it.
+  const applications = (await listActiveApplications(models))
+    .filter((application) => !application.reportsOnly);
   return applications.length > 0 ? applications[0].id : null;
 }
 
