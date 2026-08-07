@@ -161,7 +161,81 @@ test('the refusal names the tracker, not the vendor', () => {
       const { reason } = easyVistaCatalogStatus(POLICY);
       assert.match(reason, /Policy Center/, 'it names the application that cannot be sent to');
       assert.match(reason, /Service Desk/, 'it uses the display label');
-      assert.doesNotMatch(reason, /EasyVista/, 'it does not leak the vendor name to an admin');
+      // Case-INSENSITIVE. It was /EasyVista/, which passes on an all-caps
+      // environment-variable name ("EASYVISTA_CATALOG_GUIDS") purely by the
+      // casing — and one very nearly reached this message.
+      assert.doesNotMatch(reason, /easyvista/i, 'it does not leak the vendor name to an admin');
     },
   );
+});
+
+// ── Where the catalog comes from now ─────────────────────────────────────────
+// It used to be editable on the Access page. It is not: a catalog ID is an
+// identifier inside the tracker, so the team that runs the tracker owns it, and
+// asking a super user for it asked them for something they do not have. These
+// pin the replacement — a per-application map in the environment, beside the API
+// key and base URL.
+
+test('a per-application map gives each application its own catalog', () => {
+  withEnv({
+    EASYVISTA_CATALOG_GUIDS: 'Billing Center:BC-1,Policy Center:PC-2',
+    EASYVISTA_CATALOG_CODES: 'Billing Center:BCC,Policy Center:PCC',
+    EASYVISTA_CATALOG_GUID: undefined,
+    EASYVISTA_CATALOG_CODE: undefined,
+    EASYVISTA_DEFAULT_APPLICATION: undefined,
+  }, () => {
+    assert.strictEqual(easyVistaConfig(BILLING).catalogGuid, 'BC-1');
+    assert.strictEqual(easyVistaConfig(BILLING).catalogCode, 'BCC');
+    assert.strictEqual(easyVistaConfig(POLICY).catalogGuid, 'PC-2');
+    assert.strictEqual(easyVistaCatalogStatus(POLICY).configured, true);
+  });
+});
+
+test('an application absent from the map inherits nothing', () => {
+  // The rule the whole per-application catalog exists for: no silent fallback.
+  withEnv({
+    EASYVISTA_CATALOG_GUIDS: 'Billing Center:BC-1',
+    EASYVISTA_CATALOG_CODES: undefined,
+    EASYVISTA_CATALOG_GUID: undefined,
+    EASYVISTA_CATALOG_CODE: undefined,
+    EASYVISTA_DEFAULT_APPLICATION: undefined,
+  }, () => {
+    assert.strictEqual(easyVistaConfig(POLICY).catalogGuid, '');
+    assert.strictEqual(easyVistaCatalogStatus(POLICY).configured, false);
+  });
+});
+
+test('the map is matched case-insensitively and tolerates spacing', () => {
+  withEnv({
+    EASYVISTA_CATALOG_GUIDS: ' billing center : BC-1 , POLICY CENTER : PC-2 ',
+    EASYVISTA_CATALOG_GUID: undefined,
+    EASYVISTA_DEFAULT_APPLICATION: undefined,
+  }, () => {
+    assert.strictEqual(easyVistaConfig(BILLING).catalogGuid, 'BC-1');
+    assert.strictEqual(easyVistaConfig(POLICY).catalogGuid, 'PC-2');
+  });
+});
+
+test('a malformed entry is skipped without taking the others down', () => {
+  // A typo in one application's catalog must not refuse sends for the rest.
+  withEnv({
+    EASYVISTA_CATALOG_GUIDS: 'no-colon-here,Policy Center:PC-2,:orphan-value,Billing Center:',
+    EASYVISTA_CATALOG_GUID: undefined,
+    EASYVISTA_DEFAULT_APPLICATION: undefined,
+  }, () => {
+    assert.strictEqual(easyVistaConfig(POLICY).catalogGuid, 'PC-2', 'the good entry still resolves');
+    assert.strictEqual(easyVistaConfig(BILLING).catalogGuid, '', 'the empty one is not a catalog');
+  });
+});
+
+test('an application column still wins over the map', () => {
+  // Nothing in the app writes those columns any more, but a direct database fix
+  // should be honoured rather than silently ignored.
+  withEnv({
+    EASYVISTA_CATALOG_GUIDS: 'Policy Center:FROM-ENV',
+    EASYVISTA_CATALOG_GUID: undefined,
+    EASYVISTA_DEFAULT_APPLICATION: undefined,
+  }, () => {
+    assert.strictEqual(easyVistaConfig(CONFIGURED_POLICY).catalogGuid, 'PC-GUID-9');
+  });
 });

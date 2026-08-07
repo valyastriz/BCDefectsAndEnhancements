@@ -158,15 +158,6 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ userIds, applicationIds, role, action, requestType }),
     }),
-  // Which EasyVista catalog an application's tickets are raised in. Blank values
-  // clear it, which refuses a real send for that application rather than letting
-  // it post into another application's catalog.
-  setApplicationEasyVista: (applicationId, { catalogGuid, catalogCode }) =>
-    request(`/api/admin/access/applications/${encodeURIComponent(String(applicationId))}/easyvista`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ catalogGuid, catalogCode }),
-    }),
   addAdGroupMapping: ({ applicationId, groupName }) =>
     request('/api/admin/access/ad-groups', {
       method: 'POST',

@@ -208,105 +208,6 @@ function BulkBar({ count, applications, onApply, onClear }) {
   );
 }
 
-/**
- * Which EasyVista catalog each application raises its tickets in.
- *
- * Separate per application because the outgoing payload's field names are
- * repurposed from one specific catalog. An application without one still works
- * everywhere else — it has a queue, access, a board lane, and it demonstrates
- * end to end; only a REAL send is refused, and only once EasyVista is switched
- * on. That refusal is the point: the alternative is posting into another
- * application's catalog with nothing to show for it.
- */
-function EasyVistaCatalogs({ applications, onSave }) {
-  const [editingId, setEditingId] = useState(null);
-  const [guid, setGuid] = useState('');
-  const [code, setCode] = useState('');
-  const [working, setWorking] = useState(false);
-
-  function startEditing(app) {
-    setEditingId(app.id);
-    setGuid(app.easyVista?.catalogGuid || '');
-    setCode(app.easyVista?.catalogCode || '');
-  }
-
-  async function submit(app) {
-    setWorking(true);
-    const saved = await onSave(app.id, { catalogGuid: guid.trim(), catalogCode: code.trim() });
-    setWorking(false);
-    if (saved) setEditingId(null);
-  }
-
-  const unconfigured = applications.filter((app) => !app.easyVista?.configured);
-
-  return (
-    <Card
-      title="EasyVista catalogs"
-      subtitle="Each application raises its tickets in its own catalog. Without one, a real send is refused rather than posted into another application's."
-      className="access-card"
-    >
-      {unconfigured.length > 0 && (
-        <div className="access-strip">
-          <span className="access-strip-mark" aria-hidden="true">!</span>
-          <span>
-            {unconfigured.map((app) => app.name).join(', ')}
-            {unconfigured.length === 1 ? ' has' : ' have'} no catalog. Everything else works —
-            tickets queue, triage and appear on the board — but a real send would be refused.
-            While EasyVista is switched off, sends are simulated and unaffected.
-          </span>
-        </div>
-      )}
-
-      <ul className="access-adlist">
-        {applications.map((app) => (
-          <li key={app.id} className="access-adrow">
-            <span className="access-person">
-              <span className="access-person-name">{app.name}</span>
-              <span className="access-person-meta">
-                {app.easyVista?.configured
-                  ? (app.easyVista.inherited
-                    ? 'Using the environment catalog'
-                    : `Catalog ${app.easyVista.catalogGuid || app.easyVista.catalogCode}`)
-                  : 'No catalog — a real send would be refused'}
-              </span>
-            </span>
-            <span className={`bs-badge ${app.easyVista?.configured ? 'badge-approved' : 'badge-duplicate'}`}>
-              {app.easyVista?.configured ? 'Configured' : 'Not configured'}
-            </span>
-            <span className="access-bulkbar-sep" />
-            {editingId === app.id ? (
-              <span className="access-adform" style={{ padding: 0, border: 0 }}>
-                <input
-                  className="bs-inline-input"
-                  value={guid}
-                  placeholder="Catalog GUID"
-                  aria-label={`${app.name} catalog GUID`}
-                  onChange={(event) => setGuid(event.target.value)}
-                />
-                <input
-                  className="bs-inline-input"
-                  value={code}
-                  placeholder="Catalog code"
-                  aria-label={`${app.name} catalog code`}
-                  onChange={(event) => setCode(event.target.value)}
-                />
-                <Button kind="secondary" disabled={working} onClick={() => submit(app)}>
-                  {working ? 'Saving…' : 'Save'}
-                </Button>
-                <Button kind="ghost" onClick={() => setEditingId(null)}>Cancel</Button>
-              </span>
-            ) : (
-              <Button kind="ghost" onClick={() => startEditing(app)}>
-                {app.easyVista?.configured ? 'Change' : 'Set catalog'}
-              </Button>
-            )}
-          </li>
-        ))}
-      </ul>
-    </Card>
-  );
-}
-
 function DirectoryGroups({ applications, adGroups, onAdd, onRemove }) {
   const [open, setOpen] = useState(false);
   const [groupName, setGroupName] = useState('');
@@ -662,10 +563,14 @@ export function AdminAccessPage({ user }) {
         </div>
       </Card>
 
-      <EasyVistaCatalogs
-        applications={applications}
-        onSave={access.setApplicationEasyVista}
-      />
+      {/* The EasyVista catalogs card used to sit here. Removed on the owner's
+          call, and the reason generalises: a catalog GUID is an identifier
+          INSIDE EasyVista, so nobody who uses this portal has the value — the
+          team that runs EasyVista does. Putting it on the page that manages
+          who-sees-what asked super users for an answer they were never going to
+          have, and made three applications read as misconfigured when nothing
+          was wrong. It is environment configuration now
+          (EASYVISTA_CATALOG_GUIDS), beside the API key and base URL. */}
 
       <DirectoryGroups
         applications={applications}

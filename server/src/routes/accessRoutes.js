@@ -3,7 +3,6 @@ const dbApi = require('../../db');
 const { ensureSuperUser } = require('../auth');
 const {
   listAccess,
-  setApplicationEasyVista,
   setUserGrants,
   bulkSetAccess,
   setUserSuperUser,
@@ -99,25 +98,11 @@ router.put('/api/admin/access/users/:id/super-user', ensureSuperUser, async (req
   }
 });
 
-// Which EasyVista catalog an application's tickets are raised in. Without one,
-// a real send is refused rather than posted into another application's catalog.
-router.put('/api/admin/access/applications/:id/easyvista', ensureSuperUser, async (req, res, next) => {
-  try {
-    return await withModels(res, async (models) => {
-      const result = await setApplicationEasyVista(models, {
-        applicationId: req.params.id,
-        catalogGuid: req.body?.catalogGuid,
-        catalogCode: req.body?.catalogCode,
-      });
-      if (result.error) {
-        return res.status(result.status).json({ error: result.error });
-      }
-      return res.status(result.status).json(result.body);
-    });
-  } catch (error) {
-    return next(error);
-  }
-});
+// PUT /applications/:id/easyvista used to live here. Removed with the Access
+// page card it served: a catalog GUID is an identifier inside EasyVista, so the
+// team that runs EasyVista owns it and it is environment configuration now
+// (EASYVISTA_CATALOG_GUIDS). The endpoint had no caller left, and an unused write
+// behind ensureSuperUser is a surface with nothing on the other side of it.
 
 // Directory-group mappings: which application a group's members work in. These
 // set a default, not an entitlement — see addAdGroupMapping.

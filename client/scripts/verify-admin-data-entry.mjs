@@ -709,8 +709,24 @@ async function run() {
       // ── Delivery notes, written and read back ─────────────────────────────
       const deliveryNote = 'VERIFY delivery note — safe to delete';
       await page.fill('.dm-group:has(.dm-group-label:text-is("Delivery notes")) textarea', deliveryNote);
-      await page.click('.dm-save, button:has-text("Save")');
-      await page.waitForTimeout(900);
+      // WAIT FOR THE PUT, do not click and sleep. The button is "Save Changes"
+      // and it is rendered in BOTH the header and the footer, so a bare
+      // `button:has-text("Save")` was ambiguous; and a fixed 900ms pause read the
+      // database before a slow save had landed, which surfaced as "delivery notes
+      // stored ''" — a failure that reads like the feature is broken when the
+      // click is what missed.
+      const [saveResponse] = await Promise.all([
+        page.waitForResponse((response) => (
+          response.request().method() === 'PUT'
+          && response.url().includes(`/api/admin/submissions/${createdId}`)
+        ), { timeout: 90000 }),
+        page.click('.dm-foot button:has-text("Save Changes")'),
+      ]);
+      record(
+        'the Delivery pane saves without complaint',
+        saveResponse.ok(),
+        `PUT ${saveResponse.status()}`,
+      );
       const savedNote = await page.request.get(`${API}/api/admin/submissions/${createdId}`)
         .then((response) => response.json())
         .then((body) => body.submission || body);
@@ -776,8 +792,25 @@ async function run() {
 
       await page.setViewportSize(VIEWPORTS[0]);
       await setTheme(page, 'light');
+
+      // CLOSE IT, then PROVE IT CLOSED. Escape-and-hope was fine until this
+      // section started saving: a modal mid-save does not close on the first
+      // Escape, and what is left behind is `.bs-modal-backdrop`, which swallows
+      // every click after it. The failure then surfaces hundreds of lines later
+      // as "the kind switch never refetched", which is a lie about the product.
+      // Waiting on the backdrop being gone is the difference between a check that
+      // reports the queue and one that reports the modal.
       await page.keyboard.press('Escape');
-      await page.waitForTimeout(200);
+      await page.waitForSelector('.bs-modal-backdrop', { state: 'detached', timeout: 30000 })
+        .catch(async () => {
+          // Still there: an unsaved-changes prompt is in front of it. Take the
+          // discard, which is correct here — everything this section meant to
+          // save, it already saved and read back.
+          const discard = await page.$('button:has-text("Discard"), button:has-text("Close anyway")');
+          if (discard) await discard.click();
+          await page.waitForSelector('.bs-modal-backdrop', { state: 'detached', timeout: 30000 });
+        });
+
       await page.fill('.admin-cmdbar input[type="search"], input[placeholder^="Search ID"]', '');
       await page.waitForTimeout(300);
 
@@ -812,6 +845,12 @@ async function run() {
       // endpoint: a list fetch is often already in flight when the click lands, and
       // waiting for "a response from this URL" resolves on that one instead — which
       // reads the previous filter's rows and reports a passing filter as broken.
+      // The 90s is a TIMEOUT, not a loosened assertion — the predicate below is
+      // unchanged and still insists on the exact query. Playwright's default 30s
+      // timed out here three times against the hosted database while passing on a
+      // re-run, which is a slow shared Postgres and not a broken filter. A check
+      // that fails intermittently teaches people to re-run instead of to read it,
+      // which is worse than a check that waits.
       const switchKind = async (label, expectQuery) => {
         await Promise.all([
           page.waitForResponse((response) => (
@@ -820,7 +859,7 @@ async function run() {
             && (expectQuery
               ? response.url().includes(expectQuery)
               : !response.url().includes('types='))
-          )),
+          ), { timeout: 90000 }),
           page.click(`[aria-label="Kind of request"] button:text-is("${label}")`),
         ]);
         await page.waitForTimeout(250);

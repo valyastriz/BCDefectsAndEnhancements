@@ -10,7 +10,7 @@
 const { QueryTypes } = require('sequelize');
 const { easyVistaCatalogStatus } = require('../helpers/easyVistaPayload');
 // Tolerates a database that predates the catalog columns — see its own comment.
-const { loadApplicationRows, loadApplicationRowById } = require('../helpers/lookups');
+const { loadApplicationRows } = require('../helpers/lookups');
 const {
   APPLICATION_ROLES,
   APPLICATION_ROLE_ADMIN,
@@ -502,50 +502,14 @@ async function removeAdGroupMapping(models, { id }) {
   return { status: 200, body: { id: mappingId } };
 }
 
-/**
- * Set (or with blanks, clear) an application's EasyVista catalog.
- *
- * Stored per application because the outgoing payload's repurposed field names
- * belong to one specific catalog. Clearing it does not break anything today —
- * it simply means a REAL send is refused for that application rather than
- * misrouted, and the walkthrough continues to work either way.
- */
-async function setApplicationEasyVista(models, { applicationId, catalogGuid, catalogCode }) {
-  const id = Number(applicationId);
-  if (!isApplicationId(id)) {
-    return { error: 'Invalid application id', status: 400 };
-  }
-
-  const application = await loadApplicationRowById(models.Application, id);
-  if (!application) {
-    return { error: 'Application not found', status: 404 };
-  }
-
-  const guid = String(catalogGuid ?? '').trim();
-  const code = String(catalogCode ?? '').trim();
-  if (guid.length > 200 || code.length > 200) {
-    return { error: 'Catalog identifiers must be under 200 characters', status: 400 };
-  }
-
-  await models.Application.update(
-    { easyvista_catalog_guid: guid || null, easyvista_catalog_code: code || null },
-    { where: { id } },
-  );
-
-  const status = easyVistaCatalogStatus({ ...application, easyvista_catalog_guid: guid, easyvista_catalog_code: code });
-  return {
-    status: 200,
-    body: {
-      id,
-      name: String(application.name),
-      easyVista: { configured: status.configured, catalogGuid: guid, catalogCode: code },
-    },
-  };
-}
+// setApplicationEasyVista lived here. Removed with the Access page card it
+// served — a catalog GUID is an identifier inside EasyVista, owned by the team
+// that runs it, so it is environment configuration now (EASYVISTA_CATALOG_GUIDS
+// in easyVistaPayload.js). The application columns are still READ as an
+// override; nothing in the app writes them.
 
 module.exports = {
   listAccess,
-  setApplicationEasyVista,
   setUserGrants,
   bulkSetAccess,
   setUserSuperUser,

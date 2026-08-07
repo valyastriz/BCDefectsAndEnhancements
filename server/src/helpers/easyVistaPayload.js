@@ -135,30 +135,71 @@ function buildDescriptionHtml(submission) {
 }
 
 /**
+ * Parse a per-application map written as `Name:value,Other Name:value`.
+ *
+ * Same shape as `EASYVISTA_ADMIN_MAILS`, deliberately — one spelling for
+ * "a value per named thing" across this file. Split on the FIRST colon only, so
+ * an application name may contain anything but a colon and the value keeps its
+ * own. Keyed lowercase; unparseable entries are skipped rather than throwing,
+ * because a typo in one application's catalog must not take the others down.
+ */
+function parseNamedMap(raw) {
+  const map = new Map();
+  for (const entry of String(raw || '').split(',')) {
+    const separator = entry.indexOf(':');
+    if (separator < 1) continue;
+    const name = entry.slice(0, separator).trim().toLowerCase();
+    const mapped = entry.slice(separator + 1).trim();
+    if (name && mapped) map.set(name, mapped);
+  }
+  return map;
+}
+
+/**
  * Values that are catalog configuration rather than ticket data.
  *
- * `application` is the row for the ticket's application and, when it carries a
- * catalog, it WINS. The environment is a fallback for exactly one application —
- * the one named by `EASYVISTA_DEFAULT_APPLICATION` — so the catalog that was
- * configured before applications had their own keeps working, and no OTHER
- * application silently inherits it. That inheritance was the bug: a Policy
- * Center ticket posting into Billing Center's catalog with Billing Center's
- * repurposed field names, with nothing to show for it.
+ * WHO SETS THESE. Not an admin and not a super user — the catalog GUID is an
+ * identifier in EasyVista, which the team that runs EasyVista owns. It used to
+ * be editable on the Access page, which put a field nobody in this portal has
+ * the answer to in front of the people who manage who-sees-what. It is
+ * environment configuration now, beside the API key and base URL, where the team
+ * that has the value already works.
+ *
+ * Resolution order, first hit wins:
+ *   1. The application's own columns. Nothing in the app writes them any more —
+ *      kept because they exist on the database and a direct fix should still be
+ *      honoured rather than silently ignored.
+ *   2. `EASYVISTA_CATALOG_GUIDS` / `_CODES` — a catalog per named application.
+ *      This is the one to use.
+ *   3. `EASYVISTA_CATALOG_GUID` / `_CODE`, for the single application named by
+ *      `EASYVISTA_DEFAULT_APPLICATION` only.
+ *
+ * No OTHER application inherits, at any step. That inheritance was the original
+ * bug: a Policy Center ticket posting into Billing Center's catalog with Billing
+ * Center's repurposed field names, with nothing to show for it.
  */
 function easyVistaConfig(application = null) {
   const ownGuid = value(application?.easyvista_catalog_guid).trim();
   const ownCode = value(application?.easyvista_catalog_code).trim();
 
+  const applicationName = value(application?.name).trim().toLowerCase();
+  const mappedGuid = applicationName
+    ? (parseNamedMap(process.env.EASYVISTA_CATALOG_GUIDS).get(applicationName) || '')
+    : '';
+  const mappedCode = applicationName
+    ? (parseNamedMap(process.env.EASYVISTA_CATALOG_CODES).get(applicationName) || '')
+    : '';
+
   const defaultApplication = String(process.env.EASYVISTA_DEFAULT_APPLICATION || '').trim();
   const inheritsEnv = Boolean(defaultApplication)
-    && value(application?.name).trim().toLowerCase() === defaultApplication.toLowerCase();
+    && applicationName === defaultApplication.toLowerCase();
   // No application at all (a preview built before one is known) keeps the old
   // behaviour of reading the environment, so the dry-run preview still renders.
   const mayUseEnv = inheritsEnv || !application;
 
   return {
-    catalogGuid: ownGuid || (mayUseEnv ? process.env.EASYVISTA_CATALOG_GUID || '' : ''),
-    catalogCode: ownCode || (mayUseEnv ? process.env.EASYVISTA_CATALOG_CODE || '' : ''),
+    catalogGuid: ownGuid || mappedGuid || (mayUseEnv ? process.env.EASYVISTA_CATALOG_GUID || '' : ''),
+    catalogCode: ownCode || mappedCode || (mayUseEnv ? process.env.EASYVISTA_CATALOG_CODE || '' : ''),
     // Medium. Matches the "3 - Medium" the service already defaults an
     // enhancement's priority to, so an unprioritised defect lands the same way.
     urgencyId: process.env.EASYVISTA_URGENCY_ID || '3',
@@ -185,11 +226,21 @@ function easyVistaCatalogStatus(application = null) {
     catalogCode: config.catalogCode,
     // Surfaces to an admin as a 400 and in the preview, so it uses the display
     // name — the module and its env vars keep the vendor's (src/constants.js).
+    // Says who can fix it, not just what is wrong. The catalog is an identifier
+    // inside the tracker, so nobody using this portal has the value — pointing an
+    // admin at a page to set it (which is what this used to do) sent them looking
+    // for something they were never going to find.
+    //
+    // The environment variable is NOT named here. It would put the vendor's name
+    // in front of an admin, which is the one thing TRACKER_LABEL exists to
+    // prevent — and whoever needs the variable name is reading .env.example, not
+    // this message.
     reason: configured
       ? ''
       : `${value(application?.name).trim() || 'This application'} has no ${TRACKER_LABEL} catalog `
         + 'configured, so a real send would post into another application\'s catalog. '
-        + 'Set its catalog on the Access page first.',
+        + `Ask the team that runs ${TRACKER_LABEL} for this application's catalog ID, and have it `
+        + 'added to the server configuration.',
   };
 }
 
