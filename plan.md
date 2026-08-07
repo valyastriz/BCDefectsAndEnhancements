@@ -17,8 +17,8 @@ sections after it are the historical record and unchanged.
 record of HOW, in the order it happened; this block is WHERE THINGS STAND. If the
 two ever disagree, this block is newer.
 
-**Nothing is in flight.** `main` is clean, pushed, and deployed (`7f0ac67` is the
-last commit). Twelve passes shipped on 2026-08-06:
+**Nothing is in flight.** `main` is clean, pushed, and deployed (`1c22f94` is the
+last commit). Fourteen passes shipped, 2026-08-06 into 2026-08-07:
 
 | Commit | What |
 |---|---|
@@ -33,6 +33,8 @@ last commit). Twelve passes shipped on 2026-08-06:
 | `4b47489` | The detail modal, told apart by type — Delivery notes, the unlocked ticket number, Reviewer |
 | `0927f4d` | Two queues, two column sets — and a search that stops ruling |
 | `7f0ac67` | Delivery notes through Excel, both ways — the owner corrected the reasoning |
+| `23edc7a` | Only `New` wears the queue's left stripe |
+| `1c22f94` | The EasyVista catalog is GTS's to set — off the Access page, into the environment |
 
 **No decision is outstanding.** The one that was — whether to persist sessions —
 was answered "do it" by the owner and shipped as `7ee3003`. See the eighth-pass
@@ -82,6 +84,14 @@ queue a report request lands in when nobody knows whose data it is yet.
    filter's rows, a `.dm-pane` class that does not exist, and `.submission` on a
    detail response that is flat. Wait on the response whose URL carries the
    expected query, and read the shape before asserting on it.
+   **Three more joined them across passes 9–14**, all the same mistake in
+   different clothes: `\s` as a word boundary against a sortable header whose
+   caret is glued to the label (`▼Status`); `button:has-text("Save")` where the
+   real button is "Save Changes" and renders in the header AND the footer; and
+   Escape-and-sleep to close a modal, which leaves `.bs-modal-backdrop` swallowing
+   every later click and surfaces hundreds of lines away as an unrelated failure.
+   **Click and wait for the response, not for a number of milliseconds. Prove a
+   modal closed. Read the real DOM before writing the selector.**
 
 **And one lesson worth carrying:** the SIGNED-IN branch is not the branch a
 requester sees. Two of the owner's five submit-form complaints were only ever
@@ -97,8 +107,8 @@ second, session-less context for exactly that reason.
 **Merged and deployed:** PR #12 (schema, authorisation sweep, backend), PR #13
 (submit form), PR #14 (Delivery pane, handover trail, approval evidence).
 
-**Verified:** 361 server tests, client lint and production build clean, and **314
-harness checks** across seven committed scripts at 1500/820/390 in both themes — 120
+**Verified:** 366 server tests, client lint and production build clean, and **315
+harness checks** across seven committed scripts at 1500/820/390 in both themes — 121
 admin data entry, 60 submit form, 52 throughput, 26 metadata, 21 public board, 20
 spreadsheet round trip, 15 session store. **All seven were run green at the eleventh
 pass**, and the round trip again at the twelfth (it now compares 16 fields, not 15,
@@ -654,6 +664,28 @@ words, in its own column, with its own badge; the stripe now marks the one thing
 that column cannot say at a glance, which is "nobody has looked at this yet". The
 `row-status--*` class is still written for every row — it is the row's state in
 the DOM, and what the browser check reads — but only the `new` rule paints.
+
+**13. The EasyVista catalogs card is off the Access page** (fourteenth pass).
+The owner asked what it was and then made the argument that settles it: a catalog
+GUID is an identifier INSIDE EasyVista, so the team that runs EasyVista owns the
+value and nobody using this portal has it. The card asked super users for an
+answer they were never going to have, and showed three applications as
+misconfigured when nothing was wrong and sending is switched off anyway.
+
+**Removing it was not enough on its own.** It was the only way to set a catalog,
+so deleting it alone would have left two of three applications permanently unable
+to get one — and the refusal message pointed at the page being deleted. The
+configuration moved to `EASYVISTA_CATALOG_GUIDS` / `_CODES`, a catalog per named
+application in the same `Name:value,Name:value` shape as `EASYVISTA_ADMIN_MAILS`,
+beside the API key where GTS already works. Resolution: the application column
+(nothing writes it now, but a direct fix is still honoured), then the map, then
+the single-catalog form for the one application `EASYVISTA_DEFAULT_APPLICATION`
+names. **Nothing inherits another application's catalog at any step** — that was
+the original bug.
+
+Also removed: the hook action, the api helper, the `PUT` behind `ensureSuperUser`
+and the service function. An unused write endpoint on a super-user route is a
+surface with nothing behind it.
 
 **THE POSITIONAL-CONTRACT TRAP, PAID IN FULL.** `delivery_notes` was first slotted
 into `SUBMISSION_INSERT_COLUMNS` beside `release_notes`. That list is a positional
