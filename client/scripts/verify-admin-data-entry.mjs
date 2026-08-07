@@ -435,14 +435,47 @@ async function run() {
   }
   await page.click('.bs-close');
 
+  // ── Only `New` wears the stripe ──────────────────────────────────────────
+  // Every status used to have its own colour, so every row carried one and the
+  // stripe distinguished nothing. It marks the one thing the status column
+  // cannot say at a glance: this has not been looked at yet.
+  //
+  // Read off the PSEUDO-ELEMENT that actually paints it, not off the class — the
+  // class is still written for every row, and asserting on it would pass no
+  // matter what the stylesheet did.
+  await page.setViewportSize(VIEWPORTS[0]);
+  await setTheme(page, 'light');
+  const stripes = await page.evaluate(() => {
+    const transparent = (colour) => !colour || colour === 'transparent' || /rgba\(0,\s*0,\s*0,\s*0\)/.test(colour);
+    const seen = { newPainted: 0, newBare: 0, otherPainted: [], otherBare: 0 };
+    for (const row of document.querySelectorAll('.admin-submissions-table tbody tr')) {
+      const cell = row.querySelector('td');
+      if (!cell) continue;
+      const painted = !transparent(getComputedStyle(cell, '::after').backgroundColor);
+      const isNew = row.classList.contains('row-status--new');
+      if (isNew) {
+        if (painted) seen.newPainted += 1; else seen.newBare += 1;
+      } else if (painted) {
+        seen.otherPainted.push([...row.classList].find((name) => name.startsWith('row-status--')) || '(none)');
+      } else {
+        seen.otherBare += 1;
+      }
+    }
+    return seen;
+  });
+  record(
+    'only New rows wear the left stripe',
+    stripes.otherPainted.length === 0 && stripes.newBare === 0 && (stripes.newPainted + stripes.otherBare) > 0,
+    `New: ${stripes.newPainted} striped / ${stripes.newBare} bare · everything else: ${stripes.otherBare} bare`
+      + (stripes.otherPainted.length ? `, STILL STRIPED: ${[...new Set(stripes.otherPainted)].join(', ')}` : ''),
+  );
+
   // ── A dialog opened from inside another dialog ───────────────────────────
   // The detail modal renders the redirect dialog inside its own DOM, so a
   // descendant selector meant for the detail modal's body (`.dm-modal
   // .bs-modal-body { padding: 0 }`) reached the nested one too and stripped its
   // gutters. Checked here because it is a whole class of bug — a nested modal
   // inheriting the outer one's layout overrides — not a one-off.
-  await page.setViewportSize(VIEWPORTS[0]);
-  await setTheme(page, 'light');
   await page.click('.admin-submissions-table tbody tr:first-of-type td:nth-of-type(2)');
   await page.waitForSelector('.dm-modal');
   await page.click('.dm-foot button[aria-label="More actions"]');

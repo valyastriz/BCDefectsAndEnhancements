@@ -97,8 +97,8 @@ second, session-less context for exactly that reason.
 **Merged and deployed:** PR #12 (schema, authorisation sweep, backend), PR #13
 (submit form), PR #14 (Delivery pane, handover trail, approval evidence).
 
-**Verified:** 361 server tests, client lint and production build clean, and **313
-harness checks** across seven committed scripts at 1500/820/390 in both themes — 119
+**Verified:** 361 server tests, client lint and production build clean, and **314
+harness checks** across seven committed scripts at 1500/820/390 in both themes — 120
 admin data entry, 60 submit form, 52 throughput, 26 metadata, 21 public board, 20
 spreadsheet round trip, 15 session store. **All seven were run green at the eleventh
 pass**, and the round trip again at the twelfth (it now compares 16 fields, not 15,
@@ -646,6 +646,14 @@ Keyword hits still sit below.
 **11. Non-admins see no Admin link**, and a rep can sign out from the header,
 which is the only place they can — they never reach the admin pages where the
 account menu lives.
+
+**12. Only `New` wears the queue's left stripe** (thirteenth pass). Every status
+had its own colour, so every row carried one and the stripe distinguished
+nothing — a wall of colour reads as decoration. The status is already stated in
+words, in its own column, with its own badge; the stripe now marks the one thing
+that column cannot say at a glance, which is "nobody has looked at this yet". The
+`row-status--*` class is still written for every row — it is the row's state in
+the DOM, and what the browser check reads — but only the `new` rule paints.
 
 **THE POSITIONAL-CONTRACT TRAP, PAID IN FULL.** `delivery_notes` was first slotted
 into `SUBMISSION_INSERT_COLUMNS` beside `release_notes`. That list is a positional

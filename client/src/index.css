@@ -2024,15 +2024,18 @@ button.stat-tile--clickable:focus-visible {
   width: 3px;
   background: var(--row-stripe, transparent);
 }
+/* ONLY `New` IS STRIPED.
+   Every status used to get its own colour, which meant every row carried one and
+   the stripe stopped distinguishing anything — a wall of colour reads as
+   decoration, and the eye has nowhere to land. The status is already stated in
+   words, in its own column, with its own badge; the stripe's job is the one
+   thing that column cannot do at a glance, which is say "this one has not been
+   looked at yet".
+   The `row-status--*` class is still written for every row (SubmissionsTable) —
+   it is the row's state in the DOM and what the browser checks read — but only
+   this rule paints anything. `--row-stripe` falls back to transparent, and the
+   3px gutter is absolutely positioned, so unstriped rows still line up. */
 tr.row-status--new { --row-stripe: var(--status-new-fg); }
-tr.row-status--approved { --row-stripe: var(--status-approved-fg); }
-tr.row-status--submitted { --row-stripe: var(--status-submitted-fg); }
-tr.row-status--deployed { --row-stripe: var(--status-deployed-fg); }
-tr.row-status--rejected { --row-stripe: var(--status-rejected-fg); }
-tr.row-status--duplicate { --row-stripe: var(--status-duplicate-fg); }
-tr.row-status--redirected { --row-stripe: var(--status-redirected-fg); }
-tr.row-status--holding { --row-stripe: var(--status-holding-fg); }
-tr.row-status--retired { --row-stripe: var(--color-border); }
 tr.row-retired td { opacity: .62; }
 tr[data-selected="true"] td { background: color-mix(in srgb, var(--color-primary) 11%, var(--color-surface)); }
 
