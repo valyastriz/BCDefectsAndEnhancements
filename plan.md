@@ -49,14 +49,79 @@ readable by anyone on the board; and filing one anonymously left it belonging to
 nobody. **Two new columns landed on the hosted database** — `submissions.delivery_notes`
 (`npm run migrate:delivery-notes`) and the `user_sessions` table.
 
-**The next substantial piece of work is §5 step 6 — screenshots and docs.** Read
-`### Not done, on purpose` before starting it: the screenshot HARNESS does not
-exist (the seven verify scripts can write PNGs with `--shots`, but the
-manifest-driven capture the docs need is unwritten), and that is the first task of
-that pass, not an afterthought. **The owner asked on 2026-08-06, after `7ee3003`,
-to do their own testing and make any last changes before this pass starts** — so
-expect the surface to move, and take the screenshots after their changes, not
-before.
+---
+
+## THE ONLY WORK LEFT: a full test pass, then the documentation (2026-08-07)
+
+The owner has finished their testing round — fifteen passes came out of it, all
+shipped. **Feature work is done.** What remains is one verification sweep and
+four deliverables. Everything in this block is new scope; nothing above it is
+outstanding.
+
+### 1. Reseed the database with realistic data — AUTHORISED, and it is a first step
+
+**The owner has explicitly authorised deleting EVERY existing ticket and creating
+new, realistic ones**, so the screenshots do not all read "Testing". This
+overrides the standing rule elsewhere in this file that tickets without a
+`VERIFY` marker (#117, #131, #143 among them) are the owner's and must be left
+alone. That rule is **lifted for this reseed only**; once the new data is in,
+put-it-back applies again to the new data.
+
+Two things make this less trivial than it sounds:
+- **There is no submission DELETE endpoint, on purpose.**
+  `npm run remove:verification-tickets` refuses any id whose summary does not
+  start with `VERIFY`, so it cannot do this. A purge script has to be written,
+  and it must clear the children too — `submission_status_events`,
+  `request_time_entries`, `request_assignments`, `attachments`,
+  `submission_embeddings` — or it will strand orphans and break the throughput
+  page. Dry-run by default, `--apply` to write, like every other script in
+  `server/scripts/`.
+- **Seed data has to be worth screenshotting.** All four types, both branches of
+  a report request, a spread across the three applications, every status
+  including the report-only ones, some with hours logged and an approval, some
+  public and some not, believable names and summaries. `server/src/seedSampleData.js`
+  is the existing shape to build on.
+
+**Screenshots may use this production data** — the owner said so. The existing
+`docs/handoff/screenshot-manifest.json` records
+`"no production data"` in its `source` field; that line is now wrong and must be
+updated when the shots are retaken.
+
+### 2. The screenshot harness — write it before shooting anything
+
+Still does not exist. The seven verify scripts take `--shots <dir>` and already
+own the login, viewport (1500x950@2x desktop, 390x844@2x mobile),
+`reducedMotion: reduce` and `localStorage['bc-theme']` scaffolding a
+manifest-driven capture needs. **41 shots exist from 2026-08-05 and are stale.**
+Shooting by hand means re-shooting by hand; 43+ were already re-shot once after a
+rename.
+
+### 3. Three documents (the owner's words, kept)
+
+**(a) Developer handoff — ONE document combining both current READMEs.** Root
+`README.md` (1196 lines) and `docs/handoff/README.md` (2560 lines) both exist and
+overlap. It must carry **the how AND the why**: "all of the ideas and decisions
+and reason for the app". Most of that reasoning is in THIS file, in the dated
+pass sections — they are the source, not an afterthought. Do not summarise the
+decisions away; a rebuild team needs to know why `request_type` is `''` and not
+NULL, why a report request is private, why the insert columns are positional,
+why sessions are in Postgres.
+
+**(b) User manual** — every piece of functionality and how to use it, for the
+people who file and triage requests. This is the one the screenshots are for.
+
+**(c) Next steps — short.** This app was built in the **Citizen Developers
+program**, where non-developer employees vibe-code solutions. Each app ends as
+**Retired** (wrong solution), **Hardened in place** (taken as-is, brought to
+company standards, deployed), or **Rebuild** (developers re-create it from the
+prototype). This document states: **this is a Rebuild**, it needs to be
+**prioritised by the Customer Interactions team**, and **Valya would like to
+remain product owner going forward if that is an option.**
+
+### 4. The verification sweep
+
+All seven scripts green, `npm test`, `npm run lint`, `npm run build`. Then
+reconcile this HANDOFF block into the dated record below and delete it (§5 step 7).
 
 **Six working accounts exist on the hosted database** (fifth pass), all with the
 seeded password from `.env`, none a super user, none a `manager`:
@@ -74,12 +139,13 @@ queue a report request lands in when nobody knows whose data it is yet.
    check.
 3. **Read the submission count from
    `server/scripts/removeVerificationSubmissions.js`, never from a number written
-   in this file.** It moves as the owner tests: it was 83 this morning and 86 at
-   the end of the seventh pass. **Tickets without a `VERIFY` marker are theirs —
-   #117, #131 and #143 are their own test report requests and must not be
-   removed.** (#143 is also the proof the application picker works: they chose
-   Policy Center and it landed there rather than in Billing Center.) A fixture of
-   your own left behind is your mistake to clear: mine was #139, and I removed it.
+   in this file.** It moves as the owner tests: 83 on the morning of 2026-08-06,
+   86 by 2026-08-07. ~~Tickets without a `VERIFY` marker are theirs — #117, #131
+   and #143 must not be removed.~~ **That rule is LIFTED as of 2026-08-07: the
+   owner authorised deleting every ticket and reseeding realistic data for the
+   documentation screenshots** (see the block at the top). It applies again, to
+   the new data, once that reseed is done. A fixture of your own left behind is
+   still your mistake to clear.
 4. **A browser probe is wrong more often than the code is.** Three of today's new
    checks failed against working code: a fixed sleep that read the previous
    filter's rows, a `.dm-pane` class that does not exist, and `.submission` on a
