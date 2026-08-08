@@ -406,6 +406,32 @@ const ADMIN_VIEW_FILTER_KEYS = [
 // application" — and a literal application could never be named this.
 const UNASSIGNED_APPLICATION = '__unassigned__';
 
+// The catch-all queue, and it is a working list rather than a waiting room.
+//
+// A REAL application row, unlike the sentinel above: it has grants, it appears in
+// every picker, and tickets live in it. `__unassigned__` means "nobody set the
+// field". This means something quite different, and it covers TWO cases:
+//
+//   1. The system is known but has no configured application to submit to the
+//      Service Desk directly. The work is still tracked here — reports get built
+//      from it, and a defect or enhancement is raised on the Service Desk BY HAND
+//      and its incident number typed back in (helpers/easyVistaPayload.js refuses
+//      the send; the number is editable behind the unlock on the detail modal).
+//   2. The system genuinely is not known yet.
+//
+// Both end up in the same place for the same reason — there is nowhere else to put
+// the work and it still has to be tracked. The owner's phrase for it: "almost like
+// a task list".
+//
+// Two features key off it, and they are the same story from two ends:
+//   * the hand-off is refused here, because nothing is wired up (easyVistaPayload)
+//   * the soft association lives here, because a ticket being worked out of this
+//     list should also appear in the queue of whoever is working it, without
+//     pretending the system it belongs to has been configured (helpers/softAssignment)
+//
+// `scripts/seedOtherApplication.js` creates the row and grants it, for every type.
+const UNKNOWN_APPLICATION = 'Other';
+
 // The ladder, weakest first — the ORDER is the comparison, so anything appended
 // here outranks everything before it.
 //
@@ -555,6 +581,7 @@ module.exports = {
   ADMIN_VIEW_COLUMN_KEYS,
   ADMIN_VIEW_FILTER_KEYS,
   UNASSIGNED_APPLICATION,
+  UNKNOWN_APPLICATION,
   APPLICATION_ROLES,
   ACCOUNT_ROLE_ADMIN,
   ACCOUNT_ROLE_REP,

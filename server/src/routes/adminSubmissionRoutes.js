@@ -22,6 +22,8 @@ const { emitAdminNotification, emitPublicUpdate, publicAudienceFor } = require('
 const { scheduleEmbeddingRefresh } = require('../services/embeddingIndexService');
 const { ADMIN_EXPORT_FIELDS, ADMIN_EXPORT_FIELDS_BY_KEY, EXPORT_FIELD_GROUPS } = require('../helpers/export');
 const { buildStatusTimeline } = require('../helpers/timeline');
+const { easyVistaCatalogStatus } = require('../helpers/easyVistaPayload');
+const { loadApplicationRowById } = require('../helpers/lookups');
 const {
   listFilteredAdminSubmissions,
   getSubmissionByIdWithLookups,
@@ -134,6 +136,32 @@ router.get('/api/admin/submissions/:id', ensureAdmin, attachViewer, async (req, 
       ? await listAssignableUsers(submission.application_id)
       : [];
 
+    // Whether this ticket can be handed to the Service Desk at all, answered HERE
+    // rather than when the send is previewed.
+    //
+    // The preview already reported it, but the preview only runs once the admin has
+    // pressed the button — so an application nothing is wired up to offered a live
+    // Send that failed on click. The button is disabled with this reason instead.
+    // Skipped for a report request, which is never handed off and has no button.
+    //
+    // Same `easyVistaCatalogStatus` call the send itself makes, so the affordance
+    // and the refusal cannot drift apart. `loadApplicationRowById` tolerates a
+    // database without the catalog columns (see helpers/lookups.js), which reads as
+    // "not configured" — fail closed, matching the send.
+    let easyvista_catalog = null;
+    if (!isReportRequest) {
+      const applicationRow = await loadApplicationRowById(
+        dbModels.Application,
+        submission.application_id,
+      );
+      const status = easyVistaCatalogStatus(applicationRow);
+      easyvista_catalog = {
+        configured: status.configured,
+        demoOnly: status.demoOnly,
+        reason: status.reason,
+      };
+    }
+
     return res.json({
       ...mapSubmission(submission),
       attachments,
@@ -144,6 +172,8 @@ router.get('/api/admin/submissions/:id', ensureAdmin, attachViewer, async (req, 
       ...summarizeTimeEntries(timeEntries),
       assignments,
       assignable_users: assignableUsers,
+      // Null for a report request, which has no hand-off button to describe.
+      easyvista_catalog,
       // Whether THIS caller may still change it. A ticket they handed on stays
       // readable and must render read-only rather than offering dead controls.
       // Type-scoped: an analyst granted only report requests reads a defect and

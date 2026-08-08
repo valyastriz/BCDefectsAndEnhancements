@@ -2824,6 +2824,13 @@ tr[data-selected="true"] td { background: color-mix(in srgb, var(--color-primary
 }
 .dm-foot-state--dirty { color: var(--color-primary); font-weight: 650; }
 .dm-foot-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+/* Why the hand-off is greyed out, on its own line below the buttons. `flex-basis:
+   100%` is what puts it there — `.dm-foot` is a wrapping flex row, so anything
+   narrower would sit beside the actions and squeeze them. */
+.dm-foot-blocked {
+  flex: 1 1 100%; margin: 0; order: 3;
+  font-size: 12.5px; line-height: 1.45; color: var(--color-muted); max-width: 92ch;
+}
 .dm-menu-wrap { position: relative; }
 /* The overflow menu opens upward out of the footer. */
 .dm-foot .admin-menu-list { top: auto; bottom: calc(100% + 6px); }
@@ -4530,6 +4537,61 @@ select.dm-prow-input { cursor: pointer; }
   padding: 13px 18px;
 }
 .at-foot-note { font-size: 12.5px; color: var(--color-muted); flex: 1 1 240px; }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   aac- — "the application isn't listed". A reporting analyst adding an
+   application by typing its name in.
+
+   Its own block rather than an `at-` or a `dm-` one, because the SAME control
+   sits in two dialogs drawn by two different systems: the Add-a-ticket dialog's
+   `at-` grid and the Redirect dialog's `.stack`. Styling it as part of either
+   would make it inherit that one's gutters and break in the other.
+
+   Every colour is a theme variable, so light and dark both follow without a
+   second rule.
+   ══════════════════════════════════════════════════════════════════════════ */
+.aac { display: flex; flex-direction: column; gap: 7px; }
+
+/* Collapsed, this is a quiet link and not a button competing with Add ticket.
+   Expanded, the block gets a surface so it reads as a detour off the picker
+   above it rather than another field in the same list. */
+.aac-toggle {
+  align-self: flex-start;
+  font: inherit; font-size: 12.5px; font-weight: 650;
+  padding: 2px 0; border: 0; background: none; cursor: pointer;
+  color: var(--color-primary);
+  text-decoration: underline; text-underline-offset: 2px;
+}
+.aac-toggle:hover:not(:disabled) { color: var(--color-text); }
+.aac-toggle:disabled { color: var(--color-muted); cursor: default; text-decoration: none; }
+.aac-toggle:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; border-radius: 3px; }
+.aac-toggle span { font-weight: 800; }
+
+.aac--open {
+  padding: 11px 13px; gap: 8px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+}
+.aac-lbl { font-size: 13px; font-weight: 650; }
+
+/* The input takes the room; the two buttons keep their own width. Wraps rather
+   than shrinking the field to nothing on a phone. */
+.aac-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.aac-row input {
+  flex: 1 1 200px; min-width: 0;
+  font: inherit; font-size: 14px;
+  padding: 9px 11px; border-radius: 8px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface); color: var(--color-text);
+}
+.aac-row input:focus { outline: none; border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 18%, transparent); }
+.aac-row input:disabled { background: var(--color-bg); color: var(--color-muted); }
+
+.aac-hint { margin: 0; font-size: 12px; color: var(--color-muted); max-width: 76ch; }
+.aac-added { margin: 0; font-size: 12.5px; color: var(--color-muted); max-width: 76ch; }
+.aac-added b { color: var(--color-text); font-weight: 650; }
 
 /* ══════════════════════════════════════════════════════════════════════════
    xl- — the Excel dialogs. Import is a sequence, so it is drawn as one.

@@ -40,6 +40,7 @@ const { mapSubmission, mapPublicSubmission } = require('../helpers/mappers');
 const { emitAdminNotification, emitPublicUpdate, publicAudienceFor } = require('../socket');
 const { canReadSubmissionRow, canMutateApplication } = require('./viewerService');
 const { refuseTypeForApplication } = require('../helpers/applicationScope');
+const { resolveSoftAssignment, isUnknownApplication } = require('../helpers/softAssignment');
 const { recordAssignment, isAssignableTo } = require('./deliveryService');
 const { scheduleEmbeddingRefresh } = require('./embeddingIndexService');
 const {
@@ -336,9 +337,19 @@ async function listFilteredAdminSubmissions(db, query = {}, scope) {
   const filteredRows = rows.filter((row) => {
     if (applicationFilter) {
       const rowApplication = String(row.application_name || '').trim();
+      // The soft association makes a queue match on EITHER column. That is the
+      // whole feature: a request in `Other` that an analyst started working shows
+      // up in the queue they picked as well as in `Other`, without being moved out
+      // of `Other` — which would be a claim about whose data it is that nobody can
+      // make yet.
+      //
+      // Narrowing only, exactly like the line above it: `canReadSubmissionRow` has
+      // already run, and it admits the soft queue too, so this cannot show anybody
+      // a row they were not already allowed to read.
+      const rowWorkingApplication = String(row.working_application_name || '').trim();
       if (applicationFilter === UNASSIGNED_APPLICATION) {
         if (rowApplication) return false;
-      } else if (rowApplication !== applicationFilter) {
+      } else if (rowApplication !== applicationFilter && rowWorkingApplication !== applicationFilter) {
         return false;
       }
     }
@@ -1214,10 +1225,40 @@ async function updateAdminSubmission(db, { id, body, username, viewer }) {
     return { error: 'That person cannot be assigned work in this application', status: 400 };
   }
 
+  // ── The soft association ────────────────────────────────────────────────
+  //
+  // A request in `Other` is one nobody has identified the system for yet. An
+  // analyst who starts working it has had two bad options: move it out of `Other`,
+  // which is a claim about whose data it is that nobody can make yet, or leave it
+  // there, where it never appears in the queue they actually watch.
+  //
+  // This is the third. The ticket STAYS in `Other` — `application_id` is untouched,
+  // so who may edit it is unchanged — and it additionally shows up in the queue the
+  // analyst picked. Triggered by the status leaving `New`, because that is the
+  // moment somebody takes it on.
+  //
+  // WHY NOT A REDIRECT. A redirect resets the status to `New` (the receiving team
+  // has not triaged it), and this is triggered BY moving the status off `New` — so
+  // routing it through `redirectService` would immediately undo the change that
+  // triggered it. They are different acts: a redirect says whose this is, and this
+  // says who is looking at it while that stays unknown.
+  const softAssign = resolveSoftAssignment({
+    body,
+    existing,
+    viewer,
+    nextStatus: normalizedNextStatus,
+    previousStatus: normalizedExistingStatusValue,
+    applicationId: lookupIds.application_id,
+    requestType: next.type,
+    isUnknownQueue: await isUnknownApplication(db, lookupIds.application_id),
+  });
+  if (softAssign.error) return { error: softAssign.error, status: softAssign.status || 400 };
+
   const updatedAt = new Date().toISOString();
   const updatePayload = {
     updated_at: updatedAt,
     type_id: lookupIds.type_id,
+    working_application_id: softAssign.value,
     application_id: lookupIds.application_id,
     policy_num: next.policy_num,
     account_num: next.account_num,
@@ -1930,31 +1971,39 @@ async function submitSubmissionToEasyVista(db, { id, body, username, viewer, dry
     cleanupRetagIds = { type_id: retagTypeId, cleanup_tag_type_id: retagTagTypeId };
   }
 
-  // Refuse a REAL send into a catalog that was never configured for this
-  // application — it would land in whichever application owns the environment's
-  // catalog, silently and under the wrong field names.
+  // No application row at all is refused before the catalog is even considered.
+  // `easyVistaConfig(null)` reads the environment on purpose, so that a preview
+  // built before an application is known still renders — but on a send that would
+  // mean an unassigned or unresolvable ticket inheriting somebody else's catalog,
+  // which is the very thing being guarded against. Fail closed.
+  if (!outgoingApplication) {
+    return {
+      error: `This ticket has no application on record, so there is no ${TRACKER_LABEL} `
+        + 'catalog to raise it in. Set its application first.',
+      status: 400,
+    };
+  }
+
+  // Refuse a send for an application the Service Desk is not wired up to.
   //
-  // Only on the live path. With EasyVista off, nothing is transmitted, so there
-  // is no catalog to land in and nothing to protect: an unconfigured application
-  // demonstrates end to end exactly like a configured one, which is what the
-  // pre-go-live walkthrough depends on.
-  if (easyVistaIsLive()) {
-    // No application row at all is refused before the catalog is even considered.
-    // `easyVistaConfig(null)` reads the environment on purpose, so that a preview
-    // built before an application is known still renders — but on a live send that
-    // would mean an unassigned or unresolvable ticket inheriting somebody else's
-    // catalog, which is the very thing being guarded against. Fail closed.
-    if (!outgoingApplication) {
-      return {
-        error: `This ticket has no application on record, so there is no ${TRACKER_LABEL} `
-          + 'catalog to raise it in. Set its application first.',
-        status: 400,
-      };
-    }
-    const catalog = easyVistaCatalogStatus(outgoingApplication);
-    if (!catalog.configured) {
-      return { error: catalog.reason, status: 400 };
-    }
+  // NO LONGER LIVE-ONLY, and that is the point of the change. It used to be: with
+  // EasyVista off nothing is transmitted, so there was no catalog to land in and
+  // nothing to protect, and an unconfigured application demonstrated a send exactly
+  // like a configured one. That made the demo unable to show the case the portal
+  // actually has today — an application nothing is wired up to, where the admin has
+  // to raise the ticket by hand — and a Send that invents an incident number for it
+  // is worse than no Send at all: the ticket then claims a hand-off that never
+  // happened, and its number points at nothing.
+  //
+  // A `DEMO-` catalog still demonstrates end to end (easyVistaCatalogStatus counts
+  // it as configured while nothing is transmitted), so the walkthrough applications
+  // are untouched by this. Only an application with NOTHING configured is refused.
+  //
+  // This is the same call the detail response makes, so the disabled button and
+  // this refusal cannot disagree about which applications can be sent to.
+  const catalog = easyVistaCatalogStatus(outgoingApplication);
+  if (!catalog.configured) {
+    return { error: catalog.reason, status: 400 };
   }
 
   // EasyVista's requestor/recipient is the admin who pressed send, not the

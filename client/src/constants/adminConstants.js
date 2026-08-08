@@ -19,6 +19,19 @@ export const STATUS_TO_CLEANUP = {
 // other status is summed into the strip's expandable "other statuses" card.
 export const SCOPE_STRIP_STATUSES = ['New', 'Approved', 'Submitted', 'Deployed'];
 
+// The catch-all working list. A real application row, not a sentinel — it has
+// grants and tickets live in it.
+//
+// Two cases end up here: a system with no configured application to submit to the
+// Service Desk directly, and a system nobody has identified yet. Either way the
+// work is still tracked — reports get built from here, and a defect or enhancement
+// is raised on the Service Desk by hand and its incident number typed back in.
+//
+// Named here because the soft association keys off it — it is the only queue where
+// a ticket may ALSO appear somewhere else. Mirrors UNKNOWN_APPLICATION in
+// server/src/constants.js, which is the control.
+export const UNKNOWN_APPLICATION = 'Other';
+
 // Every list the Manage Metadata page can show, in the order it shows them.
 //
 // `feeds` names the surfaces the list actually drives. It is on the registry

@@ -86,8 +86,87 @@ test('an unconfigured application reports why it cannot be sent to', () => {
     const status = easyVistaCatalogStatus(POLICY);
     assert.strictEqual(status.configured, false);
     assert.match(status.reason, /Policy Center/);
-    // The display label, not the vendor's — the message reaches an admin.
-    assert.match(status.reason, /no Service Desk catalog/i);
+    // The display label and NOT the vendor's, because this message reaches an
+    // admin — asserted as the absence of the vendor's name rather than as one
+    // exact sentence, which is what this used to pin and what made a reworded
+    // message look like a broken guard.
+    assert.match(status.reason, /Service Desk/);
+    assert.doesNotMatch(status.reason, /EasyVista/i);
+  });
+});
+
+test('and tells the admin what to do instead of leaving them at a dead end', () => {
+  // The whole procedure, because every step of it already exists: the number is
+  // editable behind the unlock on the same tab, and Submitted is in the status
+  // dropdown. A message that only diagnosed the problem sent admins to ask.
+  const status = easyVistaCatalogStatus(POLICY);
+  assert.match(status.reason, /by hand/i);
+  assert.match(status.reason, /number/i);
+  assert.match(status.reason, /Submitted/);
+});
+
+// ── DEMO- catalogs: enough to demonstrate a send, never enough to transmit one ─
+//
+// The demo site has to show BOTH halves — Billing Center and Policy Center
+// pretend-sending end to end, and an application nothing is wired up to refusing
+// with the manual instruction. Before this, with the integration off, every
+// application behaved identically and the second half could not be shown.
+const DEMO_BILLING = { name: 'Billing Center', easyvista_catalog_code: 'DEMO-BILLING-CENTER' };
+
+const asLive = (run) => withEnv({
+  EASYVISTA_ENABLED: 'true',
+  EASYVISTA_BASE_URL: 'https://example.invalid',
+  EASYVISTA_API_KEY: 'k',
+}, run);
+
+test('a DEMO catalog counts as configured while nothing is transmitted', () => {
+  const status = easyVistaCatalogStatus(DEMO_BILLING);
+  assert.strictEqual(status.configured, true, 'the walkthrough send must still work');
+  assert.strictEqual(status.demoOnly, true);
+  assert.strictEqual(status.reason, '');
+});
+
+test('and stops counting the moment the integration goes live', () => {
+  asLive(() => {
+    const status = easyVistaCatalogStatus(DEMO_BILLING);
+    // This is the whole reason the placeholder announces itself. A plausible GUID
+    // here would post a real ticket into a catalog that does not exist.
+    assert.strictEqual(status.configured, false, 'a placeholder must never transmit');
+    assert.strictEqual(status.demoOnly, true);
+  });
+});
+
+test('the live refusal for a DEMO catalog blames the configuration, not the admin', () => {
+  asLive(() => {
+    const status = easyVistaCatalogStatus(DEMO_BILLING);
+    assert.match(status.reason, /demonstration catalog/i);
+    // No manual workaround is offered, because none would help — telling an admin
+    // to raise it by hand here would produce a duplicate of a ticket that should
+    // have been sent.
+    assert.doesNotMatch(status.reason, /by hand/i);
+  });
+});
+
+test('a real value alongside a DEMO one is treated as real', () => {
+  // The real one is what would actually be used, so the pair must not be
+  // downgraded to demo-only and refused on a live server.
+  const mixed = {
+    name: 'Policy Center',
+    easyvista_catalog_guid: 'PC-GUID-9',
+    easyvista_catalog_code: 'DEMO-POLICY-CENTER',
+  };
+  asLive(() => {
+    const status = easyVistaCatalogStatus(mixed);
+    assert.strictEqual(status.configured, true);
+    assert.strictEqual(status.demoOnly, false);
+  });
+});
+
+test('an application with nothing configured is refused on both paths', () => {
+  withEnv({ EASYVISTA_CATALOG_GUID: '', EASYVISTA_CATALOG_CODE: '' }, () => {
+    assert.strictEqual(easyVistaCatalogStatus(POLICY).configured, false);
+    assert.strictEqual(easyVistaCatalogStatus(POLICY).demoOnly, false);
+    asLive(() => assert.strictEqual(easyVistaCatalogStatus(POLICY).configured, false));
   });
 });
 

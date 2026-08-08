@@ -5,149 +5,307 @@ per-app details.
 
 ---
 
-
----
-
-# HANDOFF — pick this up cold (2026-08-07, end of the seventeenth pass)
+# HANDOFF — pick this up cold (2026-08-08, end of the eighteenth pass)
 
 Everything from here to the next `---` is the live work queue. The dated sections
-after it are the historical record. **`main` is clean and pushed at `646711c`.**
+after it are the historical record.
 
 ## Where things stand
 
 | | |
 |---|---|
-| **Shipped today** | `89d7976` — the reseed, the screenshot harness, three documents, sign-in on every request. `646711c` — the application picker on every branch, and analyst-created reports-only applications (**server only**). |
-| **Green at `646711c`** | 389 server tests · lint · build · `verify-submit-form` 63/63 · `verify-admin-data-entry` 121/121 · `verify-public-board` 21/21 |
-| **NOT re-run since** | `verify-metadata-page`, `verify-throughput-page`, `verify-report-import-export`, `verify-session-store`. They were green at `89d7976` and nothing since touches them, **but they have not been proved.** Run them first. |
-| **Database** | 39 seeded submissions, 0 `VERIFY` leftovers. `applications.reports_only` applied. `Other` granted for every type (22 grants). |
+| **This pass shipped** | The seventeenth pass's queue, items 1–4, plus a server-side hole it exposed and one the owner asked for mid-pass. |
+| **Green** | 410 server tests · lint · build · **all seven** browser scripts: `verify-admin-data-entry` **150/150** · `verify-submit-form` 63/63 · `verify-throughput-page` 52/52 · `verify-metadata-page` 30/30 · `verify-public-board` 21/21 · `verify-report-import-export` 20/20 · `verify-session-store` 17/17 |
+| **Database** | 39 seeded submissions, 0 `VERIFY` leftovers, 3 applications. `submissions.working_application_id` applied. Billing Center and Policy Center carry `DEMO-` catalogs; `Other` carries none. |
 
-## THE WORK LEFT, in the order it should be done
+## What is actually left
 
-### 1. The analyst has no way to add an application yet — the feature is half-delivered
+### 1. Screenshots
 
-`POST /api/admin/applications` exists, is tested (`test/reportsOnlyApplications.test.js`,
-11 tests) and does the whole job: validates the name, refuses a duplicate
-case-insensitively **including against a switched-off application**, creates the
-row `reports_only = 1`, and grants it in the same transaction to everybody who
-works report requests anywhere. **Nothing in the UI calls it.**
-
-The owner's words: *"the analyst should be able to add an application (for reports
-only) by typing it in and it becomes a new application type for the reports."*
-
-Where to put it, in priority order:
-
-1. **The Add-a-ticket dialog's report branch** — an analyst recording a request for
-   a system that is not in the list. `client/src/components/admin/AddTicketModal.jsx`,
-   the `.at-only-report` section.
-2. **The Redirect dialog** — this is the triage action for "this belongs somewhere
-   else", and it is where an analyst realises an `Other` request is really for
-   Marketing Analytics. `client/src/components/admin/detail/DetailActions.jsx`.
-
-Build it as one shared control used by both rather than twice. It needs the
-`api.js` helper (the shared `request()` sends the CSRF header), and the viewer's
-application list has to be re-read after a create or the new value will not appear
-in the picker that just created it.
-
-**Do not** put it on the Metadata page. Metadata writes are super-user-only by the
-fifteenth pass's deliberate decision, and `test/metaRouteGuards.test.js` polices it.
-
-### 2. The Service Desk send, when the application has no catalog (owner's request)
-
-Owner's words: *"for those where an application isn't configured, they would
-obviously have to manually submit in easyvista since an easyvista connection is not
-yet set up, so they can't directly click submit to easyvista, that would be greyed
-out with a note saying they will have to manually submit and then they can come
-back and enter an incident number and mark it submitted."*
-
-**Most of this exists** — do not rebuild it:
-
-- The send is already **refused server-side** when the application has no catalog
-  (`EASYVISTA_CATALOG_GUIDS` is empty today, so that is every application).
-- The incident number is already **editable behind an unlock** on the detail modal,
-  built in the fourteenth pass for exactly this case.
-- Setting the status to `Submitted` by hand already works from the status dropdown.
-
-**What is missing is the affordance:** the button should be visibly **disabled with
-the reason stated**, rather than enabled and failing on click. Wire it to the same
-catalog check the server uses, and put the two manual steps in the note.
-
-### 3. Soft-assign out of `Other` — NEEDS A DECISION BEFORE BUILDING
-
-Owner's words: *"they can either make it so that they assign it to an application
-queue that is available, or leave as other, but once they change it from new status
-to something else - then it soft assigns it to their queue (they can select if they
-want it to show up in which of their queues list)."*
-
-**The design question, and why it is not obvious.** A Redirect **resets the status
-to `New`** — deliberately, because the receiving team has not triaged it. But a soft
-assign is triggered *by* moving the status off `New`, so routing it through
-`redirectService` would immediately undo the change that triggered it.
-
-So it is one of two things, and they are different features:
-
-- **(a) A real move that keeps the status.** `application_id` changes, a
-  `submission_routings` row is written, the status stays where the admin just put
-  it. Needs a variant of `redirectSubmission` that skips the status reset, and a
-  decision about what `status_at_handoff` means when nothing was handed off.
-- **(b) A softer association that does not move the ticket.** The ticket stays in
-  `Other`; a new column records which queue it should *appear* in. Nothing existing
-  does this, and it adds a second answer to "whose queue is this in", which the
-  data model currently answers with exactly one column.
-
-**Ask the owner which before building either.** (a) reuses the ledger and keeps one
-source of truth; (b) matches "soft" more literally but introduces a second concept.
-
-### 4. Documentation — the owner asked for this explicitly
-
-> *"any changes we make, we need to update those sections or add them in the
-> documentation"*
-
-`CLAUDE.md` now carries that rule. **Neither document has been updated for
-`646711c` yet.** What needs adding:
-
-- **`docs/DEVELOPER_HANDOFF.md`** — §5 (vocabulary: a reports-only application),
-  §8.1 (the picker is on every branch, and why the report branch is not prefilled),
-  §10 (the `Other` grant now covers every type), §17 (the `reports_only` column),
-  §18 (`POST /api/admin/applications`), §19 (the migration script), Part IX (a
-  seventeenth-pass entry), and Part XI (acceptance items for the new rules).
-- **`docs/USER_MANUAL.md`** — §1.2/§1.3/§1.4 (the picker), §2.9, and a new §2.x for
-  an analyst adding an application once the UI exists.
-
-### 5. Screenshots are stale for the submit form
-
-The submit-form shots (`01`–`08`, `70`, `80`, `81`) predate the picker. **Re-run the
-whole set** rather than shooting selectively — the harness prunes and rewrites the
-manifest, and a filtered run deliberately does not:
+**Re-run the whole set** — the submit-form shots predate the picker, and this pass
+changed the detail modal's footer and the Triage tab:
 
 ```
 cd client && node scripts/capture-screenshots.mjs
 ```
 
-### 6. Worth considering: seed a reports-only application
+The harness prunes and rewrites `docs/handoff/screenshot-manifest.json` from its own
+registry. **Never edit that file by hand, and never shoot selectively** — a filtered
+run deliberately does not prune.
 
-The demonstration data has none, so nothing on screen shows the feature. One
+Worth adding to the registry while you are there: the greyed-out Send with its note,
+and the "Also show it in" picker. Neither is photographed yet.
+
+### 2. Worth considering: seed a reports-only application
+
+The demonstration data still has none, so nothing on screen shows that feature. One
 analyst-created application with two or three report requests would show it — and
 would give `verify-throughput-page.mjs`'s empty-state check a **structurally** empty
-target again (a brand-new queue has no delivered work), which is currently held by
-a modelling rule about `Other` instead.
+target again (a brand-new queue has no delivered work), which is currently held by a
+modelling rule about `Other` instead.
+
+### 3. Before the Service Desk integration goes live
+
+`npm run set:demo-catalogs -- --clear --apply`, then put the real catalog IDs in
+`EASYVISTA_CATALOG_GUIDS`. **An application's own column wins over the environment**,
+so a leftover `DEMO-` placeholder would keep winning. The code already fails closed —
+a `DEMO-` catalog reverts to "not configured" the moment `EASYVISTA_ENABLED` is on —
+so the failure mode is a refused send rather than a misrouted ticket, but the
+placeholder still has to come out.
 
 ## Things that will bite you
 
 1. **`server/.env` is `DB_PROVIDER=postgres`** — `npm run dev` is the live shared
    database. See §0.1.
-2. **Do not pipe a verify script through `head`** — SIGPIPE kills cleanup and
-   strands fixtures. Redirect to a file.
-3. **`/api/auth/login` allows 10 attempts per 15 minutes per IP.** Restart the
-   server to reset it. A 429 mid-run looks exactly like a broken check.
-4. **Never assert a total against this shared database** — assert the CHANGE against
-   a baseline the script takes first. Three throughput checks failed that way.
-5. **A browser probe is wrong more often than the code is.** §0.3 has the table of
-   sixteen that were.
-6. **A `useMemo` reading `form.x` must be declared BELOW `const [form] = useState`**
-   — putting it above threw "Cannot access 'form' before initialization" and rendered
-   the whole submit page as nothing. The page still *compiled*, so Vite logged a
-   clean HMR update and only the browser check caught it.
+2. **Do not edit server or client source while a browser verification is running.**
+   nodemon restarts the server under it and Vite re-bundles; two runs this pass died
+   on `ECONNREFUSED` and a 500 that both looked like product faults. Finish the code,
+   then verify.
+3. **A model column without its migration takes the server down.** Sequelize names
+   every column the MODEL declares. Adding `working_application_id` to
+   `db/models/index.js` broke every submission query until
+   `npm run migrate:working-application -- --apply` ran. Do both in one breath.
+4. **Do not pipe a verify script through `head`** — SIGPIPE kills cleanup and strands
+   fixtures. Redirect to a file.
+5. **`/api/auth/login` allows 10 attempts per 15 minutes per IP.** Restart the server
+   to reset it. A 429 mid-run looks exactly like a broken check.
+6. **Never assert a total against this shared database** — assert the CHANGE against a
+   baseline the script takes first. And a delta is only safe if **nothing else is
+   writing**: `verify-session-store` failed this pass because `verify-metadata-page`
+   was signing in concurrently into the same `user_sessions` table. **Run that one
+   alone.**
+7. **A browser probe is wrong more often than the code is.** §0.3 has the table;
+   three more went in this pass (a stale element handle, saved queue filters, the
+   concurrent delta above).
+8. **A `useMemo` reading `form.x` must be declared BELOW `const [form] = useState`** —
+   putting it above threw "Cannot access 'form' before initialization" and rendered
+   the whole page as nothing. The same trap caught `isReportRequest` in
+   `DetailModal.jsx` this pass, and it still *compiles*.
+
+---
+
+## The analyst's UI, the hand-off affordance, and what `Other` is for (2026-08-08, eighteenth pass)
+
+Three items off the seventeenth pass's queue that turned out to be one story — **what
+happens to work the Service Desk is not wired up for** — plus two holes they exposed.
+
+### 1. `POST /api/admin/applications` finally has a UI
+
+The endpoint shipped tested in the previous pass and **nothing called it**. It is now
+one shared control, `client/src/components/admin/AddApplicationControl.jsx`, used in
+both places an analyst hits the wall:
+
+- **Add a ticket → Report request**, under the Application picker.
+- **⋯ More → Redirect**, on a report request — the triage action for "this belongs
+  somewhere else", which is where an analyst realises an `Other` request is really
+  Marketing Analytics'.
+
+Built once because the two differ only in what they do with the answer — one picks by
+name, the other by id — and `onCreated` hands back both.
+
+**`onCreated` is awaited** before the picker is pointed at the new value. The caller
+re-reads the application list there, and selecting an `<option>` that does not exist
+yet leaves the picker blank, which reads as "it didn't work".
+
+The control **offers itself only to somebody who works report requests**, mirroring
+`canCreateReportApplication` — the two dialogs are open to every admin, and a defect
+admin clicking it would get a 403 for a feature that was never theirs. The server is
+still the control.
+
+Two smaller things it exposed:
+
+- **The Add-a-ticket dialog's application picker had no way to know which
+  applications are reports-only**, because it read the meta name array. It now reads
+  `viewer.applications` (`{id, name, reportsOnly}`) — the same list the redirect
+  picker uses — and filters by type, so a reports-only queue is no longer offered for
+  a defect. Switching the type off `report` also **drops** a reports-only selection,
+  or the picker points at an option it is no longer rendering and draws blank.
+- **`migrateReportsOnlyApplications.js` had no npm script**, while three code comments
+  told you to run `npm run migrate:reports-only-applications`. Added.
+
+### 2. Redirect was the fifth write path, and it was unguarded
+
+`helpers/applicationScope.js` was written for four paths that set `application_id` —
+the public submit, the admin create, the admin update, the import. **A redirect sets
+it too, and had no check.**
+
+A defect could be redirected into a reports-only application, which is granted only to
+report workers — so it lands in a queue with **no defect admins**. Fail-closed scoping
+makes that *invisible*, not merely unassigned, which is the exact failure `Other` was
+invented to avoid. And the sending team has already lost write access by then, so
+nobody could move it back.
+
+`redirectService` now refuses it, `DetailModal` keeps it off the picker, and the
+browser check asks the endpoint directly — **the endpoint is the control, the hidden
+option is the courtesy.** It also proves the refusal wrote nothing.
+
+### 3. The Service Desk send, when nothing is wired up (the owner's request)
+
+> *"For those where an application isn't configured, they would obviously have to
+> manually submit in easyvista … that would be greyed out with a note saying they will
+> have to manually submit and then they can come back and enter an incident number and
+> mark it submitted."*
+
+**The catalog check stopped being live-only, and that is the point.** It used to run
+only when `EASYVISTA_ENABLED` was on — with the integration off nothing is
+transmitted, so there was no catalog to land in and an unconfigured application
+demonstrated a send exactly like a configured one. That left the portal unable to show
+the case it actually has, and meant **Submit** invented an incident number for a
+hand-off that never happened.
+
+One call to `easyVistaCatalogStatus` now surfaces three ways, so a greyed-out button
+and a refused POST can never disagree:
+
+| Where | What it does |
+|---|---|
+| `GET /api/admin/submissions/:id` | returns `easyvista_catalog: { configured, demoOnly, reason }`; `null` for a report request, which has no button |
+| The detail modal footer | disables **Submit** and prints the reason on its own line (`.dm-foot-blocked`) |
+| `POST …/submit-easyvista` | refuses with the same `reason` |
+
+**The reason is the whole procedure, not a diagnosis** — every step already exists, so
+naming them turns a dead end into an instruction: raise it by hand → unlock the number
+on this tab → enter it → set `Submitted`.
+
+#### `DEMO-` catalogs — the owner's mid-pass constraint
+
+> *"Don't break the billing and policy center sending on the demo site because we're
+> doing that so it pretends to send, and the 'other' will be the one configured as if
+> it's not configured to send to the service desk."*
+
+That needs Billing Center and Policy Center to **count as configured**. Writing a
+plausible-looking GUID into their rows would mean that on the day the integration is
+switched on, a real send posts into a catalog that does not exist.
+
+So the placeholder **announces itself** and `easyVistaCatalogStatus` stops honouring
+it the moment `easyVistaIsLive()` is true:
+
+| Catalog value | Demo path | Live path |
+|---|---|---|
+| a real GUID/code | configured | configured |
+| `DEMO-…` | configured (`demoOnly: true`) | **refused** — blames whoever configured the server, not the admin |
+| nothing | **refused** — raise it by hand | **refused** |
+
+`npm run set:demo-catalogs` writes them (dry-run by default, `--clear` undoes,
+**never overwrites a real value**), and it prints what each application will *do*
+rather than just the column value. Applied to the hosted database this pass.
+
+**A circular require, caught by its own failure mode.** `easyVistaCatalogStatus` had
+to ask whether the integration is live, but `src/easyvista.js` requires the payload
+helper at its top — so requiring back returned a half-built module and
+`easyVistaIsLive` came out **undefined**, which reads as `false`. That would have made
+a demonstration catalog look real on a live server: failing **open**, in the one place
+the guard exists to fail closed. Both predicates moved down to
+`src/helpers/easyVistaMode.js`; `src/easyvista.js` re-exports them, so every existing
+importer is untouched.
+
+### 4. The soft association — the owner chose shape (b)
+
+The seventeenth pass flagged this as needing a decision first, because the obvious
+implementation undoes itself:
+
+> A redirect **resets the status to `New`**, and a soft assign is triggered **by
+> moving the status off `New`**. Routing it through `redirectService` would
+> immediately undo the change that triggered it.
+
+Two shapes were put to the owner. **(a)** a real move that keeps the status — reuses
+the ledger, one source of truth, but the ticket leaves `Other` for good. **(b)** a
+softer association that does not move the ticket. **The owner chose (b).**
+
+`submissions.working_application_id`, nullable, null on every existing row, set when
+the status leaves `New` on a ticket in `Other`. The ticket stays in `Other` and **also
+appears in the queue the analyst picked**.
+
+**What makes a second "whose queue" column safe is that it answers strictly less:**
+
+| | `application_id` | `working_application_id` |
+|---|---|---|
+| Who may **edit** | decides it | **never consulted** |
+| Who may **read** | decides it | widens, but only into a queue the caller already holds |
+| Which queue lists it | yes | yes (`OR` on the scope filter) |
+| Set on | every ticket | only a ticket in `Other` |
+| Changed by | a redirect | the analyst working it |
+
+Refused for a queue the acting admin does not work in, **type-scoped** — otherwise an
+admin could put work on another team's list, and that team cannot edit the ticket to
+get rid of it. Cleared automatically if the ticket is later redirected into a real
+application: that queue has its answer now.
+
+**The derivation only fires when there is exactly one candidate.** With two, guessing
+would put the ticket on a list the analyst did not pick, which is harder to notice
+than it not appearing at all.
+
+**One trap worth the whole rule.** The detail modal sends its **whole edit object** on
+every save, so `hasOwnProperty('working_application_id')` is always true. Treating
+presence as a deliberate act would have cleared the association on the next unrelated
+save *and* made the status trigger unreachable. What identifies a deliberate act is
+that the value **differs from what is stored**.
+
+`resolveSoftAssignment` takes `isUnknownQueue` as a **value** rather than looking it
+up, so a rule that decides whose list a ticket lands on is pinnable without a
+database. 14 unit tests.
+
+### 5. What `Other` actually is — the owner corrected this mid-pass
+
+An earlier framing in this file had `Other` as *only* "the system is unknown". Not so:
+
+> *"The 'other' option is used for when there isn't an application configured yet to
+> directly submit to EasyVista but we still want to be able to track or create the
+> reports, almost like a task list in a way. A way to still track issues even if for a
+> defect or enhancement the admin has to manually submit to the service desk and then
+> manually enter the ticket number."*
+>
+> *"And then obviously other can be used too when it is still an unknown application,
+> and the stuff about soft assign stands too."*
+
+**Both cases, one queue, for the same reason:** the work still has to be tracked and
+there is nowhere else to put it. That is why items 3 and 4 above are the same story —
+`Other` is where the hand-off is refused *and* where the soft association lives, and a
+ticket that stayed in `Other` keeps both behaviours correct at once. The wording in
+`src/constants.js`, `helpers/softAssignment.js`, the Triage hint and both documents
+now says so.
+
+### 6. A new removal script, because the harness rule demanded one
+
+`POST /api/admin/applications` has no DELETE to match — deliberately: an application is
+a queue and tickets point at it. But the browser check that proves the control works
+has to **use** it, and this is the shared database.
+
+`npm run remove:verification-applications` is the narrow sibling of
+`removeVerificationSubmissions.js`: explicit names, refuses anything without the
+`VERIFY` marker, dry-run by default, removes the grants in the same transaction, and
+**refuses an application any submission still points at** — a row with tickets in it is
+not a fixture, and destroying it would orphan them.
+
+`verify-admin-data-entry.mjs` calls it before creating (so a killed run's litter cannot
+be mistaken for a duplicate refusal) and again in a **top-level safety net**, because
+the fixtures are created before the `try/finally` that owns the Delivery-pane ones. The
+first version without that net stranded three tickets and an application the moment a
+selector timed out.
+
+### Verified
+
+410 server tests (21 new: 14 soft-assignment, 6 catalog, 1 reworded), lint, build, and
+**all seven** browser scripts — `verify-admin-data-entry` **150/150** (29 new checks),
+`verify-submit-form` 63/63, `verify-throughput-page` 52/52, `verify-metadata-page`
+30/30, `verify-public-board` 21/21, `verify-report-import-export` 20/20,
+`verify-session-store` 17/17. Database back to 39 submissions and 3 applications each
+time, printed by the removal scripts.
+
+### Three probe failures, all of them the probe
+
+Added to §0.3's table:
+
+- **An element handle does not survive a re-render.** `page.$()` then `.click()` across
+  a debounced search gave *"Element is not attached to the DOM"* — which reads exactly
+  like a broken selector. A **locator** re-resolves on every action.
+- **The queue's kind switch and application scope are saved per admin**, in
+  `localStorage` and in the server-side pinned application. A ticket in `Other` was
+  simply not in a queue pinned to Billing Center — the queue working correctly. The
+  probe now widens both explicitly and **puts them back**: leaving the search box
+  filled made a later section time out looking for a ticket it had filtered away.
+- **A delta is only safe if nothing else is writing.** `verify-session-store`'s "no
+  session was left behind" check failed because `verify-metadata-page` was signing in
+  **concurrently** into the same shared `user_sessions` table. Run it alone.
 
 ---
 
@@ -1231,7 +1389,7 @@ branch). Two remain, both needing a decision:
    (`middleware/rateLimit.js`), which is why the session-store script, whose every
    boot is a fresh process, is exempt.
 
-   **A browser probe is wrong more often than the code is.** Fifteen checks have now
+   **A browser probe is wrong more often than the code is.** Eighteen checks have now
    failed against working code, and every one was the same mistake in different
    clothes. The full table is in
    [`docs/DEVELOPER_HANDOFF.md`](docs/DEVELOPER_HANDOFF.md#the-four-traps-this-harness-was-built-around);
@@ -1241,6 +1399,24 @@ branch). Two remain, both needing a decision:
    > the rendered DOM. Prove a modal closed. Read the real DOM, and the narrowest
    > element that holds the value, before writing the selector. Never assert a total
    > against shared data; assert the change.**
+
+   Three more went in on 2026-08-08, and they extend the rule rather than repeat it:
+
+   - **A locator, not an element handle.** `page.$()` returns a handle to the node as
+     it was; a debounced search re-renders the table and the handle detaches, giving
+     *"Element is not attached to the DOM"* — which reads exactly like a broken
+     selector. A **locator re-resolves on every action**.
+   - **Widen what the account has narrowed, then put it back.** The queue's kind
+     switch and application scope are saved per admin (`localStorage`, plus the
+     server-side pinned application), so what a probe sees depends on what that
+     account last looked at. A ticket in `Other` was simply absent from a queue
+     pinned to Billing Center — the queue working correctly. And leaving the search
+     box filled made a **later** section time out looking for a ticket it had
+     filtered away.
+   - **A delta is only safe if nothing else is writing.** `verify-session-store`'s
+     cleanup check compares live session rows before and after; running it
+     **concurrently** with `verify-metadata-page` counted that script's logins and
+     failed. Baselines do not protect against a second writer — run that one alone.
 
 ## 1. Landed and verified (2026-08-05, first pass)
 

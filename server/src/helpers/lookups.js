@@ -107,6 +107,12 @@ function hydrateRowFromMaps(row, maps) {
     cleanup_tag_type: cleanupTagTypeIdToName.get(Number(row.cleanup_tag_type_id)) || '',
     cleanup_status: cleanupStatusIdToName.get(Number(row.cleanup_status_id)) || '',
     application_name: applicationIdToName.get(Number(row.application_id)) || '',
+    // The soft association — the queue a ticket in `Other` ALSO appears in, chosen
+    // by the analyst who started working it. Null rather than '' when unset: '' is
+    // what `application_name` uses for "no application at all", and the two mean
+    // different things here. Never a substitute for `application_name`, which is
+    // still the only thing that decides who may edit the ticket.
+    working_application_name: applicationIdToName.get(Number(row.working_application_id)) || null,
     enhancement_request_type: enhancementRequestTypeIdToName.get(Number(row.enhancement_request_type_id)) || '',
     priority_level: priorityLevelIdToName.get(Number(row.priority_level_id)) || '',
     created_via: createdViaIdToName.get(Number(row.created_via_id)) || '',

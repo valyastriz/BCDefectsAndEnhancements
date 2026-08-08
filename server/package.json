@@ -20,10 +20,14 @@
     "migrate:report-requests": "node scripts/migrateReportRequests.js",
     "migrate:report-statuses": "node scripts/migrateReportStatuses.js",
     "migrate:session-store": "node scripts/migrateSessionStore.js",
+    "migrate:reports-only-applications": "node scripts/migrateReportsOnlyApplications.js",
+    "migrate:working-application": "node scripts/migrateWorkingApplication.js",
     "migrate:delivery-notes": "node scripts/migrateDeliveryNotes.js",
     "backfill:tracker-history": "node scripts/backfill-tracker-label-history.js",
     "grant:super-user": "node scripts/grantSuperUser.js",
-    "remove:verification-tickets": "node scripts/removeVerificationSubmissions.js"
+    "set:demo-catalogs": "node scripts/setDemoCatalogs.js",
+    "remove:verification-tickets": "node scripts/removeVerificationSubmissions.js",
+    "remove:verification-applications": "node scripts/removeVerificationApplications.js"
   },
   "keywords": [],
   "author": "",

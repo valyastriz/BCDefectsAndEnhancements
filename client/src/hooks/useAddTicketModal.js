@@ -212,13 +212,25 @@ export function missingAddTicketFields(form, { requiresHandoffFields = false } =
  *
  * @param {Object} deps
  * @param {Object} deps.user - current admin user
- * @param {string[]} deps.applications - the admin's application lookup list; the
- *   first is preselected rather than a hardcoded application name
+ * @param {Array<{id:number,name:string,reportsOnly:boolean}>} deps.applications -
+ *   every active application, from the viewer envelope; the first one that takes
+ *   more than report requests is preselected rather than a hardcoded name
  * @param {Function} deps.loadRows - reload the main submissions table
  * @param {Function} deps.setNotice - page-level notice setter
  */
 export function useAddTicketModal({ user, applications = [], loadRows, setNotice }) {
-  const defaultApplication = applications[0] || '';
+  // The dialog opens on the defect branch, so the preselection has to be an
+  // application that takes a defect. A reports-only one sorts last (created with
+  // sort_order = max + 1) so it would not be first today — but relying on that
+  // would make the preselection depend on row order rather than on the rule.
+  const defaultApplication = applications.find((application) => !application?.reportsOnly)?.name || '';
+  // Names this dialog must drop when the type stops being a report request.
+  const reportsOnlyNames = useMemo(
+    () => new Set(
+      applications.filter((application) => application?.reportsOnly).map((application) => application.name),
+    ),
+    [applications],
+  );
   const [addTicketOpen, setAddTicketOpen] = useState(false);
   const [addTicketError, setAddTicketError] = useState('');
   const [addTicketWorking, setAddTicketWorking] = useState(false);
@@ -306,14 +318,25 @@ export function useAddTicketModal({ user, applications = [], loadRows, setNotice
    * request has, and leaving it in the form would submit a status the select is no
    * longer showing. Asked by passing the one status to the same registry the
    * dropdown uses, so there is no second rule to keep in step.
+   *
+   * The APPLICATION goes the same way for the same reason. A reports-only one is
+   * offered on the report branch only, so leaving it selected while switching to a
+   * defect points the picker at an option it is no longer rendering — it draws
+   * blank, and the save is refused server-side by helpers/applicationScope.js.
+   * Dropped back to the default rather than to nothing: blank is a required field.
    */
   function setAddTicketType(type) {
-    setAddTicketForm((prev) => ({
-      ...prev,
-      type,
-      status: statusesForRequestType(type, [prev.status]).length > 0 ? prev.status : 'New',
-      submit_to_easyvista: type === 'cleanup' ? prev.submit_to_easyvista : false,
-    }));
+    setAddTicketForm((prev) => {
+      const keepsApplication = type === SUBMISSION_TYPE_REPORT
+        || !reportsOnlyNames.has(prev.application_name);
+      return {
+        ...prev,
+        type,
+        status: statusesForRequestType(type, [prev.status]).length > 0 ? prev.status : 'New',
+        application_name: keepsApplication ? prev.application_name : defaultApplication,
+        submit_to_easyvista: type === 'cleanup' ? prev.submit_to_easyvista : false,
+      };
+    });
   }
 
   /** A report request's sub-branch. Held as the boolean the column stores. */

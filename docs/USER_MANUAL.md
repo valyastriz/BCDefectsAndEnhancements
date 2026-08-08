@@ -40,10 +40,11 @@ everything.
 [2.7 Handing a ticket to another team](#27-handing-a-ticket-to-another-team) ·
 [2.8 Doing things to many tickets at once](#28-doing-things-to-many-tickets-at-once) ·
 [2.9 Adding a ticket by hand](#29-adding-a-ticket-by-hand) ·
-[2.10 Excel, both directions](#210-excel-both-directions) ·
-[2.11 Reporting throughput](#211-reporting-throughput) ·
-[2.12 Manage metadata](#212-manage-metadata) ·
-[2.13 Manage access](#213-manage-access)
+[2.10 Adding an application](#210-adding-an-application-when-it-isnt-in-the-list) ·
+[2.11 Excel, both directions](#211-excel-both-directions) ·
+[2.12 Reporting throughput](#212-reporting-throughput) ·
+[2.13 Manage metadata](#213-manage-metadata) ·
+[2.14 Manage access](#214-manage-access)
 
 [Appendix: test accounts](#appendix-test-accounts) ·
 [Appendix: what the statuses mean](#appendix-what-the-statuses-mean) ·
@@ -363,6 +364,23 @@ land next time.
 — glancing at another team's queue should not silently change where you start
 tomorrow.
 
+### `Other` — the catch-all working list
+
+`Other` is a real queue, not a holding pen. Two quite different things land in it:
+
+- **A system with no Service Desk connection.** There is no configured application
+  to raise its tickets in, so the work is tracked here and the Service Desk ticket
+  is raised **by hand** (§2.6).
+- **A system nobody has identified yet.** Somebody reported a problem or asked for
+  a report and it is not yet clear whose data it is about.
+
+Either way the work still has to be tracked, so it is tracked here — think of it as
+a task list. Reports get built out of it, defects and enhancements get worked out of
+it, and it takes **every kind of request**.
+
+**A ticket in `Other` can also appear in your own queue**, without leaving `Other`.
+See §2.4 — *Also show it in*.
+
 ### What an analyst sees
 
 ![Analyst queue](handoff/screenshots/27-admin-queue-analyst.png)
@@ -421,6 +439,34 @@ every ticket would look edited the moment somebody glanced at it.
 **Which statuses you can choose depends on the type.** A report request offers its
 nine; everything else offers the rest. See
 [the appendix](#appendix-what-the-statuses-mean).
+
+#### "Also show it in" — putting an `Other` ticket on your own list
+
+**Only on a ticket in `Other`**, under *Ownership & tracking*, there is a picker
+offering the queues you work in.
+
+`Other` is where work is tracked for systems the Service Desk is not wired up to,
+and for ones nobody has identified yet (§2.1) — so if you pick one up, you have had
+two bad options: move it into a real application, which claims the system *is* that
+one, or leave it where you never see it again.
+
+This is the third. Pick a queue and the ticket **also appears there**, while
+staying in `Other`:
+
+- It does **not** move. `Other` is still its application, so the Service Desk
+  hand-off stays correctly greyed out and the incident number stays something you
+  type in (§2.6).
+- It shows up in **both** lists — yours and `Other`.
+- Only queues **you** work in are offered, so nobody can put work on another team's
+  list.
+- **Moving the status off `New` sets it for you** when you work in exactly one
+  queue. With more than one, it waits for you to choose — guessing would put the
+  ticket on a list you did not pick, which is harder to notice than it not
+  appearing at all.
+
+Choose *"Nowhere else"* to take it back off your list. If the ticket is later
+redirected into a real application, the association is dropped: that queue has its
+answer now.
 
 ### Report — what they actually wrote
 
@@ -528,7 +574,32 @@ Three things to know:
    here and a **new** incident there, linked both ways, and leaves the original
    alone.
 
-**A report request cannot be sent at all**, and the button says so.
+**A report request cannot be sent at all**, and the button is not offered.
+
+### When the application is not wired up to the Service Desk
+
+Some systems have no Service Desk catalog configured, so the portal cannot raise a
+ticket in them. **`Other` is the clearest example** — it is the queue for exactly
+that case (§2.1).
+
+For those, **Submit to the Service Desk is greyed out**, and the reason under the
+buttons tells you what to do instead:
+
+> *"Other is not wired up to Service Desk, so this cannot be sent from the portal.
+> Raise it in Service Desk by hand, then come back, unlock the Service Desk ticket
+> number on this tab and enter the number it gave you, and set the status to
+> Submitted."*
+
+So the procedure is:
+
+1. Raise the ticket on the Service Desk site yourself.
+2. Come back here, open the **Service Desk** tab and click **Unlock to edit** beside
+   the ticket number.
+3. Type in the number it gave you and save.
+4. Set the status to **Submitted** on the Triage tab.
+
+The ticket now carries the reference to the real incident, and the board reads the
+same as one the portal sent itself.
 
 **The incident number can be edited behind an unlock.** For a ticket the portal
 sent, that number is its own record of what it did — so changing it is deliberate.
@@ -592,7 +663,45 @@ bug report, and it stays private by default.
 > appear on that person's board. Only a request filed through the form belongs to
 > somebody. An admin recording somebody else's request cannot claim it for them.
 
-## 2.10 Excel, both directions
+## 2.10 Adding an application, when it isn't in the list
+
+Reporting analysts build reports for systems the portal does not otherwise track.
+Before this, every one of those had to go into `Other`, so the analyst's own record
+lost **which system the data came from** — the one thing that field is for.
+
+If you work report requests, you can add one by typing its name in. The control sits
+in **two** places, and it is the same control:
+
+1. **Add a ticket… → Report request**, under the Application picker — you are
+   recording a request for a system that is not in the list.
+2. **⋯ More → Redirect**, on a report request — you have realised an `Other` request
+   is really Marketing Analytics'.
+
+Click **“+ The application isn’t listed”**, type the name, press **Add** or Enter.
+
+What happens then:
+
+- It is created as a **reports-only** application. It accepts **report requests and
+  nothing else** — so it is not offered when you are filing a defect or an
+  enhancement, and it is not a redirect target for one.
+- It is **shared immediately with everybody who works report requests**, anywhere.
+  An application is a queue, and a new one nobody can see would be worse than no
+  application at all.
+- It appears in the picker you just used, **already selected**.
+
+Refusals say why and keep what you typed:
+
+| What you typed | What you get |
+|---|---|
+| A name already in the list | *"Billing Center is already in the list"* |
+| A name that exists but is **switched off** | *"… exists but is switched off. A super user can switch it back on."* — you cannot see that row, which is why the message says so |
+| Nothing, or over 60 characters | It tells you |
+
+> **Renaming or retiring an application is still a super user's job**, on Manage
+> metadata (§2.13). Creating one touches no existing ticket; renaming one renames it
+> on **every ticket that holds it**, which is a different kind of act.
+
+## 2.11 Excel, both directions
 
 **Data → Export Excel** or **Import Excel**.
 
@@ -654,7 +763,7 @@ A few rules worth knowing before you build a sheet:
 - **A report-request sheet needs no policy or account column.**
 - Every import run is recorded, with row counts and errors, under **Recent imports**.
 
-## 2.11 Reporting throughput
+## 2.12 Reporting throughput
 
 **Account menu → Reporting throughput.** How much report-request work is being
 delivered, and by whom.
@@ -688,7 +797,7 @@ per-colleague mark anywhere on it.
 
 The page states when it was built, and does not update live.
 
-## 2.12 Manage metadata
+## 2.13 Manage metadata
 
 **Account menu → Manage metadata.** Super users only for changes; every admin can
 read it.
@@ -714,7 +823,7 @@ A value in use has its name locked.
 **Values are switched off, never deleted** — existing tickets keep pointing at them.
 The `Retired` status is protected outright.
 
-## 2.13 Manage access
+## 2.14 Manage access
 
 **Account menu → Manage access.** Super users only.
 
@@ -753,7 +862,7 @@ Three safeguards:
 The page also lists **directory group → application** mappings. Those set somebody's
 **default** application. **They grant nothing** — access is always deliberate.
 
-## 2.14 Dark mode and phones, on the triage side
+## 2.15 Dark mode and phones, on the triage side
 
 The **Dark / Light** button in the header applies everywhere, including the admin
 pages and the ticket modal.

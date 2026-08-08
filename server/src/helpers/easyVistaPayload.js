@@ -25,6 +25,10 @@
 // Only the admin-facing refusal message below uses this. The field codes, the
 // env vars and this module's own name keep the vendor's on purpose.
 const { TRACKER_LABEL } = require('../constants');
+// A `DEMO-` catalog counts as configured only while nothing is transmitted, so
+// this file has to know. Imported from `helpers/easyVistaMode` and NOT from
+// `src/easyvista.js`, which requires this module at its top — see that header.
+const { easyVistaIsLive } = require('./easyVistaMode');
 
 const value = (v) => (v === null || v === undefined ? '' : String(v));
 const orDash = (v) => (value(v).trim() === '' ? '-' : value(v));
@@ -209,38 +213,87 @@ function easyVistaConfig(application = null) {
   };
 }
 
+// A catalog value that exists only so the walkthrough has a wired-up application
+// to press Send on. Good enough to DEMONSTRATE a send, never good enough to
+// transmit one.
+//
+// WHY THE PREFIX EXISTS. The owner needs the demo site to show both halves of the
+// story: Billing Center and Policy Center pretend-send end to end, and `Other`
+// refuses because nothing is configured for it. That needs the two to count as
+// configured — and writing a plausible-looking GUID into their rows would mean a
+// real send, on the day EasyVista is switched on, posting into a catalog that does
+// not exist. So the placeholder says what it is, and `easyVistaCatalogStatus`
+// stops honouring it the moment the integration goes live. Fail closed, out loud.
+const DEMO_CATALOG_PREFIX = 'DEMO-';
+
+const isDemoCatalogValue = (v) => value(v).trim().toUpperCase().startsWith(DEMO_CATALOG_PREFIX);
+
 /**
- * Whether this application can be sent to for real, and why not if it cannot.
+ * Whether this application can be sent to, and why not if it cannot.
  *
- * Only meaningful for a LIVE send. While EasyVista is off — the stub and demo
- * paths — nothing is transmitted, so there is no catalog to land in and no
- * misroute to prevent; an unconfigured application demos end to end exactly like
- * a configured one.
+ * TWO GRADES OF CONFIGURED, because there are two kinds of send.
+ *
+ *   - A real value → configured for both. This is what a wired application has.
+ *   - A `DEMO-` placeholder → configured for the demo path only. Nothing is
+ *     transmitted there, so there is no catalog to land in and no misroute to
+ *     prevent; on the live path it reverts to unconfigured and the send is
+ *     refused, exactly as if the column were empty.
+ *   - Nothing at all → configured for neither, on every path.
+ *
+ * THIS USED TO BE A LIVE-ONLY QUESTION, and the third case is why it is not any
+ * more. With EasyVista off, an application with no catalog demonstrated a send
+ * exactly like a configured one — so the portal had no way to show the case it
+ * actually has to handle today, which is an application the Service Desk is not
+ * wired up to at all. The admin has to raise that one by hand and come back with
+ * the number, and a Send button that cheerfully invents an incident number is the
+ * opposite of telling them so.
  */
 function easyVistaCatalogStatus(application = null) {
   const config = easyVistaConfig(application);
-  const configured = Boolean(value(config.catalogGuid).trim() || value(config.catalogCode).trim());
+  const guid = value(config.catalogGuid).trim();
+  const code = value(config.catalogCode).trim();
+  const present = Boolean(guid || code);
+  // Demo placeholders only count while nothing is being transmitted. A mix of a
+  // real value and a placeholder counts as real — the real one is what would be
+  // used.
+  const demoOnly = present && [guid, code].filter(Boolean).every(isDemoCatalogValue);
+  const configured = present && (!demoOnly || !easyVistaIsLive());
+  const named = value(application?.name).trim() || 'This application';
   return {
     configured,
+    // So a caller can tell "nothing configured" from "configured for the
+    // walkthrough only" without re-deriving the rule.
+    demoOnly,
     catalogGuid: config.catalogGuid,
     catalogCode: config.catalogCode,
-    // Surfaces to an admin as a 400 and in the preview, so it uses the display
-    // name — the module and its env vars keep the vendor's (src/constants.js).
-    // Says who can fix it, not just what is wrong. The catalog is an identifier
-    // inside the tracker, so nobody using this portal has the value — pointing an
-    // admin at a page to set it (which is what this used to do) sent them looking
-    // for something they were never going to find.
+    // Surfaces to an admin as a 400, in the preview, and now as the note under a
+    // disabled Send button — so it uses the display name; the module and its env
+    // vars keep the vendor's (src/constants.js). The environment variable is NOT
+    // named here: that would put the vendor's name in front of an admin, which is
+    // the one thing TRACKER_LABEL exists to prevent, and whoever needs the variable
+    // name is reading .env.example rather than this message.
     //
-    // The environment variable is NOT named here. It would put the vendor's name
-    // in front of an admin, which is the one thing TRACKER_LABEL exists to
-    // prevent — and whoever needs the variable name is reading .env.example, not
-    // this message.
+    // TWO DIFFERENT REASONS, because two different people fix them.
+    //
+    // Nothing configured is the ADMIN's to work around, and the message is the
+    // whole procedure rather than a diagnosis: raise it by hand, come back, put the
+    // number in, set the status. Every one of those steps already exists — the
+    // number is editable behind the unlock on this same tab, and Submitted is in the
+    // status dropdown — so naming them turns a dead end into an instruction.
+    //
+    // A demonstration catalog on a LIVE server is whoever configured the server's
+    // to fix, and it must not read as the admin's problem: there is no manual step
+    // that helps, and inventing one would send them to raise a duplicate.
     reason: configured
       ? ''
-      : `${value(application?.name).trim() || 'This application'} has no ${TRACKER_LABEL} catalog `
-        + 'configured, so a real send would post into another application\'s catalog. '
-        + `Ask the team that runs ${TRACKER_LABEL} for this application's catalog ID, and have it `
-        + 'added to the server configuration.',
+      : (demoOnly
+        ? `${named} is set up with a demonstration catalog rather than a real one, so it `
+          + `cannot be sent for real. Whoever configured this server needs ${named}'s real `
+          + `${TRACKER_LABEL} catalog ID before anything here can be handed off.`
+        : `${named} is not wired up to ${TRACKER_LABEL}, so this cannot be sent from the portal. `
+          + `Raise it in ${TRACKER_LABEL} by hand, then come back, unlock the ${TRACKER_LABEL} `
+          + 'ticket number on this tab and enter the number it gave you, and set the status to '
+          + 'Submitted.'),
   };
 }
 

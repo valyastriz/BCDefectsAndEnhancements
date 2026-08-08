@@ -112,6 +112,20 @@ function defineModels(sequelize) {
     // The application whose queue owns triage RIGHT NOW. A redirect moves this;
     // submission_routings is the ledger of who held it before.
     application_id: { type: DataTypes.INTEGER, allowNull: true },
+    // A SOFT association, and the second answer to "whose queue is this in".
+    //
+    // `application_id` above is the one that owns triage and decides who may write.
+    // This one only decides where the ticket also SHOWS UP. It exists for the one
+    // case `Other` creates: a request nobody has identified the system for yet,
+    // which an analyst starts working anyway. Moving it out of `Other` would be a
+    // claim about whose data it is that nobody can make yet; leaving it only in
+    // `Other` means it never appears in the list the analyst actually watches.
+    //
+    // Set when the status leaves `New` on a ticket in `Other`, to the queue the
+    // analyst picks. Null everywhere else, which is every ticket that already has a
+    // real application — so the second answer only exists where the first one is
+    // "unknown", and there is still exactly one answer to "who may edit this".
+    working_application_id: { type: DataTypes.INTEGER, allowNull: true },
     // What the EasyVista incident was actually raised under, snapshotted at send
     // time. Deliberately NOT derived from application_id, because a redirect
     // after the send would then silently rewrite what was transmitted. Null
@@ -247,6 +261,10 @@ function defineModels(sequelize) {
       // Both added for the scoping queries: every admin read now filters by the
       // applications the caller administers, and "my reports" filters by reporter.
       { name: 'idx_submissions_application_id', fields: ['application_id'] },
+      // The soft association is read by every admin queue query, in the same OR as
+      // application_id — an unindexed column there would make the scope filter
+      // scan, and the scope filter is on the hot path for the whole admin side.
+      { name: 'idx_submissions_working_application_id', fields: ['working_application_id'] },
       { name: 'idx_submissions_reporter_user_id', fields: ['reporter_user_id'] },
       // Both added for the throughput page: it groups by assignee and windows by
       // completion date, and neither is a column the queue ever filtered on.

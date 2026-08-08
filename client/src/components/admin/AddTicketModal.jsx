@@ -1,4 +1,5 @@
 import { Button, Modal, Notice } from '../bite-size/BitsizeUI';
+import { AddApplicationControl } from './AddApplicationControl';
 import { ScreenshotDropZone } from '../public/ScreenshotDropZone';
 import { formatCreatedViaLabel } from '../../utils/formatUtils';
 import { addTicketStatusStops } from '../../utils/formDefaults';
@@ -135,16 +136,30 @@ export function AddTicketModal({
   // Meta options
   dynamicStatuses,
   dynamicCleanupStatuses,
-  dynamicApplications,
+  // Every active application as { id, name, reportsOnly } — the viewer envelope's
+  // list, the same one the redirect picker reads. NOT the meta `applications`
+  // name array it replaced: that cannot say which of them are reports-only, so
+  // this dialog offered a reports-only queue on the defect branch and the create
+  // failed on save (helpers/applicationScope.js refuses it).
+  applicationOptions,
   dynamicEnhancementRequestTypes,
   dynamicPriorityLevels,
   runtimeCreatedViaOptions,
+  // For the "the application isn't listed" control below the picker.
+  viewer,
+  onApplicationCreated,
 }) {
   const { mode, type } = addTicketForm;
   const isCleanup = type === 'cleanup';
   const isReport = type === SUBMISSION_TYPE_REPORT;
   const branch = addTicketBranch;
   const reportBranch = addTicketReportBranch;
+  // Which applications take THIS kind of request. A reports-only application was
+  // created by a reporting analyst typing a name in; it takes report requests and
+  // nothing else, so it is offered on that branch only. Same rule as the submit
+  // form (pages/RepSubmitPage.jsx) and the same server-side control behind it.
+  const applications = (Array.isArray(applicationOptions) ? applicationOptions : [])
+    .filter((application) => isReport || !application.reportsOnly);
   const set = (key) => (event) => setAddTicketForm((prev) => ({ ...prev, [key]: event.target.value }));
   const setStop = (stop) => (event) => setAddTicketForm((prev) => ({
     ...prev,
@@ -275,8 +290,8 @@ export function AddTicketModal({
             <Field label="Application" required>
               <select value={addTicketForm.application_name} onChange={set('application_name')}>
                 <option value="">Select one</option>
-                {dynamicApplications.map((application) => (
-                  <option key={application} value={application}>{application}</option>
+                {applications.map((application) => (
+                  <option key={application.id} value={application.name}>{application.name}</option>
                 ))}
               </select>
             </Field>
@@ -294,6 +309,28 @@ export function AddTicketModal({
                 ))}
               </select>
             </Field>
+          </div>
+
+          {/* Directly under the picker it extends, and on the report branch only:
+              what this creates takes report requests and nothing else, so offering
+              it while adding a defect would build a queue the defect could not
+              then be filed into.
+
+              Outside the Field above rather than inside it, because a <button>
+              inside a <label> is activated by clicking the label — the picker and
+              this control would fight over the same click. */}
+          <div className="at-only-report">
+            <AddApplicationControl
+              viewer={viewer}
+              disabled={addTicketWorking}
+              hint="It becomes an application report requests can be filed against, and is shared with everybody who works them. Report requests only."
+              onCreated={async ({ name }) => {
+                // Re-read first, THEN select: the option has to exist before the
+                // picker is pointed at it, or it renders blank.
+                if (onApplicationCreated) await onApplicationCreated();
+                setAddTicketForm((prev) => ({ ...prev, application_name: name }));
+              }}
+            />
           </div>
 
           <div className="at-row at-row--2 at-only-hist">

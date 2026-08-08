@@ -306,6 +306,18 @@ function canReadSubmissionRow(scope, row) {
   if (scope.unrestricted) return true;
   const applicationId = Number(row?.application_id);
   if (isApplicationId(applicationId) && scope.applicationIds.includes(applicationId)) return true;
+  // The soft association. A ticket in `Other` that an analyst chose to work shows
+  // up in the queue they picked as well as in `Other` — that is the whole feature.
+  //
+  // READ ONLY, and deliberately not mirrored in `canMutateApplication`: this is a
+  // second answer to "whose queue does this appear in", never a second answer to
+  // "who may change it". Writing still follows `application_id` alone, so the
+  // widening cannot hand anybody edit rights they were not granted, and the
+  // analyst who set it holds `Other` already.
+  const workingApplicationId = Number(row?.working_application_id);
+  if (isApplicationId(workingApplicationId) && scope.applicationIds.includes(workingApplicationId)) {
+    return true;
+  }
   return scope.submissionIds.has(Number(row?.id));
 }
 

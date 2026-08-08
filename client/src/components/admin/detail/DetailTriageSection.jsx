@@ -1,6 +1,6 @@
 import { Input, Select, Textarea } from '../../bite-size/BitsizeUI';
 import { DetailGroup } from './DetailPane';
-import { CLEANUP_ONLY_STATUS, STATUS_TO_CLEANUP } from '../../../constants/adminConstants';
+import { CLEANUP_ONLY_STATUS, STATUS_TO_CLEANUP, UNKNOWN_APPLICATION } from '../../../constants/adminConstants';
 import { SUBMISSION_TYPE_REPORT, statusesForRequestType } from '../../../constants/statusConstants';
 import { formatMetaTypeLabel } from '../../../utils/formatUtils';
 
@@ -21,8 +21,31 @@ export function DetailTriageSection({
   dynamicCleanupStatuses,
   dynamicCleanupTagTypes,
   runtimeStatusOptions,
+  // The viewer envelope, for the soft association below: which queues this admin
+  // may show a ticket in, and whether this ticket is in the unknown-system queue.
+  viewer,
 }) {
   const isReport = String(edit.type || '').trim().toLowerCase() === SUBMISSION_TYPE_REPORT;
+
+  // `Other` is the queue for a request whose system nobody has worked out yet, and
+  // it is the only place a second "whose queue" answer means anything.
+  const isUnknownQueue = String(edit.application_name || '').trim() === UNKNOWN_APPLICATION;
+
+  // The queues this admin actually works in, minus the one the ticket is already
+  // in. Offering more would only produce a 403 from the server, which is the real
+  // control — it refuses a queue the caller does not work in, so a soft assign can
+  // never put work on another team's list.
+  //
+  // A reports-only application is dropped for anything that is not a report
+  // request, the same rule the submit form and the redirect picker follow: it takes
+  // report requests and nothing else, so showing a defect there would be a list
+  // entry nobody in that queue can act on — and the server refuses it anyway.
+  const myQueues = (Array.isArray(viewer?.applications) ? viewer.applications : [])
+    .filter((application) => String(application.name).trim() !== UNKNOWN_APPLICATION)
+    .filter((application) => isReport || !application.reportsOnly)
+    .filter((application) => viewer?.isSuperUser
+      || (Array.isArray(viewer?.adminApplicationIds)
+        && viewer.adminApplicationIds.map(Number).includes(Number(application.id))));
 
   return (
     <div className="dm-groups">
@@ -136,6 +159,45 @@ export function DetailTriageSection({
       </DetailGroup>
 
       <DetailGroup label="Ownership & tracking">
+        {/* The soft association, offered ONLY on a ticket in `Other`. Everywhere
+            else the application field already answers "whose queue is this", and a
+            second answer there would be an ambiguity rather than a useful one.
+
+            `Other` is the catch-all working list — where a request goes when there
+            is no configured application to submit it to the Service Desk directly,
+            and the work still has to be tracked. The ticket does NOT move: moving
+            it into a configured application would say the system IS one of those,
+            and the portal would then offer a hand-off that cannot work. It just
+            also appears in the list of whoever is working it.
+
+            The queues offered are the ones this admin works in — the server refuses
+            any other, so nobody can put work on another team's list. */}
+        {isUnknownQueue && (
+          <>
+            <Select
+              label="Also show it in"
+              value={edit.working_application_id ? String(edit.working_application_id) : ''}
+              onChange={(e) => setEdit((p) => ({
+                ...p,
+                // '' is a real instruction — take it off my list — so it is sent
+                // as null rather than dropped.
+                working_application_id: e.target.value ? Number(e.target.value) : null,
+              }))}
+            >
+              <option value="">Nowhere else — just {edit.application_name || 'Other'}</option>
+              {myQueues.map((application) => (
+                <option key={application.id} value={String(application.id)}>{application.name}</option>
+              ))}
+            </Select>
+            <p className="bs-field-hint">
+              It stays in {edit.application_name || 'Other'} — where work is tracked for systems
+              the Service Desk is not wired up to, and for ones not identified yet. This only
+              adds it to a queue you watch. Moving the status off <b>New</b> sets it for you
+              when you work in exactly one.
+            </p>
+          </>
+        )}
+
         {/* Left blank, the server fills this with whoever saves — see
             reviewerForSave. The placeholder says so rather than the field being
             pre-filled here, which would mark every ticket edited on open. */}

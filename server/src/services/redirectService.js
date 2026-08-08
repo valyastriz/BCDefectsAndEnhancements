@@ -20,6 +20,7 @@
 //      work, so it never reaches the reporter — see mapPublicRouting.
 const { canMutateApplication } = require('./viewerService');
 const { logStatusChange } = require('./submissionService');
+const { refuseTypeForApplication } = require('../helpers/applicationScope');
 const { getLookupIdByName, getSubmissionTypeNameById } = require('../helpers/lookups');
 
 const HANDOFF_STATUS = 'New';
@@ -76,14 +77,12 @@ async function redirectSubmission(db, {
     return { error: 'Submission not found', status: 404 };
   }
 
+  const requestType = await getSubmissionTypeNameById(submission.type_id);
+
   // You may only hand on a ticket you currently administer, of a type your grant
   // covers. A viewer seat, an admin of the RECEIVING application, or an analyst
   // scoped to a different request type cannot pull a ticket across.
-  if (!canMutateApplication(
-    viewer,
-    submission.application_id,
-    await getSubmissionTypeNameById(submission.type_id),
-  )) {
+  if (!canMutateApplication(viewer, submission.application_id, requestType)) {
     return { error: 'You do not administer this application', status: 403 };
   }
 
@@ -106,6 +105,18 @@ async function redirectSubmission(db, {
   if (!target) {
     return { error: 'Unknown or inactive application', status: 400 };
   }
+
+  // A redirect is the FIFTH path that sets `submissions.application_id` — the
+  // public submit, the admin create, the admin update and the Excel import were
+  // the four `helpers/applicationScope.js` was written for, and this one was
+  // missed. It is the same rule and the same consequence: a reports-only
+  // application is granted to the people who work report requests and to nobody
+  // else, so a DEFECT redirected into it lands in a queue with no defect admins.
+  // Fail-closed read scoping makes that invisible rather than merely unassigned —
+  // the exact failure `Other` exists to avoid — and the sending team has already
+  // lost write access by then, so nobody can move it back.
+  const wrongQueue = await refuseTypeForApplication(targetId, requestType, target.name);
+  if (wrongQueue) return wrongQueue;
 
   const trimmedNote = String(note || '').trim();
   if (trimmedNote.length > NOTE_MAX_LENGTH) {

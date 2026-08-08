@@ -15,6 +15,10 @@ export function editableFromDetail(detail) {
     // No invented fallback: every ticket has an application, and a wrong guess
     // here would silently retarget the ticket on the next save.
     application_name: detail.application_name || '',
+    // The soft association — the queue an `Other` ticket ALSO appears in. Null and
+    // not '', because it is an application id and "nowhere else" is the absence of
+    // one; '' would be sent as a number on save and land as 0.
+    working_application_id: detail.working_application_id ?? null,
     // ── The analyst's half of a report request ──────────────────────────────
     // Null, not '', for the assignee: it is a user id and "nobody" is null.
     assigned_to: detail.assigned_to ?? null,

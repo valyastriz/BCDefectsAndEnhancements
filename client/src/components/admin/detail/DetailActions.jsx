@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Button, Modal, Notice } from '../../bite-size/BitsizeUI';
+import { AddApplicationControl } from '../AddApplicationControl';
 import { AdminMenu, AdminMenuItem } from '../AdminHeader';
 import { SaveWithTooltip } from './SaveWithTooltip';
 import { buildRespondToUserMailto } from '../../../utils/formatUtils';
@@ -33,6 +34,13 @@ export function DetailActions({
   unretireCurrentItem,
   redirectCurrentItem,
   redirectTargets = [],
+  // The redirect dialog's "the application isn't listed" control. This is the
+  // triage action for "this belongs somewhere else", and it is where an analyst
+  // realises an `Other` report request is really Marketing Analytics' — so it is
+  // the second place the portal has to let them say so.
+  viewer,
+  onApplicationCreated,
+  canAddApplication = false,
   modalBottomNotice,
   easyVistaConfirmation,
   locked,
@@ -40,6 +48,11 @@ export function DetailActions({
   sendsDirectly,
   // Withheld for a report request, which is finished here and never handed on.
   hidesHandoff = false,
+  // Why the hand-off cannot happen, or '' when it can. The server's own words —
+  // `easyvista_catalog.reason` off the detail response, which is the same
+  // `easyVistaCatalogStatus` call the send itself makes, so a greyed-out button and
+  // a refused POST always agree.
+  handoffBlockedReason = '',
   onEasyVista,
 }) {
   const [confirmRetire, setConfirmRetire] = useState(false);
@@ -92,11 +105,18 @@ export function DetailActions({
         {/* Withheld entirely for a report request: an analyst finishes it here
             and it never goes downstream, so the button would either always fail
             or — worse — succeed. A permanently disabled control is furniture. */}
+        {/* Disabled rather than enabled-and-failing when the application is not
+            wired up to the Service Desk. The reason is stated below the row, not
+            in a hover tooltip: it is three clauses long and tells the admin what
+            to do instead, and a tooltip is both unreachable by touch and gone
+            the moment you move the mouse to act on it. `title` as well, for the
+            keyboard and for hover. */}
         {!hidesHandoff && (
           <Button
             kind="secondary"
             onClick={onEasyVista}
-            disabled={working || locked}
+            disabled={working || locked || Boolean(handoffBlockedReason)}
+            title={handoffBlockedReason || undefined}
           >
             {detail.easyvista_ticket_id
               ? `Re-submit to ${TRACKER_LABEL_THE}…`
@@ -141,6 +161,13 @@ export function DetailActions({
         </AdminMenu>
       </div>
 
+      {/* Its own line under the actions, so the whole instruction is readable
+          without hovering anything. Wraps rather than truncating: the sentence
+          that matters is the last one, which says to come back with the number. */}
+      {!hidesHandoff && handoffBlockedReason && (
+        <p className="dm-foot-blocked">{handoffBlockedReason}</p>
+      )}
+
       {/* A hand-off, not a copy: the ticket leaves this queue for good. The
           dialog says so plainly, because it is not undoable from here — only the
           receiving team (or a super user) can send it back. */}
@@ -172,6 +199,25 @@ export function DetailActions({
               ))}
             </select>
           </label>
+
+          {/* Report requests only — what this creates takes nothing else, so a
+              defect could not be sent to it even by the person who just made it.
+              Outside the <label> above: a button inside one is activated by
+              clicking the label. */}
+          {canAddApplication && (
+            <AddApplicationControl
+              viewer={viewer}
+              disabled={working}
+              hint="It becomes a queue report requests can be sent to, shared with everybody who works them. Report requests only."
+              onCreated={async ({ id }) => {
+                // Re-read first, THEN select: `confirmRedirect` looks the id up in
+                // `redirectTargets`, so selecting before the list arrives would
+                // make Redirect do nothing at all.
+                if (onApplicationCreated) await onApplicationCreated();
+                if (id) setRedirectTo(String(id));
+              }}
+            />
+          )}
 
           <label className="bs-field">
             <span>Note for the receiving admin (optional)</span>

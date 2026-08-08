@@ -42,6 +42,48 @@ if (SHOTS) mkdirSync(SHOTS, { recursive: true });
 const DELIVERY_MARKER = 'VERIFY delivery pane';
 const SERVER_DIR = path.resolve(fileURLToPath(new URL('../../server', import.meta.url)));
 
+// The application the "it isn't listed" control creates. DETERMINISTIC rather than
+// unique-per-run on purpose: there is no DELETE endpoint for an application, so if
+// a run is killed between the create and the cleanup the row survives — and a
+// deterministic name means the next run can clear it before creating, instead of
+// colliding with its own litter and reporting a duplicate refusal as a failure.
+//
+// The VERIFY prefix is what removeVerificationApplications.js refuses to work
+// without, so this can never point at a real queue.
+const CREATED_APPLICATION = 'VERIFY Reports Only Queue';
+// Three tickets: a defect in a wired application, a defect in an unwired one, and a
+// report request. They carry the redirect-target and hand-off-affordance checks.
+const HANDOFF_MARKER = 'VERIFY handoff and redirect';
+
+let createdApplicationId = null;
+// The two hand-off fixtures (one wired application, one not), removed with the rest.
+const handoffFixtureIds = [];
+
+/**
+ * Take the fixture application back out, and say what happened.
+ *
+ * Idempotent — the script reports "not present, nothing to do" — so it is safe both
+ * as the normal cleanup and as the safety net after a crash. It also refuses an
+ * application any submission points at, so it cannot orphan a ticket.
+ */
+function runServerScript(argv, { quiet = false } = {}) {
+  let output;
+  try {
+    output = execFileSync(process.execPath, argv, { cwd: SERVER_DIR, encoding: 'utf8' });
+  } catch (error) {
+    output = String(error?.stdout || '') + String(error?.stderr || error?.message || '');
+  }
+  if (!quiet) console.log(output.trim().split('\n').map((line) => `      ${line}`).join('\n'));
+  return output;
+}
+
+function removeCreatedApplication(options = {}) {
+  return runServerScript(
+    ['scripts/removeVerificationApplications.js', CREATED_APPLICATION, '--apply'],
+    options,
+  );
+}
+
 const VIEWPORTS = [
   { name: 'desktop', width: 1500, height: 950 },
   { name: 'tablet', width: 820, height: 1100 },
@@ -77,6 +119,101 @@ async function shoot(page, label) {
   await page.screenshot({ path: `${SHOTS}/${label}.png`, fullPage: false });
 }
 
+/** The double-submit CSRF token, read from the cookie the way lib/api.js does. */
+async function csrfToken(page) {
+  return page.evaluate(() => (
+    document.cookie.split('; ').find((part) => part.startsWith('bc_csrf='))?.split('=')[1] || ''
+  ));
+}
+
+/**
+ * Open one specific ticket by searching for its marker.
+ *
+ * Deliberately NOT "click the first row" or "find #id in the table": the queue is
+ * sorted by last update and paginated, so both depend on what else the shared
+ * database happens to hold. Searching narrows it to one row whatever the data.
+ *
+ * Waits for the list RESPONSE carrying the search term, then for the row, then for
+ * the modal — never for a fixed sleep. Returns false if the search found nothing,
+ * so a caller records a real reason instead of timing out on a click.
+ */
+async function openBySearch(page, term, id) {
+  await page.goto(`${BASE}/admin`, { waitUntil: 'networkidle' });
+  await page.waitForSelector('.admin-search input', { timeout: 15000 });
+
+  // TWO narrowings have to be widened first, and both are saved per admin rather
+  // than being properties of the page — so what this script sees depends on what
+  // the account last looked at, which is not something a check may depend on.
+  //
+  //   1. The KIND switch opens on "Defects & enhancements". A report request is a
+  //      different kind, done by different people, and is not in that list at all.
+  //   2. The application SCOPE opens on whatever this admin PINNED. With Billing
+  //      Center pinned, a ticket in `Other` is simply not in the queue — which is
+  //      the queue working correctly, and reads exactly like a broken selector.
+  const allKinds = await page.$('.bs-seg button:text-is("All kinds")');
+  if (allKinds) {
+    await allKinds.click();
+    await page.waitForResponse((res) => res.url().includes('/api/admin/submissions')
+      && res.status() === 200, { timeout: 15000 }).catch(() => null);
+  }
+  // '' is "All applications". Set explicitly rather than assumed — this is a look,
+  // not a pin, so it changes nothing about where the admin lands tomorrow.
+  const scope = await page.$('.admin-scope-select');
+  if (scope) {
+    await scope.selectOption('');
+    await page.waitForResponse((res) => res.url().includes('/api/admin/submissions')
+      && res.status() === 200, { timeout: 15000 }).catch(() => null);
+  }
+
+  await page.fill('.admin-search input', term);
+
+  // Wait for THE ROW, not for the response. The search is debounced and the table
+  // re-renders when it lands, so a response-then-$() sequence grabs an element
+  // handle that is detached a moment later — "Element is not attached to the DOM",
+  // which reads exactly like a broken selector. A locator re-resolves on every
+  // action, so it survives the re-render.
+  //
+  // Matched on the ticket id rather than "the first row": the empty state renders a
+  // row of its own, so "a row exists" is not "the ticket was found".
+  const row = page.locator('.admin-submissions-table tbody tr', { hasText: String(id) }).first();
+  try {
+    await row.waitFor({ state: 'visible', timeout: 15000 });
+  } catch {
+    return false;
+  }
+
+  // Wait for THIS ticket's detail response, not merely for the modal. The footer
+  // renders as soon as the modal opens, with whatever `detail` currently holds — so
+  // reading the hand-off button before this lands reports the previous ticket's
+  // answer, or none at all. It also proves the row that opened is the right one.
+  const [detailResponse] = await Promise.all([
+    page.waitForResponse((res) => new RegExp(`/api/admin/submissions/${id}(\\?|$)`).test(res.url())
+      && res.status() === 200, { timeout: 15000 }).catch(() => null),
+    row.locator('td').nth(1).click(),
+  ]);
+  if (!detailResponse) return false;
+  await page.waitForSelector('.dm-modal', { timeout: 15000 });
+  await page.waitForSelector('.dm-foot-actions', { timeout: 15000 });
+  return true;
+}
+
+/**
+ * Put the queue back the way this run found it.
+ *
+ * `openBySearch` widens the kind switch, widens the application scope and types in
+ * the search box — and all three are persisted to `bc.admin.filters` in
+ * localStorage, so they SURVIVE a page load. The sections that run afterwards were
+ * written against a queue nobody had touched, and the Delivery-pane section timed
+ * out looking for a ticket the leftover search had filtered away.
+ *
+ * The context is fresh per run, so "as found" is simply no stored filters at all.
+ */
+async function resetQueueView(page) {
+  await page.evaluate(() => window.localStorage.removeItem('bc.admin.filters'));
+  await page.goto(`${BASE}/admin`, { waitUntil: 'networkidle' });
+  await page.waitForSelector('.admin-submissions-table tbody tr', { timeout: 15000 }).catch(() => {});
+}
+
 /** Count the dialog's visible labelled fields and its visible inputs. */
 async function countVisible(page) {
   return page.evaluate(() => {
@@ -99,10 +236,20 @@ async function run() {
   const page = await context.newPage();
   const consoleErrors = [];
   page.on('console', (message) => {
-    if (message.type() === 'error') consoleErrors.push(message.text());
+    // The URL as well as the text. A failed-resource console error says only
+    // "the server responded with a status of 409" — which endpoint it was is in
+    // the location, and without it the filter below cannot tell a refusal this
+    // script deliberately provokes from a real one.
+    if (message.type() === 'error') {
+      consoleErrors.push(`${message.text()} @ ${message.location()?.url || 'unknown'}`);
+    }
   });
 
   await openAdmin(page);
+
+  // Clear any fixture application a previous killed run left behind, so the create
+  // below is a create and not a collision with our own litter.
+  removeCreatedApplication({ quiet: true });
 
   // ── The export dialog against the server's own field list ────────────────
   const serverFields = await page.request.get(`${API}/api/admin/submissions/export-fields`)
@@ -310,7 +457,112 @@ async function run() {
     reportStatuses.stops.join(' · '),
   );
 
+  // ── "The application isn't listed" — an analyst adding one ────────────────
+  // The half of the seventeenth pass's feature that had no UI: the endpoint
+  // existed and was tested, and nothing called it.
+  //
+  // IT WRITES an application, and there is no DELETE endpoint for one — so the
+  // fixture comes out through server/scripts/removeVerificationApplications.js in
+  // the `finally` below, and the count is printed. The name carries the VERIFY
+  // marker that script refuses to work without.
+  await page.click('.at-modes .at-seg button:has-text("New ticket")');
+  await page.click('.at-grouprow .at-seg button:text-is("Defect")');
+  const controlOnDefect = await page.isVisible('.at-body .aac');
+  await page.click('.at-grouprow .at-seg button:text-is("Report request")');
+  const controlOnReport = await page.isVisible('.at-body .aac');
+  record(
+    'adding an application is offered on the report branch and nowhere else',
+    controlOnReport === true && controlOnDefect === false,
+    `report=${controlOnReport} defect=${controlOnDefect} — what it creates takes report requests only`,
+  );
+
+  await page.click('.at-body .aac-toggle');
+  await page.waitForSelector('.at-body .aac--open input');
+  await page.fill('.at-body .aac--open input', CREATED_APPLICATION);
+  // Wait for the RESPONSE, not for a sleep: a fixed wait here passes while the
+  // request is still in flight and then reads the picker before it has the option.
+  const [createResponse] = await Promise.all([
+    page.waitForResponse((response) => response.url().includes('/api/admin/applications')
+      && response.request().method() === 'POST'),
+    page.click('.at-body .aac--open .bs-btn-secondary'),
+  ]);
+  const createStatus = createResponse.status();
+  const createBody = await createResponse.json().catch(() => null);
+  createdApplicationId = createBody?.id ?? null;
+  record(
+    'typing a name in creates it, and says who it was shared with',
+    createStatus === 201 && createBody?.reportsOnly === true && Number(createBody?.grantedTo) > 0,
+    `HTTP ${createStatus} · ${JSON.stringify(createBody)}`,
+  );
+
+  // The picker that just created it has to be re-read, or the new value is not in
+  // it — the whole reason `onCreated` is awaited.
+  await page.waitForSelector('.at-body .aac-added');
+  const afterCreate = await page.evaluate((name) => {
+    const select = [...document.querySelectorAll('.at-body select')]
+      .find((node) => node.closest('.at-f')?.textContent?.includes('Application'));
+    return {
+      offered: select ? [...select.options].map((option) => option.value).includes(name) : false,
+      selected: select?.value || '',
+      note: document.querySelector('.at-body .aac-added')?.textContent?.replace(/\s+/g, ' ').trim() || '',
+    };
+  }, CREATED_APPLICATION);
+  record(
+    'and it appears in the picker that created it, already selected',
+    afterCreate.offered === true && afterCreate.selected === CREATED_APPLICATION,
+    `offered=${afterCreate.offered} selected="${afterCreate.selected}"`,
+  );
+  record(
+    'the confirmation says what it is, not just that it worked',
+    /report requests only/i.test(afterCreate.note) && /shared with/i.test(afterCreate.note),
+    afterCreate.note.slice(0, 140),
+  );
+
+  // The reason it is offered on one branch only: it takes nothing else. Switching
+  // to a defect must withdraw it AND move the selection off it, or the picker
+  // points at an option it is no longer rendering and draws blank.
+  await page.click('.at-grouprow .at-seg button:text-is("Defect")');
+  const afterSwitch = await page.evaluate((name) => {
+    const select = [...document.querySelectorAll('.at-body select')]
+      .find((node) => node.closest('.at-f')?.textContent?.includes('Application'));
+    return {
+      offered: select ? [...select.options].map((option) => option.value).includes(name) : false,
+      selected: select?.value || '',
+    };
+  }, CREATED_APPLICATION);
+  record(
+    'a reports-only application is not offered for a defect, and is dropped if it was chosen',
+    afterSwitch.offered === false && afterSwitch.selected !== CREATED_APPLICATION && afterSwitch.selected !== '',
+    `offered=${afterSwitch.offered} selection moved to "${afterSwitch.selected}"`,
+  );
+
+  // The refusal path, in the server's own words. It distinguishes a name already in
+  // the list from one that exists but is switched OFF, so the message is kept
+  // verbatim rather than rewritten — and what was typed stays in the box.
+  await page.click('.at-grouprow .at-seg button:text-is("Report request")');
+  await page.click('.at-body .aac-toggle');
+  await page.waitForSelector('.at-body .aac--open input');
+  await page.fill('.at-body .aac--open input', CREATED_APPLICATION.toLowerCase());
+  const [dupeResponse] = await Promise.all([
+    page.waitForResponse((response) => response.url().includes('/api/admin/applications')
+      && response.request().method() === 'POST'),
+    page.click('.at-body .aac--open .bs-btn-secondary'),
+  ]);
+  await page.waitForSelector('.at-body .aac--open .bs-notice');
+  const dupe = await page.evaluate(() => ({
+    message: document.querySelector('.aac--open .bs-notice')?.textContent?.trim() || '',
+    kept: document.querySelector('.aac--open input')?.value || '',
+  }));
+  record(
+    'a duplicate is refused case-insensitively, says why, and keeps what was typed',
+    dupeResponse.status() === 409
+      && /already in the list/i.test(dupe.message)
+      && dupe.kept === CREATED_APPLICATION.toLowerCase(),
+    `HTTP ${dupeResponse.status()} · "${dupe.message}" · box holds "${dupe.kept}"`,
+  );
+
   // Reset to the plain new/defect shape for the responsive pass.
+  await page.click('.at-body .aac--open .bs-btn-ghost');
   await page.click('.at-modes .at-seg button:has-text("New ticket")');
   await page.click('.at-grouprow .at-seg button:text-is("Defect")');
 
@@ -517,6 +769,366 @@ async function run() {
   await page.setViewportSize(VIEWPORTS[0]);
   await page.keyboard.press('Escape');
   await page.waitForTimeout(200);
+
+  // ── Redirect targets per type, and the hand-off affordance ────────────────
+  // Three rules meet here, and each was a hole before this pass:
+  //
+  //   1. A reports-only application must not be a redirect target for a defect. A
+  //      redirect is the FIFTH path that sets `application_id`, and it was the one
+  //      `helpers/applicationScope.js` did not cover — so a defect could be moved
+  //      into a queue granted only to report workers, where no defect admin can
+  //      see it. Invisible, not merely unassigned.
+  //   2. Adding an application is offered in the redirect dialog too, because that
+  //      is the triage action for "this belongs somewhere else" — but for a report
+  //      request only, since nothing else could be sent to what it creates.
+  //   3. An application the Service Desk is not wired up to shows the Send greyed
+  //      out with the reason, instead of enabled and failing on click.
+  //
+  // ASKED OF THIS RUN'S OWN FIXTURES rather than of whatever happens to be at the
+  // top of the queue, and each is opened by SEARCHING for its marker — so the check
+  // does not depend on sort order, on the page size, or on what the seeded data
+  // happens to contain today. All three come out again in the `finally` below.
+  const fixtureSpecs = [
+    {
+      key: 'defect-billing',
+      label: 'a defect in Billing Center',
+      type: 'defect',
+      application: 'Billing Center',
+      // Billing Center carries a DEMO- catalog on this database, so it must keep
+      // pretend-sending end to end. Asserting only the greyed half would let the
+      // change that breaks the walkthrough through.
+      expectBlocked: false,
+      expectReportsOnlyTarget: false,
+    },
+    {
+      key: 'defect-other',
+      label: 'a defect in Other',
+      type: 'defect',
+      application: 'Other',
+      expectBlocked: true,
+      expectReportsOnlyTarget: false,
+    },
+    {
+      key: 'report-other',
+      label: 'a report request in Other',
+      type: 'report',
+      application: 'Other',
+      // Never asked: a report request is finished by the analyst and the button is
+      // withheld entirely (hidesHandoff).
+      expectBlocked: null,
+      expectReportsOnlyTarget: true,
+    },
+  ];
+
+  for (const spec of fixtureSpecs) {
+    const summary = `${HANDOFF_MARKER} ${spec.key}`;
+    const created = await page.request.post(`${API}/api/admin/submissions`, {
+      data: {
+        type: spec.type,
+        created_by: 'Verification Script',
+        created_by_email: '-',
+        application_name: spec.application,
+        summary_of_issue: summary,
+        what_happened_exact_details: 'Checking redirect targets and the hand-off affordance.',
+        request: '-',
+        screen_title: '-',
+        steps_to_reproduce: '-',
+        date_time_of_error: '-',
+        status: 'New',
+        ...(spec.type === 'report' ? { is_new_dashboard: true } : {}),
+      },
+      headers: { 'X-CSRF-Token': await csrfToken(page) },
+    });
+    const row = await created.json().catch(() => null);
+    if (!created.ok() || !row?.id) {
+      record(`fixtures exist for ${spec.label}`, false,
+        `HTTP ${created.status()} — ${JSON.stringify(row).slice(0, 160)}`);
+      continue;
+    }
+    handoffFixtureIds.push(String(row.id));
+    spec.id = row.id;
+  }
+
+  for (const spec of fixtureSpecs) {
+    if (!spec.id) continue;
+
+    // The detail response first: it is where the button's reason comes from, so a
+    // wrong answer here is a different fault from a wrong-looking button.
+    const detail = await page.request.get(`${API}/api/admin/submissions/${spec.id}`)
+      .then((response) => response.json());
+    if (spec.expectBlocked === null) {
+      record(
+        `a report request carries no hand-off verdict at all — ${spec.label}`,
+        detail.easyvista_catalog === null,
+        `easyvista_catalog=${JSON.stringify(detail.easyvista_catalog)} — it is never handed on`,
+      );
+    } else {
+      record(
+        `the detail response says whether ${spec.label} can be sent to`,
+        Boolean(detail.easyvista_catalog)
+          && detail.easyvista_catalog.configured === !spec.expectBlocked,
+        `configured=${detail.easyvista_catalog?.configured} `
+          + `demoOnly=${detail.easyvista_catalog?.demoOnly} (expected configured=${!spec.expectBlocked})`,
+      );
+    }
+
+    if (!(await openBySearch(page, `${HANDOFF_MARKER} ${spec.key}`, spec.id))) {
+      record(`the queue can open ${spec.label}`, false,
+        `searching for "${HANDOFF_MARKER} ${spec.key}" did not open #${spec.id}`);
+      continue;
+    }
+
+    // ── The hand-off button ────────────────────────────────────────────────
+    const button = await page.evaluate(() => {
+      const send = [...document.querySelectorAll('.dm-foot-actions button')]
+        .find((node) => /Submit to|Re-submit to/.test(node.textContent));
+      return {
+        present: Boolean(send),
+        disabled: send ? send.disabled : null,
+        title: send?.getAttribute('title') || '',
+        note: document.querySelector('.dm-foot-blocked')?.textContent?.replace(/\s+/g, ' ').trim() || '',
+      };
+    });
+    if (spec.expectBlocked === null) {
+      record(
+        `no hand-off button is offered for ${spec.label}`,
+        button.present === false && button.note === '',
+        `button present=${button.present}, note="${button.note}"`,
+      );
+    } else {
+      record(
+        `the hand-off button reflects the catalog for ${spec.label}`,
+        button.present && button.disabled === spec.expectBlocked,
+        `disabled=${button.disabled} expected=${spec.expectBlocked}`,
+      );
+      if (spec.expectBlocked) {
+        // The note has to carry the whole procedure, because every step of it
+        // already exists — the number is editable behind the unlock on this tab,
+        // and Submitted is in the status dropdown. A note that only diagnosed the
+        // problem would leave the admin at a dead end.
+        record(
+          'and the note says to raise it by hand and come back with the number',
+          /by hand/i.test(button.note)
+            && /number/i.test(button.note)
+            && /Submitted/.test(button.note)
+            && button.title === button.note,
+          button.note.slice(0, 200),
+        );
+      } else {
+        record(
+          'and a walkthrough application is left able to send, with no note',
+          button.note === '' && button.title === '',
+          `note="${button.note}" title="${button.title}"`,
+        );
+      }
+    }
+
+    // ── The redirect dialog's targets ──────────────────────────────────────
+    await page.click('.dm-foot button[aria-label="More actions"]');
+    const item = await page.$('button[role="menuitem"]:has-text("Redirect")');
+    if (!item) {
+      record(`the redirect dialog offers the right targets for ${spec.label}`, false,
+        'Not run: nowhere to redirect to');
+    } else {
+      await item.click();
+      await page.waitForSelector('.bs-modal:not(.dm-modal) select');
+      const dialog = await page.evaluate((name) => {
+        const modal = [...document.querySelectorAll('.bs-modal:not(.dm-modal)')].pop();
+        const select = modal?.querySelector('select');
+        const options = select ? [...select.options].map((option) => option.textContent.trim()) : [];
+        return {
+          options,
+          offersCreate: Boolean(modal?.querySelector('.aac')),
+          offersReportsOnly: options.includes(name),
+        };
+      }, CREATED_APPLICATION);
+      record(
+        `the redirect dialog offers the right targets for ${spec.label}`,
+        dialog.offersReportsOnly === spec.expectReportsOnlyTarget,
+        `reports-only target offered=${dialog.offersReportsOnly} `
+          + `(expected ${spec.expectReportsOnlyTarget}) · ${dialog.options.join(' / ')}`,
+      );
+      record(
+        `and offers adding an application for ${spec.label}`,
+        dialog.offersCreate === spec.expectReportsOnlyTarget,
+        `control present=${dialog.offersCreate}, expected ${spec.expectReportsOnlyTarget}`,
+      );
+      await page.keyboard.press('Escape');
+    }
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(150);
+  }
+
+  // The endpoint is the control; the hidden option is only the courtesy. Asked
+  // directly, because this is the half that actually refuses — and it is a path
+  // `applicationScope` did not cover until this pass.
+  const defectFixture = fixtureSpecs.find((spec) => spec.key === 'defect-billing');
+  if (defectFixture?.id && createdApplicationId) {
+    const refused = await page.request.post(
+      `${API}/api/admin/submissions/${defectFixture.id}/redirect`,
+      {
+        data: { toApplicationId: createdApplicationId },
+        headers: { 'X-CSRF-Token': await csrfToken(page) },
+      },
+    );
+    const body = await refused.json().catch(() => ({}));
+    record(
+      'redirecting a defect into a reports-only queue is refused by the endpoint',
+      refused.status() === 400 && /report requests only/i.test(String(body.error || '')),
+      `HTTP ${refused.status()} · ${String(body.error || '').slice(0, 120)}`,
+    );
+    // And it did not move. A refusal that returned 400 after writing would be worse
+    // than one that let it through, because nothing would say so.
+    const after = await page.request.get(`${API}/api/admin/submissions/${defectFixture.id}`)
+      .then((response) => response.json());
+    record(
+      'and the refusal wrote nothing — the ticket is still in its own queue',
+      after.application_name === 'Billing Center',
+      `application_name=${after.application_name}`,
+    );
+  }
+
+  // ── The soft association: an `Other` ticket appearing in a real queue ─────
+  // `Other` means "nobody has worked out whose system this is yet". An analyst who
+  // picks one up could either move it out — a claim about whose data it is that
+  // nobody can make yet — or leave it where they never see it again. This is the
+  // third option, and it is the only place in the portal where two columns answer
+  // "whose queue is this".
+  //
+  // What is checked here is the part the unit tests cannot see: that the control
+  // appears on exactly the tickets it should, that the choice survives a save, and
+  // that the ticket then shows up in BOTH queues.
+  const softFixture = fixtureSpecs.find((spec) => spec.key === 'report-other');
+  const wiredFixture = fixtureSpecs.find((spec) => spec.key === 'defect-billing');
+
+  const openTriage = async (spec) => {
+    if (!(await openBySearch(page, `${HANDOFF_MARKER} ${spec.key}`, spec.id))) return false;
+    await page.click('.dm-tab:has-text("Triage")');
+    await page.waitForSelector('.dm-groups', { timeout: 15000 });
+    return true;
+  };
+
+  // Read the label rather than an nth-of-type: the Triage tab has several selects,
+  // and their order is exactly the kind of thing a layout change moves.
+  const readSoftControl = () => page.evaluate(() => {
+    const field = [...document.querySelectorAll('.dm-groups .bs-field')]
+      .find((node) => node.textContent.includes('Also show it in'));
+    const select = field?.querySelector('select');
+    return {
+      present: Boolean(select),
+      value: select?.value ?? null,
+      options: select ? [...select.options].map((option) => ({
+        value: option.value,
+        label: option.textContent.trim(),
+      })) : [],
+    };
+  });
+
+  if (wiredFixture?.id && await openTriage(wiredFixture)) {
+    const control = await readSoftControl();
+    record(
+      'a ticket in a real application is not offered a second queue',
+      control.present === false,
+      'Billing Center already answers "whose queue is this" — a second answer there '
+        + `would be an ambiguity. present=${control.present}`,
+    );
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(150);
+  }
+
+  const defectInOther = fixtureSpecs.find((spec) => spec.key === 'defect-other');
+  if (defectInOther?.id && await openTriage(defectInOther)) {
+    const control = await readSoftControl();
+    record(
+      'a DEFECT in Other is not offered a reports-only queue to appear in',
+      control.present
+        && !control.options.some((option) => option.label === CREATED_APPLICATION),
+      `present=${control.present} · ${control.options.map((o) => o.label).join(' / ')} — `
+        + 'that queue takes report requests only, so a defect listed there is one '
+        + 'nobody in it can act on',
+    );
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(150);
+  }
+
+  if (softFixture?.id && await openTriage(softFixture)) {
+    const control = await readSoftControl();
+    const firstQueue = control.options.find((option) => option.value !== '');
+    record(
+      'a ticket in Other is offered the queues this admin works in',
+      control.present && control.value === '' && Boolean(firstQueue)
+        && !control.options.some((option) => option.label === 'Other'),
+      `present=${control.present} value="${control.value}" · ${control.options.map((o) => o.label).join(' / ')}`,
+    );
+
+    if (firstQueue) {
+      await page.selectOption('.dm-groups .bs-field:has-text("Also show it in") select', firstQueue.value);
+      // Wait for the SAVE response, not for a sleep — and read the ticket back from
+      // the API rather than trusting the screen, because the claim is about what
+      // was stored.
+      const [saveResponse] = await Promise.all([
+        page.waitForResponse((res) => new RegExp(`/api/admin/submissions/${softFixture.id}(\\?|$)`).test(res.url())
+          && res.request().method() === 'PUT', { timeout: 15000 }).catch(() => null),
+        page.click('.dm-foot-actions .bs-btn-primary'),
+      ]);
+      const stored = await page.request.get(`${API}/api/admin/submissions/${softFixture.id}`)
+        .then((response) => response.json());
+      record(
+        'choosing a queue is saved against the ticket',
+        saveResponse?.status() === 200
+          && Number(stored.working_application_id) === Number(firstQueue.value),
+        `HTTP ${saveResponse?.status()} · working_application_id=${stored.working_application_id} `
+          + `(expected ${firstQueue.value})`,
+      );
+      record(
+        'and the ticket does NOT move — it is still in Other',
+        stored.application_name === 'Other',
+        `application_name=${stored.application_name} — moving it would be a claim `
+          + 'about whose data it is that nobody can make yet',
+      );
+
+      await page.keyboard.press('Escape');
+      await page.waitForTimeout(200);
+
+      // The point of the whole feature: it now appears in BOTH lists. Asked of the
+      // real queue scope, which is what an analyst actually looks at.
+      const appearsIn = async (queueName) => {
+        await page.goto(`${BASE}/admin`, { waitUntil: 'networkidle' });
+        await page.waitForSelector('.admin-search input', { timeout: 15000 });
+        const allKinds = await page.$('.bs-seg button:text-is("All kinds")');
+        if (allKinds) {
+          await allKinds.click();
+          await page.waitForResponse((res) => res.url().includes('/api/admin/submissions')
+            && res.status() === 200, { timeout: 15000 }).catch(() => null);
+        }
+        await Promise.all([
+          page.waitForResponse((res) => res.url().includes('/api/admin/submissions')
+            && res.url().includes('application='), { timeout: 15000 }).catch(() => null),
+          page.selectOption('.admin-scope-select', queueName),
+        ]);
+        await Promise.all([
+          page.waitForResponse((res) => res.url().includes('/api/admin/submissions')
+            && res.url().includes('search='), { timeout: 15000 }).catch(() => null),
+          page.fill('.admin-search input', `${HANDOFF_MARKER} ${softFixture.key}`),
+        ]);
+        return page.evaluate((id) => [...document.querySelectorAll('.admin-submissions-table tbody tr')]
+          .some((tr) => tr.textContent.includes(String(id))), softFixture.id);
+      };
+
+      const inChosen = await appearsIn(firstQueue.label);
+      const inOther = await appearsIn('Other');
+      record(
+        'the ticket now appears in the chosen queue AND still in Other',
+        inChosen && inOther,
+        `${firstQueue.label}=${inChosen} · Other=${inOther} — one ticket, two lists, one owner`,
+      );
+    }
+  }
+
+  // Everything above widened the kind switch and the application scope and typed
+  // in the search box, and all three persist. Put them back before the sections
+  // that assume an untouched queue.
+  await resetQueueView(page);
 
   // ── The Delivery pane, on a report request this run creates ──────────────
   // Verified through the UI rather than only through the API, because the pane is
@@ -979,7 +1591,7 @@ async function run() {
       }
     }
   } finally {
-    const fixtures = [createdId, bannerId].filter(Boolean).map(String);
+    const fixtures = [createdId, bannerId, ...handoffFixtureIds].filter(Boolean).map(String);
     if (fixtures.length > 0) {
       const output = execFileSync(
         process.execPath,
@@ -997,6 +1609,23 @@ async function run() {
         statuses.join(' · '),
       );
     }
+
+    // And the application. Removed AFTER the tickets, because the removal script
+    // refuses an application any submission still points at — which is the guard
+    // working, but it would read as a broken cleanup.
+    if (createdApplicationId) {
+      const output = removeCreatedApplication();
+      const stillThere = (await page.request.get(`${API}/api/viewer`)
+        .then((response) => response.json())
+        .catch(() => null))?.viewer?.applications || [];
+      record(
+        'the application this run created is gone again, and its grants with it',
+        /1 application/.test(output)
+          && !stillThere.some((app) => app.name === CREATED_APPLICATION),
+        `${output.split('\n').filter((line) => /applications after|grant/.test(line)).join(' · ').trim()
+          || 'no count line'} · still offered=${stillThere.some((app) => app.name === CREATED_APPLICATION)}`,
+      );
+    }
   }
 
   // ── The page itself, behind the dialogs ──────────────────────────────────
@@ -1011,8 +1640,25 @@ async function run() {
     );
   }
 
-  const realErrors = consoleErrors.filter((text) => !/401|Unauthorized/i.test(text));
-  record('console is clean apart from the anonymous 401 probes', realErrors.length === 0, realErrors.slice(0, 3).join(' | '));
+  // Two refusals this script provokes ON PURPOSE, and neither is a defect:
+  //   * the anonymous 401 probes;
+  //   * the 409 from POST /api/admin/applications, which is the duplicate-name
+  //     check above proving a second "VERIFY Reports Only Queue" is refused.
+  //
+  // Narrowed to that endpoint rather than allowing 409 anywhere: 409 is also the
+  // optimistic-concurrency conflict on a submission save, and a blanket exemption
+  // would hide two admins overwriting each other — which is the thing that status
+  // code exists to report.
+  const realErrors = consoleErrors.filter((text) => {
+    if (/401|Unauthorized/i.test(text)) return false;
+    if (/\b409\b/.test(text) && /\/api\/admin\/applications\b/.test(text)) return false;
+    return true;
+  });
+  record(
+    'console is clean apart from the refusals this run provokes on purpose',
+    realErrors.length === 0,
+    realErrors.slice(0, 3).join(' | '),
+  );
 
   await browser.close();
 
@@ -1025,7 +1671,34 @@ async function run() {
   }
 }
 
-run().catch((error) => {
-  console.error(error);
-  process.exitCode = 1;
-});
+run()
+  .catch((error) => {
+    console.error(error);
+    process.exitCode = 1;
+  })
+  // The safety net, and it earned its place: the redirect/hand-off fixtures are
+  // created BEFORE the try/finally that owns the Delivery-pane ones, so the first
+  // version of this section left three tickets and an application behind the moment
+  // a selector timed out mid-run. Both cleanups run here as well, and both are
+  // idempotent — they report "not present, nothing to do" when the `finally` inside
+  // `run()` already took them.
+  //
+  // Tickets first: the application removal refuses an application any submission
+  // still points at, which is the guard working but reads as a failed cleanup.
+  .finally(() => {
+    if (handoffFixtureIds.length > 0) {
+      const output = runServerScript(
+        ['scripts/removeVerificationSubmissions.js', ...handoffFixtureIds, '--apply'],
+        { quiet: true },
+      );
+      if (/removing:/.test(output)) {
+        console.log('\nSafety net removed stranded ticket fixtures:');
+        console.log(output.trim().split('\n').map((line) => `      ${line}`).join('\n'));
+      }
+    }
+    const output = removeCreatedApplication({ quiet: true });
+    if (/removing \(id/.test(output)) {
+      console.log('\nSafety net removed the fixture application:');
+      console.log(output.trim().split('\n').map((line) => `      ${line}`).join('\n'));
+    }
+  });

@@ -133,6 +133,20 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ orderedIds: Array.isArray(orderedIds) ? orderedIds : [] }),
     }),
+  // A reporting analyst adding an application by typing its name in. What it
+  // creates is always reports-only, and creating it also grants it — see
+  // server/src/routes/reportApplicationRoutes.js for why this is deliberately NOT
+  // under /api/admin/meta, where every write is super-user-only.
+  //
+  // Returns { id, name, reportsOnly, grantedTo }. The caller must re-read the
+  // application list afterwards: the new value is not in any list this client
+  // already holds.
+  createAdminApplication: (name) =>
+    request('/api/admin/applications', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    }),
   // ── Access (super users only) ──────────────────────────────────────────────
   // Every one of these 403s for a non-super-user; the page is only reachable for
   // someone the viewer envelope already reports as one.

@@ -3,40 +3,12 @@ const { buildEasyVistaPayload } = require('./helpers/easyVistaPayload');
 // module, its env vars and its function names keep the vendor's — see
 // src/constants.js.
 const { TRACKER_LABEL } = require('./constants');
-
-/**
- * Whether a send actually leaves this app.
- *
- * `EASYVISTA_ENABLED` is a deliberate master switch, and it is OFF unless set.
- * Credentials alone are not enough: the payload shape, the endpoint path and the
- * response parsing are all still unconfirmed, so an environment that happens to
- * have a base URL and a key configured must not start transmitting on its own.
- * Turning this on is the conscious act of saying the integration is ready.
- */
-function easyVistaIsLive() {
-  const flag = String(process.env.EASYVISTA_ENABLED || '').trim().toLowerCase();
-  const enabled = flag === 'true' || flag === '1' || flag === 'yes' || flag === 'on';
-  return enabled && Boolean(process.env.EASYVISTA_BASE_URL) && Boolean(process.env.EASYVISTA_API_KEY);
-}
-
-/**
- * Whether an un-wired send is presented as though it were real.
- *
- * The integration is built and waiting on EasyVista, so stakeholders are shown
- * the flow end to end — press send, get an incident number back, watch the
- * ticket move to Submitted. Demo mode is what lets that walkthrough read like
- * the real thing instead of a caveat, and it is the behaviour this app has had
- * for its whole life, so it is ON by default.
- *
- * It is only ever consulted when the integration is NOT live, so it can never
- * quiet a warning about a real transmission. Set `EASYVISTA_DEMO_MODE=false` to
- * get the "nothing was transmitted" wording back on every surface.
- */
-function easyVistaDemoMode() {
-  if (easyVistaIsLive()) return false;
-  const flag = String(process.env.EASYVISTA_DEMO_MODE ?? '').trim().toLowerCase();
-  return !(flag === 'false' || flag === '0' || flag === 'no' || flag === 'off');
-}
+// Both predicates moved down to `helpers/easyVistaMode.js` and are re-exported
+// below, unchanged. This module requires the payload helper at its top, and the
+// payload helper now has to ask whether the integration is live — so the pair had
+// to stop living above it. See that file's header for what the circular require
+// actually produced.
+const { easyVistaIsLive, easyVistaDemoMode } = require('./helpers/easyVistaMode');
 
 async function submitToEasyVista(submission, { submitter = null, application = null } = {}) {
   const baseUrl = process.env.EASYVISTA_BASE_URL;

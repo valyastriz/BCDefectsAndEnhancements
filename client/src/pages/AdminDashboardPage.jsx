@@ -94,7 +94,10 @@ export function AdminDashboardPage({ user, onLogout }) {
   const navigate = useNavigate();
   // Signposting only — every endpoint re-checks rights server-side, so this
   // decides what to show, never what is allowed.
-  const { viewer, loading: viewerLoading } = useViewer();
+  // `reloadViewer` is how a newly added application reaches the pickers: an
+  // analyst can create one from the Add-a-ticket dialog or the Redirect dialog,
+  // and `viewer.applications` is the list both of them read.
+  const { viewer, loading: viewerLoading, reload: reloadViewer } = useViewer();
 
 
   // ── Page-level state (filters, rows, pagination, notices) ─────────────────
@@ -367,7 +370,10 @@ export function AdminDashboardPage({ user, onLogout }) {
   // what makes the export dialog's "what's on screen" a claim about this screen.
   const addTicket = useAddTicketModal({
     user,
-    applications: dynamicApplications,
+    // The viewer envelope's list, not the meta name array: it carries
+    // `reportsOnly`, which is what decides whether an application may be offered
+    // for the type being added.
+    applications: viewer.applications,
     loadRows,
     setNotice,
   });
@@ -926,10 +932,12 @@ export function AdminDashboardPage({ user, onLogout }) {
         {...addTicket}
         dynamicStatuses={dynamicStatuses}
         dynamicCleanupStatuses={dynamicCleanupStatuses}
-        dynamicApplications={dynamicApplications}
+        applicationOptions={viewer.applications}
         dynamicEnhancementRequestTypes={dynamicEnhancementRequestTypes}
         dynamicPriorityLevels={dynamicPriorityLevels}
         runtimeCreatedViaOptions={runtimeCreatedViaOptions}
+        viewer={viewer}
+        onApplicationCreated={reloadViewer}
       />
 
       <ExportModal {...exportModal} />
@@ -944,6 +952,8 @@ export function AdminDashboardPage({ user, onLogout }) {
         {...detailModal}
         presence={ticketPresence}
         redirectApplications={viewer.applications}
+        viewer={viewer}
+        onApplicationCreated={reloadViewer}
         dynamicCleanupStatuses={dynamicCleanupStatuses}
         dynamicCleanupTagTypes={dynamicCleanupTagTypes}
         dynamicApplications={dynamicApplications}

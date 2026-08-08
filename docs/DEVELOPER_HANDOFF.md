@@ -225,6 +225,9 @@ interchangeable.
 | **Submission** | One request. A row in `submissions`. Also "ticket". |
 | **Type** | `defect`, `enhancement` or `report`. A **lookup value**, not an enum — the Metadata page manages the list. Drives required fields, the status vocabulary, and what the Service Desk is told. |
 | **Application** | A product queue — `Billing Center`, `Policy Center`, `Other`. Owns triage rights. |
+| **`Other`** | The catch-all **working list**, covering two cases: a system with no configured application to submit to the Service Desk directly, and a system nobody has identified yet. Either way the work is still tracked — reports get built from here, and a defect or enhancement is raised on the Service Desk **by hand** with its incident number typed back in. Not a waiting room; the owner's phrase is *"almost like a task list"*. |
+| **Reports-only application** | An application a reporting analyst created by typing its name in (`applications.reports_only = 1`). It takes **report requests and nothing else**, and is granted to everybody who works report requests. |
+| **Soft association** | `submissions.working_application_id` — a queue an `Other` ticket **also appears in**, without leaving `Other`. The only place two columns answer "whose queue is this", and it never decides who may edit. |
 | **Cleanup task** | Internal work item (`is_cleanup`). Tagged `defect`, `enhancement` or `cleanup_only`. **A flag on a defect or an enhancement, never a type of its own.** |
 | **Retire** | Soft archive. **Nothing in this app hard-deletes a submission.** |
 | **Public** | Appears on the status board and in public AI search. |
@@ -270,6 +273,23 @@ trail.** The first is cheap to query and index for "my queue". The second cannot
 be reconstructed after the fact, which is why it shipped **with** the feature —
 without it, reassignment silently erases everyone who held a request before the
 last person.
+
+**6. `application_id` owns the ticket; `working_application_id` only shows it.**
+The soft association is the one place two columns answer "whose queue is this",
+and it is safe only because the second one answers strictly less:
+
+| | `application_id` | `working_application_id` |
+|---|---|---|
+| Who may **edit** | decides it (`canMutateApplication`) | **never consulted** |
+| Who may **read** | decides it | widens, but only into a queue the caller already holds |
+| Which queue lists it | yes | yes (`OR` on the scope filter) |
+| Set on | every ticket | only a ticket in `Other` |
+| Changed by | a redirect | the analyst working it |
+
+Collapse the two and you get one of two failures: either an admin gains write
+access to a ticket nobody granted them, or an analyst's own list stops showing
+work they are doing. The rule that keeps it honest is that the soft column is
+**read-only in every sense that matters** — see `server/src/helpers/softAssignment.js`.
 
 ## 6. The four kinds of work
 
@@ -1627,6 +1647,67 @@ single-catalog form for the one application `EASYVISTA_DEFAULT_APPLICATION` name
 **Nothing inherits another application's catalog at any step** — that was the
 original bug.
 
+### An application with no catalog: the button says so, and says what to do
+
+The catalog check used to run **only on the live path**: with `EASYVISTA_ENABLED`
+off nothing is transmitted, so there was no catalog to land in and an unconfigured
+application demonstrated a send exactly like a configured one. That made the portal
+unable to show the case it actually has — an application the Service Desk is not
+wired up to, where the admin raises the ticket by hand — and it meant **Submit**
+cheerfully invented an incident number for a hand-off that never happened.
+
+So the refusal now applies on **both** paths, and it surfaces three ways from one
+call to `easyVistaCatalogStatus`:
+
+| Where | What it does |
+|---|---|
+| `GET /api/admin/submissions/:id` | returns `easyvista_catalog: { configured, demoOnly, reason }` — `null` for a report request, which has no button |
+| The detail modal footer | disables **Submit**, and prints the reason on its own line under the actions (`.dm-foot-blocked`) |
+| `POST …/easyvista` | refuses with the same `reason` as a 400 |
+
+One call, so a greyed-out button and a refused POST can never disagree.
+
+**The reason is the whole procedure, not a diagnosis** — every step of it already
+exists, so naming them turns a dead end into an instruction:
+
+> *"Other is not wired up to Service Desk, so this cannot be sent from the portal.
+> Raise it in Service Desk by hand, then come back, unlock the Service Desk ticket
+> number on this tab and enter the number it gave you, and set the status to
+> Submitted."*
+
+The number is editable behind the unlock on that same tab (§8.5), and `Submitted`
+is in the status dropdown.
+
+#### `DEMO-` catalogs, and why the placeholder announces itself
+
+The demo site has to show **both halves**: Billing Center and Policy Center
+pretend-sending end to end, and `Other` refusing. That needs the two to count as
+configured — and writing a plausible-looking GUID into their rows would mean that
+on the day the integration is switched on, a real send posts into a catalog that
+does not exist.
+
+So the placeholder says what it is, and `easyVistaCatalogStatus` **stops honouring
+it the moment `easyVistaIsLive()` is true**:
+
+| Catalog value | Demo path | Live path |
+|---|---|---|
+| a real GUID/code | configured | configured |
+| `DEMO-…` | configured (`demoOnly: true`) | **refused** — "set up with a demonstration catalog rather than a real one" |
+| nothing | **refused** — raise it by hand | **refused** |
+
+Fail closed, out loud. `npm run set:demo-catalogs` writes them (dry-run by default,
+`--clear` to undo) and **never overwrites a real value**. Before go-live, clear them
+and put the real IDs in `EASYVISTA_CATALOG_GUIDS` — an application's own column wins
+over the environment, so a leftover placeholder would keep winning.
+
+> `easyVistaIsLive` and `easyVistaDemoMode` moved to `src/helpers/easyVistaMode.js`
+> so the payload helper could ask the question. `src/easyvista.js` requires the
+> payload helper at its top, so requiring back the other way returned a half-built
+> module and `easyVistaIsLive` came out **undefined** — which reads as `false`, and
+> would have made a demonstration catalog look real on a live server. Failing open,
+> in the one place the guard exists to fail closed. `src/easyvista.js` re-exports
+> both, so every existing importer is untouched.
+
 ### One payload builder, shared by preview and send
 
 The preview and the real request are built by the **same function**, and the dry-run
@@ -1895,7 +1976,7 @@ children or access control.
 |---|---|
 | Identity | `id`, `created_at`, `updated_at`, `created_via_id` |
 | Reporter | `created_by`, `created_by_email`, **`reporter_user_id`** |
-| Classification | `type_id`, `application_id`, `status_id`, `priority_level_id`, `enhancement_request_type_id` |
+| Classification | `type_id`, `application_id`, **`working_application_id`**, `status_id`, `priority_level_id`, `enhancement_request_type_id` |
 | The report | `summary_of_issue`, `what_happened_exact_details`, `steps_to_reproduce`, `request`, `screen_title`, `date_time_of_error` |
 | References | `policy_num`, `account_num`, `transaction_num`, `jira_number` |
 | Triage | `reviewer`, `decision_notes`, `duplicate_reference`, `duplicate_of`, `fingerprint` |
@@ -1924,6 +2005,20 @@ Column choices with reasons worth carrying:
   belong to nobody, which is the truth rather than a guess."*
 - **`easyvista_application_id` is a snapshot**, not derived, so a later redirect
   cannot rewrite what was transmitted.
+- **`working_application_id` is the soft association**, and it is nullable, null on
+  every row that predates it, and **only ever set on a ticket in `Other`**. It
+  widens which queues LIST a ticket and nothing else — never who may edit it, and
+  never read access beyond a queue the caller already holds. Cleared automatically
+  if the ticket is redirected out of `Other`, because the queue that was watching it
+  has its answer now. Indexed (`idx_submissions_working_application_id`): the scope
+  filter reads it in the same `OR` as `application_id` on every admin queue query,
+  so an unindexed column there would put a scan on the admin side's hot path.
+  The rule lives in `server/src/helpers/softAssignment.js` and is unit-tested
+  (`test/softAssignment.test.js`, 14 tests) — the resolver takes `isUnknownQueue`
+  as a **value** rather than looking it up, precisely so a rule that decides whose
+  list a ticket lands on can be pinned without a database.
+- **`applications.reports_only`** marks an application a reporting analyst created.
+  `NOT NULL DEFAULT 0`, so every application that predates it takes every type.
 - **`assigned_to` is a user id, never a name** — a rename must not silently unlink
   someone's work.
 - **`approved_by_name` IS a name**, because the approver is usually not a portal
@@ -2025,6 +2120,29 @@ require the CSRF header.
 | `PUT` | `/api/admin/meta/:category/:id` | **`ensureSuperUser`** |
 | `POST` | `/api/admin/meta/:category/reorder` | **`ensureSuperUser`** |
 
+**`POST /api/admin/applications` is deliberately NOT on this router.** A reporting
+analyst adds an application by typing its name in, and every write above is
+super-user-only because editing a lookup renames or withdraws a value on *every
+ticket that holds it*, across every application, unscoped by the per-application
+grants the rest of the admin side runs on — and `test/metaRouteGuards.test.js`
+sweeps this router's stack so a route added here later without the guard fails too.
+
+**Creating is not editing: it touches no existing ticket.** So it gets its own door
+with its own narrower rule — CREATE only, and what it creates is always
+reports-only — rather than a hole in a guard a test polices on purpose. Renaming or
+retiring an application is still a super user's job on the Metadata page.
+
+| Method | Path | Guard |
+|---|---|---|
+| `POST` | `/api/admin/applications` | `ensureAdmin` + **a report grant anywhere** (`canCreateReportApplication`) |
+
+Body `{ name }`; returns `{ id, name, reportsOnly, grantedTo }`. It validates the
+name, refuses a duplicate **case-insensitively including against a switched-off
+application** (whose row nobody can currently see, so the message says a super user
+must switch it back on), and creates the row **and its grants in one transaction** —
+an application is a queue, and a new one with no grants is visible to nobody but a
+super user, which is the exact failure `Other` exists to avoid.
+
 ### Submissions — public / requester
 
 | Method | Path | Notes |
@@ -2038,12 +2156,12 @@ require the CSRF header.
 | Method | Path | Notes |
 |---|---|---|
 | `GET` | `/api/admin/submissions` | Scoped |
-| `GET` | `/api/admin/submissions/:id` | Out-of-scope → **404, not 403** |
+| `GET` | `/api/admin/submissions/:id` | Out-of-scope → **404, not 403**. Carries `easyvista_catalog: { configured, demoOnly, reason }` (null for a report request) so the hand-off button can be disabled before any click |
 | `POST` | `/api/admin/submissions` | |
-| `PUT` | `/api/admin/submissions/:id` | Optimistic concurrency → 409 |
+| `PUT` | `/api/admin/submissions/:id` | Optimistic concurrency → 409. Also owns `working_application_id` — the soft association (§5) |
 | `POST` | `/api/admin/submissions/bulk-visibility` | |
 | `POST` | `/api/admin/submissions/bulk-retire` | |
-| `POST` | `/api/admin/submissions/:id/redirect` | Moves the ticket |
+| `POST` | `/api/admin/submissions/:id/redirect` | Moves the ticket. **Refuses a non-report type into a reports-only application** — it is the fifth path that sets `application_id`, and the one `helpers/applicationScope.js` originally missed |
 | `POST` | `/api/admin/submissions/:id/easyvista-preview` | Dry run; writes nothing |
 | `POST` | `/api/admin/submissions/:id/submit-easyvista` | Refuses a report request |
 | `POST` | `/api/admin/submissions/ai-search` | |
@@ -2415,6 +2533,7 @@ would do.
 | `npm run seed:realistic` | The 39-request demonstration set |
 | `npm run purge:submissions` | **Every** submission and its children. Needs `--confirm=<count>`. |
 | `npm run remove:verification-tickets` | Remove `VERIFY`-prefixed fixtures by id |
+| `npm run remove:verification-applications` | Remove `VERIFY`-prefixed **applications** by name, with their grants. Refuses any application a submission still points at — a row with tickets in it is not a fixture, and destroying it would orphan them. Exists because `POST /api/admin/applications` has no DELETE to match, and the browser check that proves that control works has to use it. |
 | `npm run backfill:embeddings` | Index existing tickets for AI search; idempotent |
 | `npm run backfill:public-visibility` | Make existing non-cleanup tickets public; persists the exact id set so it can be reverted precisely |
 | `npm run backfill:tracker-history` | Relabel historical status events |
@@ -2424,6 +2543,9 @@ would do.
 | `npm run migrate:session-store` | The `user_sessions` table |
 | `npm run migrate:delivery-notes` | `submissions.delivery_notes` |
 | `npm run migrate:easyvista-catalog-columns` | The per-application catalog columns |
+| `npm run migrate:reports-only-applications` | `applications.reports_only`. **The script existed with no npm entry for a pass**, while three code comments told you to run it by that exact name. |
+| `npm run migrate:working-application` | `submissions.working_application_id` + its index — the soft association |
+| `npm run set:demo-catalogs` | Give the walkthrough applications a `DEMO-` catalog so they keep pretend-sending, leaving `Other` with none. `--clear` undoes it. **Never overwrites a real value.** |
 | `npm run grant:super-user` | Grant/revoke super user |
 
 > **`dotenv` resolves `server/.env` relative to the CWD**, so run these **from
@@ -3086,6 +3208,100 @@ These are process lessons, not product ones, and every one cost time.
   guessed**; and checking the export dialog against the server's own field list is what
   makes the server-side grouping safe.
 
+## The eighteenth pass — the analyst's UI, the hand-off affordance, and `Other`
+
+Three features that turned out to be one story: **what happens to work the Service
+Desk is not wired up for.**
+
+**1. `POST /api/admin/applications` got a UI.** The endpoint had shipped tested in
+the previous pass and *nothing called it*. It is now one shared control
+(`AddApplicationControl.jsx`) in both places an analyst hits the wall — the
+Add-a-ticket dialog's report branch and the Redirect dialog — because the two
+differ only in what they do with the answer, one picking by name and the other by
+id. `onCreated` is **awaited** before the picker is pointed at the new value: the
+caller re-reads the application list there, and selecting an `<option>` that does
+not exist yet leaves the picker blank, which reads as "it didn't work".
+
+**2. Redirect was the fifth write path, and it was not guarded.**
+`helpers/applicationScope.js` was written for four paths that set
+`application_id` — the public submit, the admin create, the admin update and the
+import. A **redirect** sets it too, and had no check. A defect could be moved into a
+reports-only queue, granted only to report workers, where fail-closed scoping makes
+it **invisible rather than merely unassigned** — and the sending team has already
+lost write access by then, so nobody could move it back. The picker now hides it and
+`redirectService` refuses it; the endpoint is the control, the picker the courtesy.
+
+**3. The hand-off button now says what it cannot do, and what to do instead.** See
+[§14](#an-application-with-no-catalog-the-button-says-so-and-says-what-to-do). The
+catalog check stopped being live-only, `DEMO-` catalogs keep the walkthrough
+applications sending, and `Other` demonstrates the manual path.
+
+**4. The soft association.** The owner's ask — *"once they change it from new status
+to something else, then it soft assigns it to their queue (they can select which of
+their queues)"* — needed a decision first, and it is recorded here because the
+obvious implementation undoes itself:
+
+> A redirect **resets the status to `New`**, and a soft assign is triggered **by
+> moving the status off `New`**. Routing it through `redirectService` would
+> immediately undo the change that triggered it.
+
+Two shapes were put to the owner. **(a)** a real move that keeps the status —
+reuses the ledger, one source of truth, but the ticket leaves `Other` for good.
+**(b)** a softer association that does not move the ticket. **The owner chose (b)**,
+and `submissions.working_application_id` is it. What makes a second "whose queue"
+column safe is that it answers strictly less than the first — see
+[§5 distinction 6](#6-application_id-owns-the-ticket-working_application_id-only-shows-it).
+
+**What `Other` actually is, in the owner's words**, and it corrects an earlier
+framing in this document that had it as *only* "the system is unknown":
+
+> *"The 'other' option is used for when there isn't an application configured yet to
+> directly submit to EasyVista but we still want to be able to track or create the
+> reports, almost like a task list in a way. A way to still track issues even if for
+> a defect or enhancement the admin has to manually submit to the service desk and
+> then manually enter the ticket number."* — and *"obviously other can be used too
+> when it is still an unknown application."*
+
+Both cases, one queue, for the same reason: the work still has to be tracked and
+there is nowhere else to put it.
+
+### Four things this pass got wrong first
+
+- **A model column added without its migration takes the server down.** Sequelize
+  names every column the MODEL declares, so adding `working_application_id` to
+  `db/models/index.js` while the database lacked it broke queries immediately —
+  the same trap `viewerService.listActiveApplications` and `helpers/lookups.js`
+  already carry defences for. Run the migration in the same breath as the model edit.
+- **Editing server source during a browser verification restarts the server under
+  it.** Two runs died on `ECONNREFUSED` and a 500 that looked like product faults
+  and were nodemon doing its job. Finish the code, then verify.
+- **`isUnknownQueue` is passed to `resolveSoftAssignment`, not looked up inside it.**
+  The first version required `helpers/lookups` and the test had to monkey-patch a
+  binding that had already been destructured at require time. A rule that decides
+  whose list a ticket lands on should be pinnable without a database.
+- **The detail modal sends its WHOLE edit object on every save**, so
+  `hasOwnProperty('working_application_id')` is always true. Treating presence as a
+  deliberate act would have cleared the association on the next unrelated save and
+  made the status trigger unreachable. What identifies a deliberate act is that the
+  value **differs from what is stored**.
+
+### And three the harness got wrong, all of them the probe
+
+Added to [the trap table](#the-four-traps-this-harness-was-built-around):
+
+- **An element handle does not survive a re-render.** `page.$()` then `.click()`
+  across a debounced search gave *"Element is not attached to the DOM"* — which
+  reads exactly like a broken selector. A **locator** re-resolves on every action.
+- **The queue's kind switch and application scope are saved per admin**, in
+  `localStorage` and in the server-side pinned application. A ticket in `Other` was
+  simply not in a queue pinned to Billing Center — the queue working correctly. The
+  probe now widens both explicitly, and **puts them back**: leaving the search box
+  filled made a later section time out looking for a ticket it had filtered away.
+- **A delta is only safe if nothing else is writing.** `verify-session-store`'s
+  "no session was left behind" check failed because `verify-metadata-page` was
+  signing in **concurrently**, into the same shared `user_sessions` table. Run it
+  alone.
+
 ---
 
 # Part X — Known gaps, traps and open questions
@@ -3229,6 +3445,23 @@ design difference.**
 - [ ] A lapsed session is reported as **expired**, not as a missing field, and the form keeps what was typed.
 - [ ] Metadata **writes** are super-user only; the **read** stays open to every admin, and a test pins the asymmetry.
 - [ ] Dev impersonation, if kept, is gated on **three** independent conditions and its route is **not registered** otherwise.
+
+### Applications, `Other`, and the soft association
+- [ ] **Every path that sets `application_id` refuses a non-report type against a reports-only application** — the public submit, the admin create, the admin update, the import **and the redirect**. The redirect was missed once; a defect landing there is invisible, not merely unassigned.
+- [ ] Creating an application **grants it in the same transaction**. A queue nobody can see is worse than no queue.
+- [ ] A duplicate name is refused **case-insensitively, including against a switched-off application**, and the message says a super user must switch it back on — because the caller cannot see that row.
+- [ ] Creating an application is **not** on the metadata router. Creating touches no existing ticket; renaming touches every ticket that holds the value.
+- [ ] `working_application_id` **never** decides who may edit, and **never** widens read access beyond a queue the caller already holds.
+- [ ] It is only ever set on a ticket in `Other`, and is **cleared** when the ticket is redirected into a real application.
+- [ ] The soft assign is refused for a queue the acting admin does not work in, **type-scoped** — otherwise an admin can put work on another team's list, and that team cannot edit the ticket to get rid of it.
+- [ ] The status trigger fires only when leaving `New`, only when nothing is chosen, and only when there is **exactly one** candidate. Two candidates wait to be told.
+
+### The Service Desk hand-off affordance
+- [ ] An application with no catalog shows the send **disabled with the reason**, on both the demo and the live path — not enabled and failing on click.
+- [ ] The button's reason and the endpoint's 400 come from **one** call to `easyVistaCatalogStatus`, so they cannot disagree.
+- [ ] The reason states the **whole manual procedure** (raise it by hand → unlock the number → enter it → set `Submitted`), because every step already exists in the UI.
+- [ ] A `DEMO-` catalog counts as configured **only while nothing is transmitted**, and reverts to unconfigured the moment the integration goes live. A placeholder must never post a real ticket into a catalog that does not exist.
+- [ ] A report request carries **no** hand-off verdict and **no** button.
 
 ### Data boundary
 - [ ] No internal field reaches a public REST response, **a socket broadcast**, **an AI summary**, **a public embedding**, or **a public keyword doc**.

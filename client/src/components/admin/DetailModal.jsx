@@ -83,8 +83,13 @@ export function DetailModal({
   attachApprovalFiles,
   clearPendingAttachmentDrafts,
   presence,
-  // Every active application as { id, name } — the redirect picker's source.
+  // Every active application as { id, name, reportsOnly } — the redirect picker's
+  // source. `reportsOnly` is what keeps a defect off a report-only queue.
   redirectApplications,
+  // The viewer envelope, for the redirect dialog's "the application isn't listed"
+  // control — which offers itself only to somebody who works report requests.
+  viewer,
+  onApplicationCreated,
   // Meta options
   dynamicCleanupStatuses,
   dynamicCleanupTagTypes,
@@ -114,15 +119,28 @@ export function DetailModal({
   const readOnly = detail?.can_edit === false;
   const locked = heldByOtherAdmin || readOnly;
 
+  // Declared HERE, above its first use, and not beside the tab list that also
+  // reads it: a `const` used before its declaration is a temporal dead zone, and
+  // the page throws "Cannot access before initialization" and renders nothing at
+  // all. It still compiles, so only the browser finds it.
+  const isReportRequest = effectiveType === 'report';
+
   // Where this ticket could go: every active application except the one it is
-  // already in. Deliberately from the viewer envelope ({id, name}) rather than
-  // `dynamicApplications` (names only) — the endpoint moves by id, and a name
-  // would have to be resolved back to one somewhere.
+  // already in. Deliberately from the viewer envelope ({id, name, reportsOnly})
+  // rather than `dynamicApplications` (names only) — the endpoint moves by id, and
+  // a name would have to be resolved back to one somewhere.
   //
   // Not narrowed to what the caller administers: handing a ticket to a team you
   // are not part of is the entire point of a redirect.
+  //
+  // A reports-only application is dropped for anything that is not a report
+  // request. It is granted to the people who work report requests and nobody
+  // else, so a DEFECT redirected into it would land in a queue with no defect
+  // admins — invisible rather than merely unassigned, which is the exact failure
+  // `Other` exists to avoid. The server refuses it too; this keeps it off the menu.
   const redirectTargets = (redirectApplications || []).filter(
-    (app) => String(app.name) !== String(detail?.application_name),
+    (app) => String(app.name) !== String(detail?.application_name)
+      && (isReportRequest || !app.reportsOnly),
   );
 
   // Deliberately NOT keyed to the open ticket: an admin who wants the compact
@@ -156,8 +174,6 @@ export function DetailModal({
   // so the sixth slot carries Delivery instead of the hand-off. Same position in
   // the ticket's life — the step where it leaves your hands — and six tabs is
   // already a lot without adding a seventh that is empty of meaning.
-  const isReportRequest = effectiveType === 'report';
-
   const tabs = [
     { key: DETAIL_TABS.report, label: 'Report', warn: blockedTabs.has(DETAIL_TABS.report) },
     { key: DETAIL_TABS.files, label: 'Files', count: visibleAttachments.length },
@@ -226,12 +242,23 @@ export function DetailModal({
           unretireCurrentItem={unretireCurrentItem}
           redirectCurrentItem={redirectCurrentItem}
           redirectTargets={redirectTargets}
+          viewer={viewer}
+          onApplicationCreated={onApplicationCreated}
+          // Only a report request can be sent to an application created here, so
+          // only a report request is offered the control.
+          canAddApplication={isReportRequest}
           readOnly={readOnly}
           modalBottomNotice={modalBottomNotice}
           easyVistaConfirmation={easyVistaConfirmation}
           locked={locked}
           sendsDirectly={canSubmitEasyVistaDirectly}
           hidesHandoff={isReportRequest}
+          // Read straight off the detail response rather than re-derived: only the
+          // server knows which applications have a catalog, and it is the same call
+          // that refuses the send.
+          handoffBlockedReason={detail?.easyvista_catalog?.configured === false
+            ? (detail.easyvista_catalog.reason || '')
+            : ''}
           onEasyVista={() => {
             if (canSubmitEasyVistaDirectly) submitEasyVista();
             else selectTab(DETAIL_TABS.easyvista);
@@ -299,6 +326,7 @@ export function DetailModal({
                 dynamicCleanupStatuses={dynamicCleanupStatuses}
                 dynamicCleanupTagTypes={dynamicCleanupTagTypes}
                 runtimeStatusOptions={runtimeStatusOptions}
+                viewer={viewer}
               />
             </DetailPane>
           )}
