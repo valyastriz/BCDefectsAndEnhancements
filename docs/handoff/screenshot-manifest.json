@@ -1,5 +1,5 @@
 {
-  "captured": "2026-08-07",
+  "captured": "2026-08-08",
   "capturedBy": "client/scripts/capture-screenshots.mjs",
   "source": "the hosted Supabase database, seeded by server/scripts/seedRealisticSubmissions.js — production data, which the owner confirmed is entirely test data and fine to photograph. Server on :4000, Vite on :5173.",
   "capture": {

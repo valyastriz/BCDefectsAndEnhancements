@@ -29,7 +29,7 @@ them being un-corrected.
 | Current data | the live database, *not* this document |
 
 > **Screenshots** in [`handoff/screenshots/`](handoff/screenshots/) were captured
-> on **2026-08-07** by `client/scripts/capture-screenshots.mjs` against the hosted
+> on **2026-08-08** by `client/scripts/capture-screenshots.mjs` against the hosted
 > database, which holds a purpose-built demonstration set. It is entirely test
 > data, and the owner confirmed it is fine to photograph.
 > `handoff/screenshot-manifest.json` is written **by** that script, so it cannot
