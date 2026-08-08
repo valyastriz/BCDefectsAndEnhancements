@@ -14,27 +14,38 @@ after it are the historical record.
 
 | | |
 |---|---|
-| **This pass shipped** | The seventeenth pass's queue, items 1–4, plus a server-side hole it exposed and one the owner asked for mid-pass. |
+| **This pass shipped** | `cdeb474` — the seventeenth pass's queue, items 1–4, plus a server-side hole it exposed and two things the owner asked for mid-pass. `e481013` — all 62 screenshots re-shot. |
 | **Green** | 410 server tests · lint · build · **all seven** browser scripts: `verify-admin-data-entry` **150/150** · `verify-submit-form` 63/63 · `verify-throughput-page` 52/52 · `verify-metadata-page` 30/30 · `verify-public-board` 21/21 · `verify-report-import-export` 20/20 · `verify-session-store` 17/17 |
 | **Database** | 39 seeded submissions, 0 `VERIFY` leftovers, 3 applications. `submissions.working_application_id` applied. Billing Center and Policy Center carry `DEMO-` catalogs; `Other` carries none. |
 
 ## What is actually left
 
-### 1. Screenshots
+### 1. Two screenshots the new UI still has no picture of
 
-**Re-run the whole set** — the submit-form shots predate the picker, and this pass
-changed the detail modal's footer and the Triage tab:
+All 62 were re-shot at `e481013` (42 changed, manifest rewritten, 2026-08-08). **Two
+things this pass built are documented in the manual with no picture:**
+
+- the **greyed-out Send with its note** (§2.6 of the manual);
+- the **"Also show it in" picker** (§2.4).
+
+Both need a **non-report ticket in `Other`**, and the seeded data has none — its two
+`Other` tickets are both report requests, which have no hand-off button at all. So
+this needs a **fixture in the screenshot harness**, in the shape it already uses for
+its two Excel-import rows: create, shoot, remove through
+`removeVerificationSubmissions.js`, print the count.
+
+A third is free and needs no fixture: the **"The application isn't listed" control
+expanded** in the Add-a-ticket dialog's report branch. Expand it and shoot — do not
+submit, or the run leaves an application behind.
 
 ```
 cd client && node scripts/capture-screenshots.mjs
 ```
 
-The harness prunes and rewrites `docs/handoff/screenshot-manifest.json` from its own
-registry. **Never edit that file by hand, and never shoot selectively** — a filtered
-run deliberately does not prune.
-
-Worth adding to the registry while you are there: the greyed-out Send with its note,
-and the "Also show it in" picker. Neither is photographed yet.
+Add entries to the `SHOTS` registry and re-run the **whole** set. The harness prunes
+orphans and rewrites `docs/handoff/screenshot-manifest.json` from that registry at
+the end of a green run — **never edit the manifest by hand, and never shoot
+selectively**, because a filtered run deliberately does not prune.
 
 ### 2. Worth considering: seed a reports-only application
 
