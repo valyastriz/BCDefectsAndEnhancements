@@ -274,6 +274,7 @@ be reconstructed after the fact, which is why it shipped **with** the feature �
 without it, reassignment silently erases everyone who held a request before the
 last person.
 
+<a id="6-application_id-owns-the-ticket-working_application_id-only-shows-it"></a>
 **6. `application_id` owns the ticket; `working_application_id` only shows it.**
 The soft association is the one place two columns answer "whose queue is this",
 and it is safe only because the second one answers strictly less:
@@ -2458,10 +2459,12 @@ cd client && npm run build   # production build
 
 ## The browser harness
 
-`client/scripts/` holds **seven verification scripts** and two shared probes. They
+`client/scripts/` holds **eight verification scripts** and two shared probes. They
 are the record of what has been checked by eye and by measurement, and they run
-against the real app. All except `verify-session-store.mjs` need the server on
-:4000 and Vite on :5173 already running, and all take an optional `--shots <dir>`.
+against the real app. All except `verify-session-store.mjs` (which brings its own
+servers) and `verify-docs-pdf.mjs` (which reads built files, not the app) need the
+server on :4000 and Vite on :5173 already running, and all take an optional
+`--shots <dir>`.
 
 | Script | What it proves | Writes? |
 |---|---|---|
@@ -2472,6 +2475,7 @@ against the real app. All except `verify-session-store.mjs` need the server on
 | `verify-public-board.mjs` | The per-type track, the parked state, the type chip, the stage tiles, **and that a report request is invisible to a stranger** | One public report request, removed |
 | `verify-report-import-export.mjs` | The spreadsheet round trip: export, re-import the portal's own file, compare every column, and all three refusal paths | Four report requests, removed |
 | `verify-session-store.mjs` | Sessions outlive a restart. **Brings its own servers** on :4100 — spawn, sign in, kill, spawn again, present the same cookie | Session rows only |
+| `verify-docs-pdf.mjs` | Every link in the three PDFs is still a link, resolves to a real page, and lands on the right section of the right file. Needs no server | No |
 | `lib/overflow-probe.mjs` | Per-container overflow. **Read its header before changing it** — each exclusion is there because a false positive buried a real finding. |
 | `lib/chart-scale-probe.mjs` | Does every bar sit where its own axis says? It exists because a chart drew 27 above the line marked 30 while passing every other check. |
 
@@ -2523,6 +2527,59 @@ Design points a rebuild's own harness should keep:
 - **It writes exactly once** — two rows through the Excel import, because the
   client's step 3 is a real import — and removes them through the same
   `removeVerificationSubmissions.js`, printing the count.
+
+## The PDF build
+
+The three documents also ship as PDFs in `docs/pdf/`, **with every link still a
+link** — the contents list, every cross-reference, and every jump between documents
+work in a PDF reader exactly as they do in the markdown. That is the whole point of
+the build: a 123-page reference nobody can navigate is a worse artefact than the
+markdown it came from.
+
+```bash
+cd client
+node scripts/build-docs-pdf.mjs               # docs/pdf/*.pdf
+node scripts/build-docs-pdf.mjs --keep-html   # also leave the intermediate HTML
+node scripts/verify-docs-pdf.mjs              # assert the produced bytes
+```
+
+Markdown → HTML (`marked`) → PDF (Playwright Chromium print). No separate PDF
+library: Chromium already turns `<a href="#slug">` into a real PDF named destination
+and `<a href="OTHER.pdf">` into a file link, and it renders the screenshots the
+manual is mostly made of. `--keep-html` exists only so `verify-docs-pdf.mjs` can run
+its printable-width overflow check; the HTML is gitignored, and the PDFs are the
+output.
+
+Decisions worth keeping in a rebuild:
+
+- **Heading slugs must match GitHub's algorithm character for character.** The docs
+  were written against GitHub's anchors, so `githubSlug()` reproduces its
+  lowercase-strip-punctuation-hyphenate-and-disambiguate rules. Anything close but
+  not identical silently breaks the contents list.
+- **Anchors are validated before anything renders.** A link to a heading that does
+  not exist fails the build. Discovering it as a dead link in a PDF a reader already
+  has is the failure mode this replaces — and it caught one on the first run, a
+  numbered paragraph with no heading to target, fixed with an explicit `<a id>`.
+- **Cross-document links need `#nameddest=`, not `#anchor`.** A bare fragment opens
+  the sibling PDF at page 1; `nameddest` is what Acrobat and the Chrome viewer
+  actually honour, and it is the difference between "the link works" and "the link
+  lands on the section".
+- **`doc.getDestinations()` returns `{}` for Chromium-produced PDFs.** It stores them
+  in a name tree pdf.js's bulk enumerator does not walk, while per-name
+  `getDestination(name)` resolves fine. The first verifier reported all 66 links
+  broken because of it — **a verifier that fails wholesale is suspect before the
+  thing it measures is**, so it now also proves the links land across 43 *distinct*
+  pages, which an all-page-1 fallback could not fake.
+- **`overflow-wrap: break-word` on table cells, not `anywhere`.** Both wrap a word
+  too long for its line, but `anywhere` also counts mid-word breaks when the browser
+  computes a column's min-content width — so auto table layout shrank the vocabulary
+  table's first column until ordinary words split (`Submiss` / `ion`). `break-word`
+  leaves min-content alone. Long identifiers still break, because `code` keeps
+  `anywhere` and needs it.
+- **A part divider opens a page; its first section shares that page.** `h1` and `h2`
+  both break before, then `h1 + h2` cancels it. Without the cancel, either the part
+  title is stranded at the foot of the contents list or it gets a near-empty page of
+  its own.
 
 ## The four traps this harness was built around
 

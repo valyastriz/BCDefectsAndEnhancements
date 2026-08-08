@@ -23,6 +23,10 @@ for a rebuild on the organisation's own stack — not the thing that ships long-
 > `docs/handoff/README.md` is gone; its content is in `docs/DEVELOPER_HANDOFF.md`.
 > `docs/handoff/` now holds only the screenshots and their manifest.
 
+**To send one to somebody:** all three are also in [`docs/pdf/`](docs/pdf/), built by
+`node client/scripts/build-docs-pdf.mjs`, with the contents list and every
+cross-reference — including the links between the three documents — still clickable.
+
 Also: [`plan.md`](plan.md) is the running project record ·
 [`CLAUDE.md`](CLAUDE.md) is the conventions file for AI-assisted work in this repo ·
 [`server/docs/`](server/docs/) has the AI-search and EasyVista payload references.

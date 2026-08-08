@@ -14,6 +14,10 @@ here is never of a build nobody is running.
 are at the end. Sign in as `bc_rep` to see what a requester sees, or `admin` to see
 everything.
 
+**Prefer a PDF?** `docs/pdf/USER_MANUAL.pdf` is this document, screenshots and all,
+with the contents list and every cross-reference still clickable. `DEVELOPER_HANDOFF.pdf`
+and `NEXT_STEPS.pdf` sit beside it, and the links between the three work too.
+
 ---
 
 ## Contents

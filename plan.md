@@ -15,7 +15,7 @@ after it are the historical record.
 | | |
 |---|---|
 | **Shipped 2026-08-08** | `cdeb474` — the analyst's UI, the hand-off affordance, the soft association. `e481013` — 62 screenshots. `bd5993c` — plan.md. Then **two permission leaks the owner found**, the misleading "Filing as" line, and the demonstration data those needed. |
-| **Green** | 428 server tests · lint · build · **all seven** browser scripts: `verify-admin-data-entry` **150/150** · `verify-submit-form` 63/63 · `verify-throughput-page` 52/52 · `verify-metadata-page` 30/30 · `verify-public-board` 21/21 · `verify-report-import-export` 20/20 · `verify-session-store` 17/17 · **65 screenshots** |
+| **Green** | 428 server tests · lint · build · **all eight** browser scripts: `verify-admin-data-entry` **150/150** · `verify-submit-form` 63/63 · `verify-throughput-page` 52/52 · `verify-metadata-page` 30/30 · `verify-public-board` 21/21 · `verify-report-import-export` 20/20 · `verify-session-store` 17/17 · `verify-docs-pdf` all links resolve · **65 screenshots** |
 | **Database** | 43 submissions, 0 `VERIFY` leftovers, **4 applications** (`Marketing Analytics` is reports-only). `submissions.working_application_id` applied. Billing Center and Policy Center carry `DEMO-` catalogs; `Other` carries none. 22 grants. |
 
 ## What is actually left
@@ -78,6 +78,48 @@ path with its own application resolution.
    `DetailModal.jsx` this pass, and it still *compiles*.
 
 ---
+
+## The three documents as PDFs, with every link still a link (2026-08-08, twentieth pass)
+
+Asked for: the three deliverable documents in PDF form, with the section links
+clickable the way they are in the markdown. Delivered in `docs/pdf/` — 124 + 66 + 7
+pages — plus the build and the check that proves the links survived.
+
+**`client/scripts/build-docs-pdf.mjs`** — markdown → HTML (`marked`) → PDF (Playwright
+Chromium print). No PDF library: Chromium already turns `<a href="#slug">` into a real
+named destination and renders the screenshots the manual is mostly made of.
+**`client/scripts/verify-docs-pdf.mjs`** is the eighth browser script and needs no
+server — it reads the produced bytes.
+
+What was actually hard, and is worth not re-learning:
+
+- **Cross-document links need `#nameddest=anchor`.** A bare `#anchor` opens the
+  sibling PDF at page 1. `nameddest` is what Acrobat and the Chrome viewer honour.
+- **`doc.getDestinations()` returns `{}` for Chromium PDFs** — they live in a name
+  tree pdf.js's bulk enumerator does not walk, while `getDestination(name)` resolves
+  fine. The first verifier therefore reported all 66 links dead. **A check that fails
+  wholesale is suspect before the thing it measures is.** It now also asserts the
+  links land across 43 *distinct* pages, which an all-page-1 fallback could not fake.
+- **Heading slugs must match GitHub's algorithm exactly**, because the docs were
+  written against GitHub's anchors. Anchors are validated *before* rendering, so a
+  link to a missing heading fails the build instead of reaching a reader — it caught
+  one immediately, a numbered paragraph with no heading, fixed with an `<a id>`.
+- **Two defects only a rendered page showed.** Verification proved the links worked;
+  looking at the pages proved the layout did not. `overflow-wrap: anywhere` on table
+  cells collapsed the vocabulary table's first column until ordinary words split
+  (`Submiss` / `ion`) — `anywhere` counts mid-word breaks when computing min-content
+  width, `break-word` does not. And part-divider `h1`s were stranded at the foot of
+  the contents page; `h1` now breaks before, with `h1 + h2` cancelling it so the
+  part title and its first section share a page.
+
+`docs/pdf/*.build.html` is gitignored — `--keep-html` exists only so the verifier can
+run its printable-width overflow check. The handoff (Part VII), the manual's intro and
+the README all point at the PDFs now.
+
+**Still open:** the ~31 MB of PDFs are untracked, pending a call on whether they
+belong in git. Separately, the handoff's Contents list labels parts **V** and **VI**
+where the headings say **VII**–**XI** — the links resolve, the numbering does not
+agree.
 
 ## Two permission leaks, a misleading line, and the data to show any of it (2026-08-08, nineteenth pass)
 

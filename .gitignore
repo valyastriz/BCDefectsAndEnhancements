@@ -144,3 +144,7 @@ vite.config.ts.timestamp-*
 server/data/
 server/uploads/
 server/scripts/*.last-run.json
+
+# Intermediate HTML from build-docs-pdf.mjs --keep-html (kept only to let
+# verify-docs-pdf.mjs run its overflow check; the PDFs are the output)
+docs/pdf/*.build.html
