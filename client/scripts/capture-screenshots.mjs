@@ -440,7 +440,28 @@ const SHOTS = [
   {
     file: '27-admin-queue-analyst.png',
     route: '/admin', as: 'analyst', ready: '.admin-header-row',
-    state: 'The same queue as bc_report_analyst, whose single grant covers report requests on Billing Center only. No defect is on this screen, and no Manage metadata in the menu',
+    state: 'The same queue as bc_report_analyst, whose single grant covers report requests on Billing Center only. No defect is on this screen, and no Manage metadata in the menu. Not the queue with rows hidden — the server sends only what that grant covers, by application AND by request type',
+  },
+  {
+    file: '28-admin-queue-other.png',
+    route: '/admin', as: 'admin', ready: '.admin-submissions-table tbody tr',
+    state: '`Other`, scoped, with every kind of request showing. It is a working list rather than a holding pen: a system with no configured application to submit to the Service Desk lands here, and so does one nobody has identified yet. Either way the work is still tracked — reports get built from it, and a defect or an enhancement is raised on the Service Desk by hand with its incident number typed back in',
+    async shot(page) {
+      const allKinds = await page.$('.bs-seg button:text-is("All kinds")');
+      if (allKinds) {
+        await allKinds.click();
+        await page.waitForResponse((res) => res.url().includes('/api/admin/submissions')
+          && res.status() === 200, { timeout: 30000 }).catch(() => null);
+      }
+      await page.selectOption('.admin-scope-select', 'Other');
+      // The rendered table, not the response: several requests carry this URL, so
+      // "one of those came back" resolves on a request already in flight for the
+      // previous scope and photographs the wrong rows.
+      await page.waitForFunction(() => {
+        const rows = [...document.querySelectorAll('.admin-submissions-table tbody tr')];
+        return rows.length > 0 && rows.every((row) => row.textContent.includes('Other'));
+      }, null, { timeout: 30000 });
+    },
   },
 
   // ══ The detail modal, tab by tab ══════════════════════════════════════════
@@ -537,6 +558,31 @@ const SHOTS = [
     },
   },
 
+  // ══ `Other`, and the work the Service Desk is not wired up for ════════════
+  // The three things the demonstration set could not show until
+  // `npm run seed:unwired-work` put them there. Each is documented in the user
+  // manual, and each was documented with no picture.
+  {
+    file: '39-detail-other-unwired.png',
+    route: '/admin', as: 'admin', ready: '.admin-submissions-table tbody tr',
+    state: 'A DEFECT in `Other` — the catch-all working list, for a system with no configured application to submit to the Service Desk and for one nobody has identified yet. Two things in one picture: "Also show it in" under Ownership & tracking, which puts the ticket in an analyst\'s own queue WITHOUT moving it out of `Other`; and the footer, where Submit is greyed out and the note gives the whole manual procedure — raise it by hand, come back, unlock the number, set Submitted',
+    async shot(page, ctx) {
+      await ctx.openTicketBySearch(page, {
+        search: 'Commission statement PDF drops the agency code',
+      });
+      await page.click('.dm-tab:has-text("Triage")');
+      await page.waitForSelector('.dm-groups');
+      // Prove BOTH halves are actually on screen before the shutter: a picture of
+      // a tab that failed to render the picker would be worse than no picture.
+      await page.waitForFunction(() => {
+        const picker = [...document.querySelectorAll('.dm-groups .bs-field')]
+          .some((node) => node.textContent.includes('Also show it in'));
+        const blocked = Boolean(document.querySelector('.dm-foot-blocked'));
+        return picker && blocked;
+      }, null, { timeout: 30000 });
+    },
+  },
+
   // ══ Add a ticket — four branches, two modes ═══════════════════════════════
   {
     file: '40-add-ticket-new-defect.png',
@@ -586,6 +632,19 @@ const SHOTS = [
       await ctx.openAddTicket(page, {
         mode: 'New ticket', type: 'Report request', reportBranch: 'A change to one they already use',
       });
+    },
+  },
+  {
+    file: '46-add-ticket-add-application.png',
+    route: '/admin', as: 'admin', ready: '.admin-header-row',
+    state: 'A reporting analyst adding an application by typing its name in, from under the Application picker. Offered on the REPORT branch only, because what it creates takes report requests and nothing else — and offered only to somebody who works report requests. Creating it also grants it, in the same transaction, to everybody who does: an application is a queue, and one with no grants is visible to nobody but a super user. The same control is in the Redirect dialog, which is where an analyst realises an `Other` request is really Marketing Analytics\'',
+    async shot(page, ctx) {
+      await ctx.openAddTicket(page, { mode: 'New ticket', type: 'Report request' });
+      // Expanded, never submitted: a shot that pressed Add would leave an
+      // application behind, and there is no DELETE endpoint for one.
+      await page.click('.at-body .aac-toggle');
+      await page.waitForSelector('.at-body .aac--open input');
+      await page.fill('.at-body .aac--open input', 'Producer Portal');
     },
   },
 
@@ -904,6 +963,64 @@ function makeHelpers(importSheetPath) {
         { timeout: 30000 },
       );
       return id;
+    },
+
+    /**
+     * Open ONE specific ticket, found by searching for its summary.
+     *
+     * `openTicket` above takes the first row of a kind, which is right when any
+     * example will do. These shots are of a particular ticket — the defect in
+     * `Other` that the seed puts there — so the row has to be found rather than
+     * assumed, and the queue is sorted by last update.
+     *
+     * Two narrowings are widened first and BOTH are saved per admin, so what this
+     * sees would otherwise depend on what the account last looked at: the kind
+     * switch opens on "Defects & enhancements", and the application scope opens on
+     * whatever was pinned. Waits on the ROW rather than on the response, because
+     * the search is debounced and the table re-renders when it lands — an element
+     * handle taken before that is detached by the time it is clicked.
+     */
+    async openTicketBySearch(page, { search }) {
+      const allKinds = await page.$('.bs-seg button:text-is("All kinds")');
+      if (allKinds) {
+        await allKinds.click();
+        await page.waitForResponse((res) => res.url().includes('/api/admin/submissions')
+          && res.status() === 200, { timeout: 30000 }).catch(() => null);
+      }
+      const scope = await page.$('.admin-scope-select');
+      // '' is "All applications". A look, not a pin — it changes nothing about
+      // where this account lands next time.
+      if (scope) {
+        await scope.selectOption('');
+        await page.waitForResponse((res) => res.url().includes('/api/admin/submissions')
+          && res.status() === 200, { timeout: 30000 }).catch(() => null);
+      }
+      await page.fill('.admin-search input', search);
+
+      // Matched on the SUMMARY, never on a ticket id: ids advance permanently and
+      // change on every reseed, so a number written into this file is a shot that
+      // breaks the next time the demonstration data is rebuilt.
+      const row = page.locator('.admin-submissions-table tbody tr', { hasText: search }).first();
+      await row.waitFor({ state: 'visible', timeout: 30000 });
+
+      // From the ID CELL, not the row — a row's textContent runs its cells together
+      // with no separator, so `#222` followed by a date matched `#(\d+)` as 2228.
+      const id = await row.locator('td').nth(1).evaluate(
+        (cell) => (cell.textContent.match(/#?(\d+)/) || [])[1] || null,
+      );
+      if (!id) throw new Error(`no ticket id on the row matching "${search}"`);
+
+      // Wait for THIS ticket's detail response, not merely for the modal: the
+      // footer renders as soon as the modal opens, with whatever `detail` currently
+      // holds, so a shot taken before this lands photographs the previous ticket's
+      // answer. It also proves the row that opened is the right one.
+      await Promise.all([
+        page.waitForResponse((res) => new RegExp(`/api/admin/submissions/${id}(\\?|$)`).test(res.url())
+          && res.status() === 200, { timeout: 30000 }),
+        row.locator('td').nth(1).click(),
+      ]);
+      await page.waitForSelector('.dm-modal', { timeout: 30000 });
+      await page.waitForSelector('.dm-foot-actions', { timeout: 30000 });
     },
 
     /**

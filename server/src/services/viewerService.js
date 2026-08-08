@@ -266,7 +266,17 @@ function buildApplicationScopeWhere(viewer) {
  * it is the single flag to audit.
  */
 async function resolveAdminReadScope(models, viewer) {
-  const empty = { unrestricted: false, applicationIds: [], submissionIds: new Set() };
+  const empty = {
+    unrestricted: false,
+    applicationIds: [],
+    submissionIds: new Set(),
+    // application id → Set of type ids, or `null` meaning every type. Absent from
+    // the map means the application is not readable at all.
+    typeIdsByApplication: new Map(),
+    // The types this caller works ANYWHERE, for the hand-off ledger below.
+    // `null` means every type.
+    anyTypeIds: new Set(),
+  };
 
   if (viewer?.isSuperUser) return { ...empty, unrestricted: true };
   if (!viewer?.isAuthenticated) return empty;
@@ -278,8 +288,74 @@ async function resolveAdminReadScope(models, viewer) {
     .filter(isApplicationId);
   if (applicationIds.length === 0) return empty;
 
+  // ── The type scope, which read USED TO IGNORE ────────────────────────────
+  //
+  // `readableApplicationIds` collapses a caller's grants down to the applications
+  // they touch, losing the request type each grant was narrowed to. Read scope was
+  // built from that list alone, so a reporting analyst granted `report` on Policy
+  // Center could read **every Policy Center defect and enhancement** — in the
+  // queue, through the detail endpoint, and in the Excel export.
+  //
+  // The owner found it: "I signed in as pc_report_analyst and should only have
+  // access to view report requests on the admin side, and yet I can see all the
+  // defects and enhancements." The user manual claimed the opposite ("No defect is
+  // on this screen ... it is what the server sends"), which was true only because
+  // the queue's kind switch happens to open on a filter that hides them.
+  //
+  // Read by TYPE ID rather than by name, because the list path scopes RAW rows
+  // before they are hydrated — `row.type` is undefined there and only `type_id`
+  // exists. The single-row path carries both, so ids work for each.
+  const typeRows = models?.SubmissionType
+    ? await models.SubmissionType.findAll({ attributes: ['id', 'name'], raw: true })
+    : [];
+  const typeIdByName = new Map(
+    typeRows.map((row) => [String(row.name || '').trim().toLowerCase(), Number(row.id)]),
+  );
+
+  const typeIdsByApplication = new Map();
+  const anyTypes = new Set();
+  let everyTypeAnywhere = false;
+  const perApplication = viewer.applicationTypeRoles || {};
+  for (const applicationId of applicationIds) {
+    const grants = perApplication[applicationId] || perApplication[String(applicationId)] || null;
+    // No per-type detail for this application — an older envelope, or a shape this
+    // function cannot read. Fall back to the application-level grant, which is what
+    // the behaviour was before this narrowing existed. Widening on a missing map
+    // rather than refusing keeps a stale envelope from blanking somebody's queue.
+    if (!grants || Object.keys(grants).length === 0) {
+      typeIdsByApplication.set(applicationId, null);
+      everyTypeAnywhere = true;
+      continue;
+    }
+    const ids = new Set();
+    let everyType = false;
+    for (const [type, role] of Object.entries(grants)) {
+      if (!role) continue;
+      const normalized = String(type || '').trim().toLowerCase();
+      // '' is the all-types grant. Stored as '' and not NULL on purpose — see
+      // user_application_roles in db/models/index.js.
+      if (normalized === '') { everyType = true; continue; }
+      const typeId = typeIdByName.get(normalized);
+      // A grant naming a type this database does not have narrows to nothing
+      // rather than widening to everything — the same rule normalizeGrantType
+      // follows for an unrecognised value.
+      if (typeId) ids.add(typeId);
+    }
+    if (everyType) {
+      typeIdsByApplication.set(applicationId, null);
+      everyTypeAnywhere = true;
+    } else {
+      typeIdsByApplication.set(applicationId, ids);
+      for (const id of ids) anyTypes.add(id);
+    }
+  }
+
+  const anyTypeIds = everyTypeAnywhere ? null : anyTypes;
+
   // A missing ledger means no hand-off history to widen by — never a wider scope.
-  if (!models?.SubmissionRouting) return { ...empty, applicationIds };
+  if (!models?.SubmissionRouting) {
+    return { ...empty, applicationIds, typeIdsByApplication, anyTypeIds };
+  }
 
   const handedOn = await models.SubmissionRouting.findAll({
     where: { from_application_id: applicationIds },
@@ -290,8 +366,92 @@ async function resolveAdminReadScope(models, viewer) {
   return {
     unrestricted: false,
     applicationIds,
+    typeIdsByApplication,
+    anyTypeIds,
     submissionIds: new Set(handedOn.map((row) => Number(row.submission_id))),
   };
+}
+
+/**
+ * Which admins may be TOLD about this row, live.
+ *
+ * `emitAdminNotification` broadcast to every admin, unscoped — so a reporting
+ * analyst's banner announced every new defect and every workaround request, which
+ * is the same leak `canReadSubmissionRow` closes one surface over. The owner found
+ * both in the same sitting: *"in the banner I have the notification about new
+ * requests and workarounds. Since I don't work those, I shouldn't see anything
+ * related to defects, enhancements or cleanups if I don't have that role."*
+ *
+ * Returns a Set of user ids, or **null meaning "cannot tell — tell everybody"**.
+ * Null is the honest answer for the notifications that carry no submission (an
+ * import summary, say); silencing those would break a working feature to close a
+ * gap they do not have.
+ *
+ * Answers the same question as `canReadSubmissionRow`, from the other end: that one
+ * asks "may this caller see this row", this one asks "who may see it". They must
+ * agree, so both read the same three things — the application, the soft
+ * association, and the hand-off ledger.
+ *
+ * Runs on ticket create/update rather than on any hot path, so three small queries
+ * are the right trade for not having to keep a per-socket scope in step with grants
+ * that changed after the socket connected.
+ */
+async function resolveAdminAudienceForRow(models, row) {
+  const { UserApplicationRole, User, SubmissionRouting, SubmissionType } = models || {};
+  if (!UserApplicationRole || !User) return null;
+
+  const applicationIds = [row?.application_id, row?.working_application_id]
+    .map(Number)
+    .filter(isApplicationId);
+  // No application and no resolvable type means this payload cannot be scoped.
+  if (applicationIds.length === 0) return null;
+
+  let typeName = String(row?.type || row?.model_type_name || '').trim().toLowerCase();
+  if (!typeName && row?.type_id && SubmissionType) {
+    const typeRow = await SubmissionType.findByPk(Number(row.type_id), {
+      attributes: ['id', 'name'],
+      raw: true,
+    });
+    typeName = String(typeRow?.name || '').trim().toLowerCase();
+  }
+  if (!typeName) return null;
+
+  // The team that handed it on keeps reading it, so it keeps hearing about it.
+  if (SubmissionRouting && row?.id) {
+    const handedFrom = await SubmissionRouting.findAll({
+      where: { submission_id: Number(row.id) },
+      attributes: ['from_application_id'],
+      raw: true,
+    });
+    for (const entry of handedFrom) {
+      const id = Number(entry.from_application_id);
+      if (isApplicationId(id) && !applicationIds.includes(id)) applicationIds.push(id);
+    }
+  }
+
+  const audience = new Set();
+  const grants = await UserApplicationRole.findAll({
+    where: { application_id: applicationIds },
+    attributes: ['user_id', 'request_type'],
+    raw: true,
+  });
+  for (const grant of grants) {
+    // '' is the all-types grant; anything else must match this row's type. A
+    // viewer seat is included: it reads the queue, so it may be told the queue
+    // changed.
+    const scope = String(grant.request_type || '').trim().toLowerCase();
+    if (scope === '' || scope === typeName) audience.add(Number(grant.user_id));
+  }
+
+  // Super users hold the one bypass, here as everywhere else.
+  const superUsers = await User.findAll({
+    where: { is_super_user: 1 },
+    attributes: ['id'],
+    raw: true,
+  });
+  for (const user of superUsers) audience.add(Number(user.id));
+
+  return audience;
 }
 
 /**
@@ -304,8 +464,30 @@ async function resolveAdminReadScope(models, viewer) {
 function canReadSubmissionRow(scope, row) {
   if (!scope) return false;
   if (scope.unrestricted) return true;
-  const applicationId = Number(row?.application_id);
-  if (isApplicationId(applicationId) && scope.applicationIds.includes(applicationId)) return true;
+
+  // Does this caller's grant on `applicationId` cover this row's TYPE?
+  //
+  // A grant is (user, application, role, request_type), and read used to check only
+  // the first two — so an analyst granted `report` on an application could read its
+  // defects. `undefined` from the map means the application is not readable at all;
+  // `null` means an all-types grant.
+  const typeId = Number(row?.type_id);
+  const covers = (applicationId) => {
+    if (!isApplicationId(applicationId)) return false;
+    if (!scope.applicationIds.includes(applicationId)) return false;
+    // An older scope object with no type map behaves as it did before the
+    // narrowing existed, rather than refusing everything.
+    if (!scope.typeIdsByApplication) return true;
+    const allowed = scope.typeIdsByApplication.get(applicationId);
+    if (allowed === undefined) return false;
+    if (allowed === null) return true;
+    // A row whose type_id is missing is admitted only by an all-types grant: it
+    // cannot be shown to match a narrowed one, so it fails closed.
+    return Number.isInteger(typeId) && allowed.has(typeId);
+  };
+
+  if (covers(Number(row?.application_id))) return true;
+
   // The soft association. A ticket in `Other` that an analyst chose to work shows
   // up in the queue they picked as well as in `Other` — that is the whole feature.
   //
@@ -314,11 +496,15 @@ function canReadSubmissionRow(scope, row) {
   // "who may change it". Writing still follows `application_id` alone, so the
   // widening cannot hand anybody edit rights they were not granted, and the
   // analyst who set it holds `Other` already.
-  const workingApplicationId = Number(row?.working_application_id);
-  if (isApplicationId(workingApplicationId) && scope.applicationIds.includes(workingApplicationId)) {
-    return true;
-  }
-  return scope.submissionIds.has(Number(row?.id));
+  if (covers(Number(row?.working_application_id))) return true;
+
+  // The hand-off ledger: a team that handed a ticket on keeps reading it. Narrowed
+  // by type too, or a report analyst would see every defect their application ever
+  // redirected — the same leak the type check above closes, one path over.
+  if (!scope.submissionIds.has(Number(row?.id))) return false;
+  if (!scope.typeIdsByApplication) return true;
+  if (scope.anyTypeIds === null || scope.anyTypeIds === undefined) return true;
+  return Number.isInteger(typeId) && scope.anyTypeIds.has(typeId);
 }
 
 /**
@@ -516,6 +702,7 @@ module.exports = {
   applicationIdsWithRole,
   buildApplicationScopeWhere,
   resolveAdminReadScope,
+  resolveAdminAudienceForRow,
   canReadSubmissionRow,
   roleInApplication,
   canReadApplication,

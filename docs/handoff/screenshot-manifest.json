@@ -183,7 +183,15 @@
       "as": "analyst",
       "theme": "light",
       "viewport": "1500x950",
-      "state": "The same queue as bc_report_analyst, whose single grant covers report requests on Billing Center only. No defect is on this screen, and no Manage metadata in the menu"
+      "state": "The same queue as bc_report_analyst, whose single grant covers report requests on Billing Center only. No defect is on this screen, and no Manage metadata in the menu. Not the queue with rows hidden — the server sends only what that grant covers, by application AND by request type"
+    },
+    {
+      "file": "28-admin-queue-other.png",
+      "route": "/admin",
+      "as": "admin",
+      "theme": "light",
+      "viewport": "1500x950",
+      "state": "`Other`, scoped, with every kind of request showing. It is a working list rather than a holding pen: a system with no configured application to submit to the Service Desk lands here, and so does one nobody has identified yet. Either way the work is still tracked — reports get built from it, and a defect or an enhancement is raised on the Service Desk by hand with its incident number typed back in"
     },
     {
       "file": "30-detail-triage.png",
@@ -258,6 +266,14 @@
       "state": "The More actions menu — retire, change visibility, and Redirect, which moves a ticket to another application's queue and records the hand-off"
     },
     {
+      "file": "39-detail-other-unwired.png",
+      "route": "/admin",
+      "as": "admin",
+      "theme": "light",
+      "viewport": "1500x950",
+      "state": "A DEFECT in `Other` — the catch-all working list, for a system with no configured application to submit to the Service Desk and for one nobody has identified yet. Two things in one picture: \"Also show it in\" under Ownership & tracking, which puts the ticket in an analyst's own queue WITHOUT moving it out of `Other`; and the footer, where Submit is greyed out and the note gives the whole manual procedure — raise it by hand, come back, unlock the number, set Submitted"
+    },
+    {
       "file": "40-add-ticket-new-defect.png",
       "route": "/admin",
       "as": "admin",
@@ -304,6 +320,14 @@
       "theme": "light",
       "viewport": "1500x950",
       "state": "Add a ticket → Report request → A change to one they already use. Asks which report FIRST, because you cannot describe what should happen to a report before saying which one it is"
+    },
+    {
+      "file": "46-add-ticket-add-application.png",
+      "route": "/admin",
+      "as": "admin",
+      "theme": "light",
+      "viewport": "1500x950",
+      "state": "A reporting analyst adding an application by typing its name in, from under the Application picker. Offered on the REPORT branch only, because what it creates takes report requests and nothing else — and offered only to somebody who works report requests. Creating it also grants it, in the same transaction, to everybody who does: an application is a queue, and one with no grants is visible to nobody but a super user. The same control is in the Redirect dialog, which is where an analyst realises an `Other` request is really Marketing Analytics'"
     },
     {
       "file": "50-export-fields.png",

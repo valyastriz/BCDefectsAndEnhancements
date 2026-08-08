@@ -1245,12 +1245,57 @@ returns nothing.
 
 | | Source | Includes |
 |---|---|---|
-| **Read** (`resolveAdminReadScope`) | grants **+** the routing ledger | applications you hold, **plus** tickets your queue handed on |
+| **Read** (`resolveAdminReadScope`) | grants **+** the routing ledger, **both scoped by request type** | applications you hold *for that type*, the soft association, **plus** tickets your queue handed on |
 | **Write** (`canMutateApplication`) | grants only, against the ticket's **current** application, **for its type** | `admin` and above |
 
 A ticket outside the caller's read scope reads as **absent (404), not forbidden
 (403)**, so the queue cannot be walked by id to learn what other teams handle.
 Legacy tickets with **no** application stay visible to super users only.
+
+> **Read ignored the request type until 2026-08-08, and that was a leak.**
+> `readableApplicationIds` collapses a caller's grants down to the applications they
+> touch, losing the type each grant was narrowed to — and read scope was built from
+> that list alone. A reporting analyst granted `report` on Policy Center could read
+> **every Policy Center defect and enhancement**: in the queue, through the detail
+> endpoint, and in the Excel export.
+>
+> The owner found it: *"I signed in as pc_report_analyst and should only have access
+> to view report requests on the admin side, and yet I can see all the defects and
+> enhancements."* This document claimed the opposite — §8.4 said "No defect is on
+> this screen … it is what the server sends" — and that was true only because the
+> queue's kind switch happens to **open on a filter that hides them**. A filter is
+> not a permission.
+>
+> `resolveAdminReadScope` now carries `typeIdsByApplication` (application → allowed
+> type ids, `null` for an all-types grant) and `canReadSubmissionRow` checks it on
+> all three paths: the application, the soft association, and the hand-off ledger.
+> **By type ID, not name** — the list path scopes RAW rows before hydration, where
+> `row.type` is undefined and only `type_id` exists.
+>
+> Two deliberate asymmetries: an envelope with **no** per-type detail keeps the old
+> all-types behaviour, so a stale envelope cannot blank somebody's queue; and a row
+> with **no** type is admitted only by an all-types grant, so it fails closed.
+
+### Being told is the same permission as being able to see
+
+`emitAdminNotification` broadcast to **every admin**, unscoped — so the same analyst
+had a banner announcing every new defect and every workaround request. The owner
+found that one in the same sitting: *"since I don't work those, I shouldn't see
+anything related to defects, enhancements or cleanups if I don't have that role."*
+
+`resolveAdminAudienceForRow` answers the same question as `canReadSubmissionRow`
+from the other end — *who may see this row* rather than *may this caller see it* —
+and reads the same three things, so the two cannot drift. Each admin socket joins a
+room of its own (`admin-user:<id>`) and the event goes to the entitled ones.
+
+Two rules worth keeping:
+
+- **`null` means "cannot tell", and goes to everybody.** An import summary carries
+  no submission; silencing it would break a working notification to close a gap it
+  does not have.
+- **An exception fails closed and emits nothing.** `null` is a known shape; a throw
+  means the scoping did not run, and broadcasting then is the leak this exists to
+  close.
 
 ### Middleware division of labour
 
@@ -2531,6 +2576,7 @@ would do.
 | `npm run seed:team-accounts` | The eight working accounts and their scoped grants |
 | `npm run seed:other-application` | The `Other` application, granted from the grants that exist |
 | `npm run seed:realistic` | The 39-request demonstration set |
+| `npm run seed:unwired-work` | The three things that set could not show: a defect **and** an enhancement in `Other` (one with a hand-typed incident number), an analyst-created reports-only application with two report requests, and a soft association. Refuses to seed twice. Nothing it adds is Delivered and no hours are logged — that is the modelling rule `verify-throughput-page.mjs` depends on. |
 | `npm run purge:submissions` | **Every** submission and its children. Needs `--confirm=<count>`. |
 | `npm run remove:verification-tickets` | Remove `VERIFY`-prefixed fixtures by id |
 | `npm run remove:verification-applications` | Remove `VERIFY`-prefixed **applications** by name, with their grants. Refuses any application a submission still points at — a row with tickets in it is not a fixture, and destroying it would orphan them. Exists because `POST /api/admin/applications` has no DELETE to match, and the browser check that proves that control works has to use it. |
@@ -3428,6 +3474,10 @@ design difference.**
 ### Access and identity
 - [ ] An admin with **no grants** sees **no tickets** — not all of them.
 - [ ] Scoping runs **before** any query-string filtering; **no parameter can widen** visibility.
+- [ ] **Read scope is narrowed by request type, not only by application.** A grant of `report` on an application must not read that application's defects — in the queue, the detail endpoint **or** the export. A filter that happens to hide them is not a permission.
+- [ ] The type narrowing applies to **all three** read paths: the application, the soft association, and the hand-off ledger.
+- [ ] **Being told is the same permission as being able to see.** A live notification reaches only the admins whose grants cover that row's application *and* type — a broadcast to every admin is the same leak on a different surface.
+- [ ] A notification payload that identifies no submission goes to everybody (it cannot be scoped); a notification whose scoping **throws** goes to nobody.
 - [ ] A ticket outside read scope returns **404, not 403**.
 - [ ] Past owners **keep read** and **lose write** the instant a ticket is redirected.
 - [ ] A grant is `(user, application, role, request_type)`, and **every write path checks the type**, not just the application.

@@ -14,48 +14,13 @@ after it are the historical record.
 
 | | |
 |---|---|
-| **This pass shipped** | `cdeb474` — the seventeenth pass's queue, items 1–4, plus a server-side hole it exposed and two things the owner asked for mid-pass. `e481013` — all 62 screenshots re-shot. |
-| **Green** | 410 server tests · lint · build · **all seven** browser scripts: `verify-admin-data-entry` **150/150** · `verify-submit-form` 63/63 · `verify-throughput-page` 52/52 · `verify-metadata-page` 30/30 · `verify-public-board` 21/21 · `verify-report-import-export` 20/20 · `verify-session-store` 17/17 |
-| **Database** | 39 seeded submissions, 0 `VERIFY` leftovers, 3 applications. `submissions.working_application_id` applied. Billing Center and Policy Center carry `DEMO-` catalogs; `Other` carries none. |
+| **Shipped 2026-08-08** | `cdeb474` — the analyst's UI, the hand-off affordance, the soft association. `e481013` — 62 screenshots. `bd5993c` — plan.md. Then **two permission leaks the owner found**, the misleading "Filing as" line, and the demonstration data those needed. |
+| **Green** | 428 server tests · lint · build · **all seven** browser scripts: `verify-admin-data-entry` **150/150** · `verify-submit-form` 63/63 · `verify-throughput-page` 52/52 · `verify-metadata-page` 30/30 · `verify-public-board` 21/21 · `verify-report-import-export` 20/20 · `verify-session-store` 17/17 · **65 screenshots** |
+| **Database** | 43 submissions, 0 `VERIFY` leftovers, **4 applications** (`Marketing Analytics` is reports-only). `submissions.working_application_id` applied. Billing Center and Policy Center carry `DEMO-` catalogs; `Other` carries none. 22 grants. |
 
 ## What is actually left
 
-### 1. Two screenshots the new UI still has no picture of
-
-All 62 were re-shot at `e481013` (42 changed, manifest rewritten, 2026-08-08). **Two
-things this pass built are documented in the manual with no picture:**
-
-- the **greyed-out Send with its note** (§2.6 of the manual);
-- the **"Also show it in" picker** (§2.4).
-
-Both need a **non-report ticket in `Other`**, and the seeded data has none — its two
-`Other` tickets are both report requests, which have no hand-off button at all. So
-this needs a **fixture in the screenshot harness**, in the shape it already uses for
-its two Excel-import rows: create, shoot, remove through
-`removeVerificationSubmissions.js`, print the count.
-
-A third is free and needs no fixture: the **"The application isn't listed" control
-expanded** in the Add-a-ticket dialog's report branch. Expand it and shoot — do not
-submit, or the run leaves an application behind.
-
-```
-cd client && node scripts/capture-screenshots.mjs
-```
-
-Add entries to the `SHOTS` registry and re-run the **whole** set. The harness prunes
-orphans and rewrites `docs/handoff/screenshot-manifest.json` from that registry at
-the end of a green run — **never edit the manifest by hand, and never shoot
-selectively**, because a filtered run deliberately does not prune.
-
-### 2. Worth considering: seed a reports-only application
-
-The demonstration data still has none, so nothing on screen shows that feature. One
-analyst-created application with two or three report requests would show it — and
-would give `verify-throughput-page.mjs`'s empty-state check a **structurally** empty
-target again (a brand-new queue has no delivered work), which is currently held by a
-modelling rule about `Other` instead.
-
-### 3. Before the Service Desk integration goes live
+### 1. Before the Service Desk integration goes live
 
 `npm run set:demo-catalogs -- --clear --apply`, then put the real catalog IDs in
 `EASYVISTA_CATALOG_GUIDS`. **An application's own column wins over the environment**,
@@ -63,6 +28,25 @@ so a leftover `DEMO-` placeholder would keep winning. The code already fails clo
 a `DEMO-` catalog reverts to "not configured" the moment `EASYVISTA_ENABLED` is on —
 so the failure mode is a refused send rather than a misrouted ticket, but the
 placeholder still has to come out.
+
+### 2. The notification scoping has one gap left, and it is stated rather than hidden
+
+`resolveAdminAudienceForRow` returns **null — tell everybody** for a payload that
+identifies no submission. Today that is the Excel import summary
+(`submissions:bulk-imported`) and the attachment/time-entry events, which carry a
+submission id but no application or type.
+
+Those could be scoped by loading the row, at the cost of a read per emit. It was left
+because the events say almost nothing on their own, and because silencing a working
+notification to close a gap it does not have is the worse trade. **If it is closed
+later, close it in `resolveAdminAudienceForRow` so the read scope and the audience
+keep answering the same question.**
+
+### 3. Worth considering: a second reports-only application, and an Excel round trip through one
+
+`Marketing Analytics` is the only one, and both its requests are unstarted. Nothing
+exercises a reports-only application through the **import**, which is a fifth write
+path with its own application resolution.
 
 ## Things that will bite you
 
@@ -94,6 +78,164 @@ placeholder still has to come out.
    `DetailModal.jsx` this pass, and it still *compiles*.
 
 ---
+
+## Two permission leaks, a misleading line, and the data to show any of it (2026-08-08, nineteenth pass)
+
+All four came from the owner testing the deployed site, and two of them were
+security defects that every test in the suite had passed straight over.
+
+### 1. A reporting analyst could read every defect and enhancement
+
+> *"I signed in as pc_report_analyst and should only have access to view report
+> requests on the admin side, and yet I can see all the defects and enhancements."*
+
+**Reproduced first, against the API, before touching anything:** the analyst is
+granted `report` on Policy Center and `Other`, and `GET /api/admin/submissions`
+returned **16 rows — 4 defects and 4 enhancements among them.**
+
+**The cause.** `readableApplicationIds` collapses a caller's grants down to the
+applications they touch and **loses the request type each grant was narrowed to**.
+`resolveAdminReadScope` was built from that list alone, and `canReadSubmissionRow`
+checked only `application_id`. A grant is `(user, application, role, request_type)`
+and read was using two of the four.
+
+**Why nothing caught it.** `docs/DEVELOPER_HANDOFF.md` §8.4 claimed *"No defect is
+on this screen … it is what the server sends"*, and the screenshot appeared to prove
+it — because the queue's kind switch **opens on a filter that hides them**. A filter
+is not a permission. Every existing `adminReadScope` test passed an envelope with no
+per-type detail, which is exactly the shape that still means "all types".
+
+**The fix.** The scope now carries `typeIdsByApplication` (application → allowed type
+ids, `null` for an all-types grant) and the check applies it to **all three** read
+paths: the application, the soft association, and the hand-off ledger. **By type ID
+rather than name**, because the list path scopes RAW rows before hydration — `row.type`
+is undefined there and only `type_id` exists.
+
+Two deliberate asymmetries: an envelope with **no** per-type detail keeps the old
+all-types behaviour, so a stale envelope cannot blank somebody's queue; and a row with
+**no** type is admitted only by an all-types grant, so it fails closed.
+
+Proved across four roles afterwards, not just the reporting one:
+
+| | before | after |
+|---|---|---|
+| `pc_report_analyst` | 16 rows, 4 defects + 4 enhancements | **8, all report requests** |
+| `bc_app_admin` (defect/enhancement) | — | **16, no report requests** — symmetric |
+| `lead_admin` (all types) | — | 27, unchanged |
+| `admin` (super) | — | 43, unchanged |
+
+### 2. The banner told them about it anyway
+
+> *"In the banner I have the notification about new requests and workarounds. Since I
+> don't work those, I shouldn't see anything related to defects, enhancements or
+> cleanups if I don't have that role."*
+
+`emitAdminNotification` was `io.to('admins')` — **every signed-in admin socket,
+whatever they are granted.** The same leak, one surface over, and closing the read
+scope would have left it wide open.
+
+`resolveAdminAudienceForRow` answers the same question as `canReadSubmissionRow` from
+the other end — *who may see this row* rather than *may this caller see it* — and
+reads the same three things so the two cannot drift. Each admin socket joins a room
+of its own (`admin-user:<id>`).
+
+Two rules worth keeping, and they point opposite ways on purpose:
+
+- **`null` means "cannot tell", and goes to everybody.** An import summary carries no
+  submission; silencing it would break a working notification to close a gap it does
+  not have.
+- **An exception fails closed and emits nothing.** `null` is a known shape; a throw
+  means the scoping did not run, and broadcasting then is the leak this exists to
+  close.
+
+`emitAdminNotification` is now async and deliberately **not awaited** by its ten
+callers: a notification is not part of the write, and a socket that failed to fan out
+must not fail the request that caused it.
+
+### 3. "Filing as Bailey Rep (Billing Center)"
+
+> *"On the form it says filing as and then has an application in parentheses. This is
+> misleading … I was on the bc_rep account and it says filing as my name and then
+> (Billing Center), however when I select the Policy Center application to submit
+> under, it still says filing as Billing Center at the top."*
+
+**Not UI logic — the seeded `display_name` literally was `Bailey Rep (Billing
+Center)`.** The form renders the name and nothing else. It never mattered until
+`646711c` made the application an explicit question directly below it, at which point
+the parenthetical read as the answer to that question. **The team is not a property
+of the request.**
+
+Fixed in three places, because a name lives in three: the constant in
+`seedTeamAccounts.js`, the live `users` rows, and the `created_by` **text snapshots**
+on 13 existing tickets — a snapshot is normally right to leave alone, but this is
+demonstration data being photographed for a manual, and an inconsistency there reads
+as a bug.
+
+`seedTeamAccounts.js` now reconciles a drifted display name, the way it already
+reconciled a drifted grant role, so the constant is the source of truth rather than
+something that only applies to accounts that do not exist yet.
+
+**And it created six grants nobody asked for.** The run that fixed a display name also
+added narrowed per-type grants to two accounts whose grants had been widened to `''`
+by hand — rows that change nothing, because an all-types grant already covers them.
+`seedOtherApplication.js` states that rule and actively drops such rows; this script
+created them. Removed, and the script now skips a narrower grant when an every-type
+one exists. **Redundant access rows are how an access model stops being readable.**
+
+### 4. The demonstration data could not show any of the last pass's work
+
+`npm run seed:unwired-work` — one application and four requests, on the owner's
+explicit authorisation to change the data:
+
+| | |
+|---|---|
+| `Other` · **defect** · Approved | softly assigned to Billing Center — the greyed-out Send, its note, AND the picker with a value chosen, in one screen |
+| `Other` · **enhancement** · Submitted | with a **hand-typed** incident number: the manual flow completed, which is what the note tells you to do |
+| `Marketing Analytics` · report ×2 | one filed through the form, one recorded by the analyst |
+
+`Marketing Analytics` is created the way the endpoint creates one — `reports_only = 1`
+and **granted in the same transaction** to everybody who works report requests, using
+`resolveReportWorkers`, the service's own function rather than a copy.
+
+**Nothing it adds is Delivered and no hours are logged**, deliberately: that is the
+modelling rule the reseed established and `verify-throughput-page.mjs` depends on, and
+it leaves the new queue structurally empty — the honest picture of a brand-new one.
+
+**Three new screenshots**, so the manual stops describing features it cannot show:
+`28-admin-queue-other` (the queue scoped to `Other`, every kind at once),
+`39-detail-other-unwired` (**both** the soft-assign picker and the greyed-out Send
+with its note — the note renders in the footer on every tab, so one shot carries two
+features), and `46-add-ticket-add-application`. 65 shots now.
+
+### Four things this pass got wrong first
+
+- **A report-only status on a defect.** The seed gave the `Other` defect `In
+  progress`, which is one of the three report-only statuses — so the identity band
+  said "In progress" while the Triage select fell back to "New". **Caught by looking
+  at the screenshot**, not by any check: the row was valid SQL and every test passed.
+  Now `Approved`, which is also the better story next to a greyed-out Send.
+- **A `findAll` inside a transaction cannot see that transaction's own insert.** The
+  seed created the application and then re-read the applications map to resolve its
+  id. Rolled back cleanly, which is the transaction doing its job.
+- **A 429 looks exactly like a broken permission check.** Mid-diagnosis,
+  `bc_app_admin` returned 0 rows and it read as the new type scope refusing
+  everything. It was the login rate limiter, and the probe was not printing the login
+  status. §0.3 has said this for four passes; it still caught me.
+- **`.at(-1)` on the application list.** `verify-submit-form` picks "an application
+  that is not the viewer's home one" to prove the payload's application survives, and
+  reports-only applications sort last — so it started choosing `Marketing Analytics`
+  and filing an *enhancement* there. Refused, correctly, by
+  `helpers/applicationScope.js`. The check read as a broken product and was a probe
+  that had not been told about a rule.
+
+### Verified
+
+428 server tests (18 new: 10 read-scope, 8 notification audience), lint, build, and
+**all seven** browser scripts re-run against the changed data and the narrowed scope —
+`verify-admin-data-entry` 150/150, `verify-submit-form` 63/63, `verify-throughput-page`
+52/52, `verify-metadata-page` 30/30, `verify-public-board` 21/21,
+`verify-report-import-export` 20/20, `verify-session-store` 17/17. 65 screenshots.
+Database at 43 submissions and 4 applications, with every fixture removed.
 
 ## The analyst's UI, the hand-off affordance, and what `Other` is for (2026-08-08, eighteenth pass)
 
@@ -1428,6 +1570,19 @@ branch). Two remain, both needing a decision:
      cleanup check compares live session rows before and after; running it
      **concurrently** with `verify-metadata-page` counted that script's logins and
      failed. Baselines do not protect against a second writer — run that one alone.
+
+   And two more on 2026-08-08, both of which read as product faults:
+
+   - **`.at(-1)` on a list the data can grow.** `verify-submit-form` picked "an
+     application that is not the viewer's home one" to prove the payload's
+     application survives a submit. Reports-only applications sort last, so the
+     moment the demonstration data had one it started filing an **enhancement**
+     into a reports-only queue — refused, correctly. A probe that indexes into a
+     list has to say which PROPERTY it needs, not which position.
+   - **A 429 looks exactly like a broken permission check.** Mid-diagnosis of the
+     read-scope leak, `bc_app_admin` returned 0 rows and read as the new type scope
+     refusing everything. It was the login limiter, and the probe was not printing
+     the login status. **Print it**, in anything that logs in more than once.
 
 ## 1. Landed and verified (2026-08-05, first pass)
 

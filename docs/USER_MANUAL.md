@@ -93,9 +93,14 @@ questions you are asked, because they are genuinely different things.
 
 Two things on this page are worth knowing before you start:
 
-- **"Filing as …"** at the top of the form is who the request will belong to. There
-  is no name box, because the portal already knows who you are and would throw a
-  typed name away.
+- **"Filing as …"** at the top of the form is **who the request will belong to** —
+  your name, and nothing else. It is not the application the request is about; that
+  is the picker further down, and only you can answer it. (It used to read
+  *"Filing as Bailey Rep (Billing Center)"*, which looked exactly like the answer to
+  a question it was not answering. The team was never a property of the request.)
+- **The rail on the right** — "Before you submit" — ticks items off as you type, and
+  the **Submit** button lives there. You can press it with fields still empty: it
+  will point them out rather than refusing to explain.
 - **The rail on the right** — "Before you submit" — ticks items off as you type, and
   the **Submit** button lives there. You can press it with fields still empty: it
   will point them out rather than refusing to explain.
@@ -366,6 +371,8 @@ tomorrow.
 
 ### `Other` — the catch-all working list
 
+![The Other queue](handoff/screenshots/28-admin-queue-other.png)
+
 `Other` is a real queue, not a holding pen. Two quite different things land in it:
 
 - **A system with no Service Desk connection.** There is no configured application
@@ -389,6 +396,12 @@ The same page as a reporting analyst whose grant covers report requests on one
 application. **No defect is on this screen**, there is no application switcher
 (there is nothing to switch to), and there is no *Manage metadata* in the menu. This
 is not the queue with rows hidden — it is what the server sends.
+
+> **Your grant covers an application *and* a request type, and both are enforced.**
+> If you work report requests for Billing Center, that is what you get — switching
+> to *All kinds* shows you no defects, because there are none to show you. The same
+> applies to the banner: you are told about new requests and workarounds **in the
+> work you actually do**, and nothing else.
 
 ## 2.2 Finding things
 
@@ -441,6 +454,12 @@ nine; everything else offers the rest. See
 [the appendix](#appendix-what-the-statuses-mean).
 
 #### "Also show it in" — putting an `Other` ticket on your own list
+
+![A defect in Other](handoff/screenshots/39-detail-other-unwired.png)
+
+Two things in one picture: the picker under *Ownership & tracking*, and the footer
+where **Submit to the Service Desk is greyed out** with the note telling you what to
+do instead (§2.6).
 
 **Only on a ticket in `Other`**, under *Ownership & tracking*, there is a picker
 offering the queues you work in.
@@ -578,6 +597,8 @@ Three things to know:
 
 ### When the application is not wired up to the Service Desk
 
+![Send greyed out](handoff/screenshots/39-detail-other-unwired.png)
+
 Some systems have no Service Desk catalog configured, so the portal cannot raise a
 ticket in them. **`Other` is the clearest example** — it is the queue for exactly
 that case (§2.1).
@@ -676,6 +697,8 @@ in **two** places, and it is the same control:
    recording a request for a system that is not in the list.
 2. **⋯ More → Redirect**, on a report request — you have realised an `Other` request
    is really Marketing Analytics'.
+
+![Adding an application](handoff/screenshots/46-add-ticket-add-application.png)
 
 Click **“+ The application isn’t listed”**, type the name, press **Add** or Enter.
 

@@ -117,7 +117,7 @@ const ACCOUNTS = [
   // a rep has none. Everything they can do follows from being signed in.
   {
     username: 'pc_rep',
-    displayName: 'Pat Rep (Policy Center)',
+    displayName: 'Pat Rep',
     email: 'pc.rep@example.invalid',
     accountRole: 'rep',
     what: 'Requester who mostly files for Policy Center — may file for any application',
@@ -125,7 +125,7 @@ const ACCOUNTS = [
   },
   {
     username: 'bc_rep',
-    displayName: 'Bailey Rep (Billing Center)',
+    displayName: 'Bailey Rep',
     email: 'bc.rep@example.invalid',
     accountRole: 'rep',
     what: 'Requester who mostly files for Billing Center — may file for any application',
@@ -165,6 +165,7 @@ async function main() {
   let createdUsers = 0;
   let createdGrants = 0;
   let correctedGrants = 0;
+  let correctedNames = 0;
 
   for (const account of ACCOUNTS) {
     console.log(`\n${account.username} — ${account.what}`);
@@ -172,6 +173,25 @@ async function main() {
     let user = await User.findOne({ where: { username: account.username }, raw: true });
     if (user) {
       console.log('  account: already present, left as it is (password untouched)');
+      // ...except the DISPLAY NAME, which this file is the source of truth for.
+      // Left alone, a name fixed here never reached an account that already
+      // existed — and the two rep names carried "(Billing Center)" / "(Policy
+      // Center)", which the submit form prints as "Filing as Bailey Rep (Billing
+      // Center)" directly above the question "which application is this about?".
+      // The owner read it as the answer to that question, which is exactly what it
+      // looks like. The team is not a property of the request.
+      //
+      // Corrected the same way a drifted grant role is below, and printed, because
+      // it overwrites something somebody could have set deliberately.
+      if (String(user.display_name || '') !== account.displayName) {
+        if (APPLY) {
+          await User.update({ display_name: account.displayName }, { where: { id: user.id } });
+          correctedNames += 1;
+          console.log(`  name: "${user.display_name}" → "${account.displayName}"`);
+        } else {
+          console.log(`  name: would correct "${user.display_name}" → "${account.displayName}"`);
+        }
+      }
     } else if (APPLY) {
       user = (await User.create({
         username: account.username,
@@ -211,6 +231,23 @@ async function main() {
         console.log(`  grant: ${grant.role} on ${grant.application} for ${scope} — already present`);
         continue;
       }
+      // An all-types grant on the same application already covers this narrower
+      // one, so adding it writes a row that changes nothing. `seedOtherApplication`
+      // states the same rule and actively drops such rows; this one used to create
+      // them, and did — six of them, against two accounts whose grants had been
+      // widened to '' by hand, on a run that was only meant to fix a display name.
+      // Redundant access rows are how an access model stops being readable.
+      if (!existing && grant.requestType) {
+        const everyType = await UserApplicationRole.findOne({
+          where: { user_id: Number(user.id), application_id: applicationId, request_type: '' },
+          raw: true,
+        });
+        if (everyType) {
+          console.log(`  grant: ${grant.application}/${scope} — skipped, `
+            + `an every-type grant already covers it`);
+          continue;
+        }
+      }
       if (existing) {
         console.log(`  grant: ${grant.application}/${scope} is ${existing.role}, declared ${grant.role}`
           + `${APPLY ? ' — corrected' : ' — would correct'}`);
@@ -241,7 +278,7 @@ async function main() {
   const grantsAfter = await UserApplicationRole.count();
   console.log(`\n${usersAfter} users, ${grantsAfter} grants after`);
   if (APPLY) {
-    console.log(`Created ${createdUsers} accounts and ${createdGrants} grants; corrected ${correctedGrants}.`);
+    console.log(`Created ${createdUsers} accounts and ${createdGrants} grants; corrected ${correctedGrants} grant(s) and ${correctedNames} display name(s).`);
     console.log('Nobody was given the `manager` rank — see this file\'s header.');
   } else {
     console.log('DRY RUN. Re-run with --apply to write.');

@@ -1,7 +1,9 @@
 const { Server } = require('socket.io');
+const dbApi = require('../db');
 const { CLIENT_ORIGINS } = require('./config');
 const { verifyRealtimeToken } = require('./helpers/realtimeToken');
 const { boardAudienceFor } = require('./helpers/reportVisibility');
+const { resolveAdminAudienceForRow } = require('./services/viewerService');
 
 let io = null;
 
@@ -105,6 +107,10 @@ function initSocket(server, sessionMiddleware) {
     socket.data.username = user?.username || null;
     if (user?.role === 'admin') {
       socket.join('admins');
+      // A room of one per admin, so a notification can reach exactly the people
+      // entitled to it rather than every admin. `admins` is still joined: it is
+      // what an unscopeable payload falls back to, and what presence uses.
+      if (user?.id != null) socket.join(adminUserRoom(user.id));
       socket.on('ticket:enter', ({ submissionId } = {}) => {
         if (submissionId != null) enterTicket(socket, submissionId);
       });
@@ -128,14 +134,53 @@ function initSocket(server, sessionMiddleware) {
 }
 
 const publicUserRoom = (userId) => `public-user:${Number(userId)}`;
+const adminUserRoom = (userId) => `admin-user:${Number(userId)}`;
 
+/**
+ * Tell the admin side something changed — to the admins entitled to know.
+ *
+ * IT USED TO GO TO EVERY ADMIN. `io.to('admins')` is every signed-in admin socket,
+ * whatever they are granted, so a reporting analyst's banner announced every new
+ * defect and every workaround request. The owner found it: *"since I don't work
+ * those, I shouldn't see anything related to defects, enhancements or cleanups if I
+ * don't have that role."* Same leak as the unscoped read, one surface over.
+ *
+ * The audience is resolved from the row (`resolveAdminAudienceForRow`) and the
+ * event goes to one room per entitled user. A payload that identifies no
+ * submission — an import summary, say — cannot be scoped, and that answers **null**
+ * and still goes to everybody: silencing a working notification to close a gap it
+ * does not have would be the worse trade.
+ *
+ * Async now, and deliberately NOT awaited by its callers: a notification is not
+ * part of the write, and a socket that failed to fan out must not fail the request
+ * that caused it. Errors are logged and swallowed for the same reason.
+ */
 function emitAdminNotification(event, payload) {
   if (!io) return;
-  io.to('admins').emit('admin:notification', {
-    event,
-    payload,
-    at: new Date().toISOString(),
-  });
+  const message = { event, payload, at: new Date().toISOString() };
+
+  const models = dbApi.getModels() || {};
+  Promise.resolve()
+    .then(() => resolveAdminAudienceForRow(models, payload))
+    .then((audience) => {
+      if (!io) return;
+      if (audience === null || audience === undefined) {
+        io.to('admins').emit('admin:notification', message);
+        return;
+      }
+      // A row nobody is entitled to hear about is simply not announced. It is
+      // still there on the next load, for whoever can see it.
+      for (const userId of audience) {
+        io.to(adminUserRoom(userId)).emit('admin:notification', message);
+      }
+    })
+    .catch((error) => {
+      // Fail CLOSED on an error, unlike the null case above: null means "this
+      // payload carries nothing to scope by", which is a known shape. An exception
+      // means the scoping did not run, and broadcasting then would be the leak
+      // this function exists to close.
+      console.error('admin notification scoping failed, not emitted:', error?.message || error);
+    });
 }
 
 /**

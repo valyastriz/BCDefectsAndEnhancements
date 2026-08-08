@@ -448,8 +448,14 @@ async function run() {
     // A REAL application that is not the viewer's own home one, and not the Other
     // queue — the point is that the payload's application survives, so it has to be
     // one the fallback would not have picked anyway.
+    //
+    // And not a REPORTS-ONLY one. Those sort last (created with sort_order = max+1),
+    // so `.at(-1)` started returning `Marketing Analytics` the moment the
+    // demonstration data had one — and an enhancement filed there is refused by
+    // `helpers/applicationScope.js`, correctly. The check then read as "the payload's
+    // application did not survive" when what actually happened was a rule working.
     const secondApplication = applications
-      .filter((row) => !/^other$/i.test(row.name))
+      .filter((row) => !/^other$/i.test(row.name) && !row.reportsOnly)
       .at(-1);
     const filed = await page.request.post(`${API}/api/submissions`, {
       multipart: {
