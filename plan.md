@@ -79,10 +79,60 @@ path with its own application resolution.
 
 ---
 
+## Part XII — Wanted next, and a US-English pass over the docs (2026-08-11, twenty-first pass)
+
+The owner edited the handoff's opening and asked for a roadmap section. Both landed,
+plus the knock-on fixes their edits exposed.
+
+**New: `DEVELOPER_HANDOFF.md` Part XII — Wanted next** (§25–28), the owner's stated
+intent, marked explicitly as not built. Each item is grounded in what the code
+actually does, which changed the advice in three places:
+
+- **§25 Claims / more applications.** The premise checked out and was worse than
+  stated: fields are driven by **Type, not application**, so BC and PC already share
+  one form and the policy/account/transaction trio is a BC-shaped compromise. Written
+  up as a three-way trade (more columns · JSON · a field-definition table) whose only
+  deciding input is how many applications are coming. Flagged the two things that
+  assume a uniform record: the Excel round-trip's fixed columns and the single
+  EasyVista description builder.
+- **§26 Report flavours** is §25 one level down — hence "key the definition table by
+  (application, type, subtype) from the start". Also: do **not** model a flavour as a
+  new Type, because Type drives statuses and the Service Desk payload too.
+- **§27 Approval.** `approved_by_name` is deliberately text and not a user id because
+  approvers usually are not portal users, and imported rows have none — so in-app
+  signing has to be a **second route** (`approval_method` + nullable
+  `approved_by_user_id`) or `is_approved` stops deriving from one pair. The emailed
+  approval link is written up as what it is: **a bearer token**, needing single-use,
+  expiring, hashed, one-submission-one-address treatment. AD is not wired in.
+- **§28 Email.** There is **no mail capability anywhere** in the server. The point
+  worth keeping: §1 says the portal exists because work lived in email threads with no
+  audit trail, so a send the app cannot show afterwards recreates the original problem.
+
+**Docs converted to US spelling** — 63 changes across the three, prose only. Done with
+a word list, never a blanket `-ise`→`-ize`: that would maul *advise, otherwise,
+precise, promise, enterprise, compromise, expertise*, and **"optimistic" is not
+British** — "optimistic concurrency" is the real term. Fenced code and inline
+backticks were skipped so column names, env vars and status values were untouched.
+Three headings changed slug (`catalogue`, `behaviours`, `Prioritisation`); no inbound
+links pointed at them.
+
+**Knock-ons and defects fixed:** `NEXT_STEPS.md` still claimed "people have used it"
+after the owner removed it from the handoff. `USER_MANUAL.md` §1.2 had a **duplicated
+bullet** shipped in an earlier commit — "Two things … worth knowing" followed by three,
+two identical. The owner's new §1 bullet was rewritten to say what they meant: **the
+Product Owners could not see each other's work** — not the rep-visibility point above
+it, which is a different problem.
+
+**All 112 anchor links across the three documents verified**, twice — once after the
+new section and once after the spelling pass, since renaming a heading moves its slug.
+Worth knowing: **the build-time anchor validator went with the scrapped PDF script**,
+so nothing in the repo checks this now. It was done with a throwaway script; if dead
+links matter, that check is the one thing worth bringing back.
+
 ## The three documents as PDFs — script built, then scrapped for the extension (2026-08-08 → 2026-08-11, twentieth pass)
 
 Asked for: the three deliverable documents as PDFs with the section links clickable
-the way they are in the markdown. **Shipped:** `docs/handoff/pdf/` — `DEVELOPER_HANDOFF.pdf`,
+the way they are in the markdown. **Shipped:** `docs/pdf/` — `DEVELOPER_HANDOFF.pdf`,
 `USER_MANUAL.pdf`, `NEXT_STEPS.pdf`, exported by hand with the VS Code
 extension **Markdown PDF** (`yzane.markdown-pdf`). There is no build script and no
 check — **re-export after editing a document, because nothing else will.**

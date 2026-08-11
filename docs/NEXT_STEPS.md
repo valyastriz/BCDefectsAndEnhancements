@@ -1,26 +1,26 @@
 # Service Requests Portal — Next Steps
 
 **Written:** 2026-08-07
-**Prototype owner:** Valya (Citizen Developers programme)
+**Prototype owner:** Valya (Citizen Developers program)
 **Decision requested from:** the Customer Interactions team
 
 ---
 
 ## What this app is, and where it came from
 
-The Service Requests Portal was built in the **Citizen Developers programme**, in
+The Service Requests Portal was built in the **Citizen Developers program**, in
 which employees who are not developers build working solutions to problems they
-own. It is a working prototype: it runs, it holds data, people have used it, and
-it settles the product questions — what the workflow is, what each screen has to
-do, which rules are load-bearing, and where the sharp edges are.
+own. It is a working prototype: it runs, it holds data, and it settles the product
+questions — what the workflow is, what each screen has to do, which rules are
+load-bearing, and where the sharp edges are.
 
-Every app that comes out of the programme ends in one of three ways:
+Every app that comes out of the program ends in one of three ways:
 
 | Outcome | Means |
 |---|---|
 | **Retired** | The solution was wrong, or the problem went away. Nothing carries forward. |
 | **Hardened in place** | The prototype itself is taken on, brought up to company standards, and deployed as-is. |
-| **Rebuild** | Developers re-create the application from the prototype, on the organisation's own stack and standards. |
+| **Rebuild** | Developers re-create the application from the prototype, on the organization's own stack and standards. |
 
 ---
 
@@ -43,7 +43,7 @@ cosmetic:
 
 - Attachments are stored where the hosting made easy, in a **public** bucket.
   They are screenshots that may carry customer policy and account data. They need
-  to sit behind authorisation.
+  to sit behind authorization.
 - The schema **self-migrates on boot** in production. Convenient while moving
   fast; unreviewable and irreversible as a deploy strategy.
 - Timestamps are ISO strings in `TEXT` columns, and `updated_at` doubles as the
@@ -63,7 +63,7 @@ hardening pass.
 
 **What a rebuild inherits.** The prototype is not thrown away — it is the
 specification. [`DEVELOPER_HANDOFF.md`](DEVELOPER_HANDOFF.md) carries every
-decision and the reason for it, an acceptance checklist of the behaviours that are
+decision and the reason for it, an acceptance checklist of the behaviors that are
 load-bearing, and a full inventory of what to delete rather than reproduce.
 [`USER_MANUAL.md`](USER_MANUAL.md) documents every feature as it works today.
 The screenshots are current as of this date and are re-takeable with one command.
@@ -72,9 +72,9 @@ The screenshots are current as of this date and are re-takeable with one command
 
 ## What is needed now
 
-### 1. Prioritisation by the Customer Interactions team
+### 1. Prioritization by the Customer Interactions team
 
-The rebuild needs to be **prioritised by the Customer Interactions team**. It is
+The rebuild needs to be **prioritized by the Customer Interactions team**. It is
 not a candidate for spare capacity: it replaces a process that is currently
 running on this prototype, and the prototype is deployed on external hosting with
 a shared test database, which is not where it should stay.
@@ -82,7 +82,7 @@ a shared test database, which is not where it should stay.
 Two things worth knowing when it is sized:
 
 - **The product questions are settled.** The workflow, the field lists, the status
-  vocabulary, the access model and the screen behaviours are all decided, built,
+  vocabulary, the access model and the screen behaviors are all decided, built,
   used and documented. A rebuild team is not doing discovery.
 - **Two decisions are genuinely open** and belong to the engineering team, not to
   the product owner: the **database engine**, and the **hosting shape**. Both are
@@ -124,7 +124,7 @@ Everything below is true as of 2026-08-07.
 ### The three things to do first
 
 1. **Read the handoff's acceptance checklist** before writing any code. It is a
-   list of behaviours that each either encode a domain rule or fix a bug that was
+   list of behaviors that each either encode a domain rule or fix a bug that was
    actually hit. Breaking one is a regression, not a design difference.
 2. **Take the two open decisions** — database engine and hosting shape — early.
    Everything else in the rebuild is downstream of them.

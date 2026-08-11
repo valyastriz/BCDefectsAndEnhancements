@@ -21,12 +21,12 @@ for a rebuild on the organisation's own stack — not the thing that ships long-
 
 > These three replace the two overlapping READMEs this repo used to have. The old
 > `docs/handoff/README.md` is gone; its content is in `docs/DEVELOPER_HANDOFF.md`.
-> `docs/handoff/` holds the screenshots, their manifest, and the PDFs.
+> `docs/handoff/` now holds only the screenshots and their manifest.
 
-**To send one to somebody:** all three are in [`docs/handoff/pdf/`](docs/handoff/pdf/) —
-[`DEVELOPER_HANDOFF.pdf`](docs/handoff/pdf/DEVELOPER_HANDOFF.pdf),
-[`USER_MANUAL.pdf`](docs/handoff/pdf/USER_MANUAL.pdf),
-[`NEXT_STEPS.pdf`](docs/handoff/pdf/NEXT_STEPS.pdf) — with the contents list and every
+**To send one to somebody:** all three are in [`docs/pdf/`](docs/pdf/) —
+[`DEVELOPER_HANDOFF.pdf`](docs/pdf/DEVELOPER_HANDOFF.pdf),
+[`USER_MANUAL.pdf`](docs/pdf/USER_MANUAL.pdf),
+[`NEXT_STEPS.pdf`](docs/pdf/NEXT_STEPS.pdf) — with the contents list and every
 cross-reference inside each document clickable. They are exported by hand with the
 VS Code extension **Markdown PDF** (`yzane.markdown-pdf`), so **re-export after
 editing a document**; see

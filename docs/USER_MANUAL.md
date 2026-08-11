@@ -14,7 +14,7 @@ here is never of a build nobody is running.
 are at the end. Sign in as `bc_rep` to see what a requester sees, or `admin` to see
 everything.
 
-**Prefer a PDF?** `docs/handoff/pdf/USER_MANUAL.pdf` is this document, screenshots and all, with
+**Prefer a PDF?** `docs/pdf/USER_MANUAL.pdf` is this document, screenshots and all, with
 the contents list and every cross-reference inside it still clickable. The handoff and
 next-steps documents have PDFs beside it. The few links that point from one document to
 another only work in the markdown, so read those here.
@@ -106,9 +106,6 @@ Two things on this page are worth knowing before you start:
 - **The rail on the right** — "Before you submit" — ticks items off as you type, and
   the **Submit** button lives there. You can press it with fields still empty: it
   will point them out rather than refusing to explain.
-- **The rail on the right** — "Before you submit" — ticks items off as you type, and
-  the **Submit** button lives there. You can press it with fields still empty: it
-  will point them out rather than refusing to explain.
 
 ## 1.3 Filing a defect
 
@@ -151,7 +148,7 @@ first one. Nothing turns red while you are still typing.
 
 A shorter form, because there is nothing broken to describe. Say what you want and
 **what it would save you** — time per case, errors avoided, calls prevented. That
-sentence is what the request is prioritised on, so it is worth a minute.
+sentence is what the request is prioritized on, so it is worth a minute.
 
 ## 1.5 Asking for a report or dashboard
 
@@ -190,7 +187,7 @@ cut of the same data."*
 
 Both branches also ask **how often you will use it** (Daily / Weekly / Monthly /
 Quarterly / Annually / One-off) and **your department**. Both help with sizing and
-prioritisation.
+prioritization.
 
 > **Report requests are private.** Only you can see one you filed — not the rest of
 > the board. They name internal datasets, departments and often what somebody is
@@ -345,7 +342,7 @@ Your working surface. From the top:
    Impact, Direct Dollar Impact and Policies Impacted for the current view.
 7. **The table.** Sortable, inline-editable, multi-select.
 
-**Only `New` rows carry a coloured stripe down the left.** Every status used to have
+**Only `New` rows carry a colored stripe down the left.** Every status used to have
 one, which meant the stripe distinguished nothing. The status is already in its own
 column with its own badge; the stripe now marks the one thing that column cannot say
 at a glance — *nobody has looked at this yet.*
@@ -766,7 +763,7 @@ step is the ones that did not: expand **Review all N mappings** to see everythin
 correct anything. You also get **the first rows as they will be imported**, before
 anything is written.
 
-Values the portal does not recognise — a status it does not have, a level of effort
+Values the portal does not recognize — a status it does not have, a level of effort
 that is not on the list — are surfaced here for a decision rather than silently
 dropped.
 
@@ -902,8 +899,8 @@ pages and the ticket modal.
 
 ![Dark Delivery pane](handoff/screenshots/75-dark-detail-report.png)
 
-A report request's Delivery pane in dark mode. The two chart colours on the
-throughput page have their own pair per theme, so neither is a light-mode colour
+A report request's Delivery pane in dark mode. The two chart colors on the
+throughput page have their own pair per theme, so neither is a light-mode color
 dimmed.
 
 **Every admin page works on a phone**, though the queue is the tightest fit — the
@@ -966,7 +963,7 @@ should be granted on purpose rather than because an account sounds senior.
 |---|---|
 | `New` | Filed, nobody has looked at it yet |
 | `Requires Additional Review` | Triage needs more information or another opinion before deciding |
-| `Pending Management Approval` | Accepted in principle, waiting on somebody to authorise it |
+| `Pending Management Approval` | Accepted in principle, waiting on somebody to authorize it |
 | `Approved` | Accepted as valid work |
 | `Submitted` | Handed to the Service Desk |
 | `Deployed` | Released |

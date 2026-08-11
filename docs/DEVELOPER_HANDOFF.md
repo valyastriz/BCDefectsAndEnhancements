@@ -1,15 +1,14 @@
 # Service Requests Portal — Developer Handoff
 
-**One document.** It replaces the two that used to overlap (the root `README.md`
-and `docs/handoff/README.md`) and carries both halves: **how the thing works**,
+**One document.** It carries both halves: **how the thing works**,
 and **why it works that way**. The code is disposable; the decisions are not.
 
 **Audience:** the engineering team who will rebuild this application on the
-organisation's own stack and standards. Also useful to anyone opening the repo.
+organization's own stack and standards. Also useful to anyone opening the repo.
 
-**Status: working prototype.** It runs, it holds test data, people have used it,
-and it is the reference for a rebuild — not the thing that ships long-term. See
-[`NEXT_STEPS.md`](NEXT_STEPS.md) for the programme decision (it is a **Rebuild**).
+**Status: working prototype.** It runs, it holds test data, and it is the reference
+for a rebuild — not the thing that ships long-term. See [`NEXT_STEPS.md`](NEXT_STEPS.md)
+for the program decision (it is a **Rebuild**).
 
 **How to read it.** Every section answers *what it does* and *why*. Where a
 decision was forced by a constraint you may not share — a SQLite quirk, a hosting
@@ -31,7 +30,7 @@ them being un-corrected.
 > **Screenshots** in [`handoff/screenshots/`](handoff/screenshots/) were captured
 > on **2026-08-08** by `client/scripts/capture-screenshots.mjs` against the hosted
 > database, which holds a purpose-built demonstration set. It is entirely test
-> data, and the owner confirmed it is fine to photograph.
+> data.
 > `handoff/screenshot-manifest.json` is written **by** that script, so it cannot
 > describe a shot the script did not take. See [Part VII](#part-vii--running-and-verifying).
 
@@ -75,6 +74,12 @@ them being un-corrected.
 [23. Known gaps](#part-x--known-gaps-traps-and-open-questions) ·
 [24. Acceptance checklist](#part-xi--rebuild-acceptance-checklist)
 
+**Part XII — Wanted next** — asked for, not built
+[25. More applications, Claims first](#25-more-applications-starting-with-claims) ·
+[26. Report requests in more than one flavour](#26-report-requests-in-more-than-one-flavour) ·
+[27. Approval signed inside the app](#27-approval-signed-inside-the-app) ·
+[28. Email out of the app](#28-email-out-of-the-app-prefilled-from-the-request)
+
 [Test accounts](#test-accounts) · [Where to look in the prototype](#where-to-look-in-the-prototype)
 
 ---
@@ -86,22 +91,25 @@ them being un-corrected.
 The **Customer Interactions / Product Owners** team fields a constant stream of
 work from **field representatives**: Billing Center and Policy Center defect
 reports, enhancement requests, and — added later — **requests for reports and
-dashboards**. They triage it, prioritise it, and decide what is escalated to
+dashboards**. They triage it, prioritize it, and decide what is escalated to
 **Tier 2 GTS**, who work tickets in **EasyVista** (surfaced throughout the app as
 "Service Desk", see [§14](#14-service-desk--easyvista)).
 
 Before this portal there was no system of record:
 
-- Defect reports lived in email threads, chat and spreadsheets — no audit trail,
+- Defect reports lived in email threads, chats and spreadsheets — no audit trail,
   and duplicates were near-impossible to spot.
 - Enhancement requests had no structured intake, so details arrived incomplete.
 - Product Owners had no single queue to triage from.
-- Historical records sat in Excel files that could not be searched.
+- Historical records sat in Excel files that could not be searched by reps.
 - Escalating to EasyVista meant manual copy-paste.
 - **Reps had no visibility.** They could not see whether an issue was already
   known, or what happened to something they filed — so they filed it again.
   Duplicate intake was the largest single source of wasted triage effort.
-- Nobody knew when new work arrived without checking.
+- **The Product Owners could not see each other's work.** Nothing said whether a
+  report had already been picked up, or by which Product Owner — you found out only
+  if the person who handled it happened to tell you. Two people working the same
+  request, or nobody working it at all, both looked identical from the outside.
 - Report and dashboard requests arrived through the same informal channels and had
   the same problems, plus one of their own: nobody could say how much analyst time
   went into them.
@@ -172,7 +180,7 @@ platform carries WebSocket upgrades end to end, delete it and use the session.
 | Layer | Technology | Notes for the rebuild |
 |---|---|---|
 | Frontend | React 19.2, React Router 7.13, Vite 5.4 | Vite is the **build tool**, not a host. It stays. |
-| UI system | **Custom** — `client/src/components/bite-size/BitsizeUI.jsx` + vanilla CSS, `bs-` prefix | No MUI, Tailwind or Bootstrap. Replace with your design system; the **behaviours** documented here are what must survive, not the CSS. Custom dialogs and notices throughout — **no native `alert()`/`confirm()`**. |
+| UI system | **Custom** — `client/src/components/bite-size/BitsizeUI.jsx` + vanilla CSS, `bs-` prefix | No MUI, Tailwind or Bootstrap. Replace with your design system; the **behaviors** documented here are what must survive, not the CSS. Custom dialogs and notices throughout — **no native `alert()`/`confirm()`**. |
 | Backend | Express 5.2, Sequelize 6.37 | Thin routes → services. |
 | Database | PostgreSQL (`pg` 8.16) **or** SQLite (`sql.js` 1.13) | Dual-provider was a prototype convenience. See [portability traps](#portability-traps-you-can-probably-delete). |
 | Real-time | Socket.IO 4.8 | |
@@ -368,7 +376,7 @@ list otherwise gives an admin no way to know which dropdown a value appears in.
 ### The public board turns status into position
 
 Two tracks, chosen per type, agreeing on what each POSITION means — so one
-`STATUS_STAGE` map and one set of pip colours cover both:
+`STATUS_STAGE` map and one set of pip colors cover both:
 
 ```
 defect / enhancement   Reported ── Approved ── With Service Desk ── Deployed
@@ -593,8 +601,8 @@ identity design — delete it once SSO lands.**
 
 ![Report-request track](handoff/screenshots/13-board-report-track.png)
 
-**Only `New` wears the queue's left stripe.** Every status had its own colour, so
-every row carried one and the stripe distinguished nothing — a wall of colour
+**Only `New` wears the queue's left stripe.** Every status had its own color, so
+every row carried one and the stripe distinguished nothing — a wall of color
 reads as decoration. The status is already stated in words, in its own column,
 with its own badge; the stripe now marks the one thing that column cannot say at a
 glance: *nobody has looked at this yet*. The `row-status--*` class is still written
@@ -610,7 +618,7 @@ the public board and the admin queue. The time-frame control encodes **both the
 dimension and the window** — "reported in the last 90 days" vs "resolved in the
 last 30 days" — because those are different questions.
 
-**Results come back in two labelled sections, and this is the important part:**
+**Results come back in two labeled sections, and this is the important part:**
 
 - **Closest matches** — tickets the model endorsed, by relevance tier.
 - **Keyword matches** — *"Tickets whose ID, incident or Jira number, policy,
@@ -840,9 +848,9 @@ DID send, that number is the server's own record of the hand-off.
 - **What it is approving:** a manager or supervisor okaying the **resources** to
   build the report. So it is a gate **before** work starts, which is how it is
   built. It is genuinely a **second gate**, not a restatement of the `Approved`
-  status: triage accepting a request as valid and a manager authorising the spend
+  status: triage accepting a request as valid and a manager authorizing the spend
   are different people saying yes to different questions. Keep them separate, and
-  keep the group labelled "Go-ahead".
+  keep the group labeled "Go-ahead".
 - **Level of effort** — a lookup, so the Metadata page can rename or retire values.
 - **Hours** — one row per sitting, per person, per day worked.
 - **The assignment trail** — who has held it and who moved it.
@@ -1017,7 +1025,7 @@ Every surface works at 390px.
 | ![Phone submit](handoff/screenshots/80-phone-submit.png) | ![Phone board](handoff/screenshots/82-phone-board.png) |
 
 On narrow screens the submit form hides the rail's copy of the primary button and
-shows a sticky bar instead. The detail modal's tab strip swaps for a labelled
+shows a sticky bar instead. The detail modal's tab strip swaps for a labeled
 `<select>` carrying the same badges as text — **CSS decides which is visible, so
 both are always in the DOM and always in step**.
 
@@ -1274,7 +1282,7 @@ Legacy tickets with **no** application stay visible to super users only.
 > `row.type` is undefined and only `type_id` exists.
 >
 > Two deliberate asymmetries: an envelope with **no** per-type detail keeps the old
-> all-types behaviour, so a stale envelope cannot blank somebody's queue; and a row
+> all-types behavior, so a stale envelope cannot blank somebody's queue; and a row
 > with **no** type is admitted only by an all-types grant, so it fails closed.
 
 ### Being told is the same permission as being able to see
@@ -1446,7 +1454,7 @@ Two independent checks, and you need both:
    rows** and gets the same 409.
 
 **Check 1 alone is a race. Check 2 is what actually makes it safe.** The
-authorisation check runs **before** the conflict check, so an unauthorised caller
+authorization check runs **before** the conflict check, so an unauthorised caller
 learns nothing about the row's edit history.
 
 ### Conflict resolution UI
@@ -1945,14 +1953,14 @@ unauthenticated `/uploads` path; it is served only by
 1. **On an ephemeral filesystem, the local backend loses every attachment on
    restart** — and leaves `attachments` rows pointing at files that no longer exist.
 2. **The Supabase bucket is public.** An attachment URL is reachable by anyone who
-   has it — unguessable, but **not behind authorisation**. Since these are
+   has it — unguessable, but **not behind authorization**. Since these are
    screenshots that may contain customer policy and account data, this is the
    weakest point in the app's data boundary. **Serve attachments through an
-   authorising endpoint, or use signed expiring URLs.** Everything else on the
+   authorizing endpoint, or use signed expiring URLs.** Everything else on the
    public surface is carefully allow-listed; this route around it was not intended
    as a design, it is a prototype shortcut.
 
-Deleting an attachment is authorised **against the parent ticket**, not the
+Deleting an attachment is authorized **against the parent ticket**, not the
 attachment id — the file carries no application of its own, and a missing parent is
 refused rather than treated as unowned.
 
@@ -1999,7 +2007,7 @@ one pair (`approved_at` + `approved_by_name`), and the booleans read off them in
 the throughput page counts by that column and the board's own word for the end state
 must not leave it empty.
 
-**The two chart colours** (`--chart-1` / `--chart-2`) have one pair per theme and
+**The two chart colors** (`--chart-1` / `--chart-2`) have one pair per theme and
 both were run through a contrast validator: light `#2563eb,#eb6834` on `#ffffff` and
 dark `#3b82f6,#e2622f` on `#1b2638`, all six checks passing.
 `client/scripts/lib/chart-scale-probe.mjs` additionally asserts every bar sits where
@@ -2237,7 +2245,7 @@ super user, which is the exact failure `Other` exists to avoid.
 |---|---|---|
 | `POST` | `/api/admin/submissions/:id/attachments` | Image-only |
 | `GET` | `/api/admin/attachments/:id/file` | The only way to read an `approval` file |
-| `DELETE` | `/api/admin/attachments/:id` | Authorised against the **parent ticket**, not the attachment id |
+| `DELETE` | `/api/admin/attachments/:id` | Authorized against the **parent ticket**, not the attachment id |
 | `GET` | `/api/admin/access` | **Super user** |
 | `PUT` | `/api/admin/access/users/:id/grants` | ” Whole set replaced, **with scopes** |
 | `POST` | `/api/admin/access/bulk` | ” All-or-nothing |
@@ -2527,7 +2535,7 @@ Design points a rebuild's own harness should keep:
 
 ## The PDFs
 
-The three documents also ship as PDFs in `docs/handoff/pdf/` — `DEVELOPER_HANDOFF.pdf`,
+The three documents also ship as PDFs in `docs/pdf/` — `DEVELOPER_HANDOFF.pdf`,
 `USER_MANUAL.pdf`, `NEXT_STEPS.pdf` — for anyone who wants to read or send one without
 the repo.
 
@@ -2555,7 +2563,7 @@ them:
 An earlier pass built these from a script (`marked` → Playwright Chromium print) with
 GitHub-compatible slugs, `#nameddest=` cross-document targeting, bookmarks, and a
 verifier that asserted every link against the produced bytes. It was **removed on
-2026-08-11** in favour of the extension: its print CSS forced a page break at every
+2026-08-11** in favor of the extension: its print CSS forced a page break at every
 heading, which left the manual's median page barely a third full, and a fixed-height
 flex cover fragmented so badly that Chromium painted the entire cover a second time on
 page 2, on top of the real text. The history is in `plan.md` if the trade is ever worth
@@ -2613,7 +2621,7 @@ would do.
 | `npm run seed:team-accounts` | The eight working accounts and their scoped grants |
 | `npm run seed:other-application` | The `Other` application, granted from the grants that exist |
 | `npm run seed:realistic` | The 39-request demonstration set |
-| `npm run seed:unwired-work` | The three things that set could not show: a defect **and** an enhancement in `Other` (one with a hand-typed incident number), an analyst-created reports-only application with two report requests, and a soft association. Refuses to seed twice. Nothing it adds is Delivered and no hours are logged — that is the modelling rule `verify-throughput-page.mjs` depends on. |
+| `npm run seed:unwired-work` | The three things that set could not show: a defect **and** an enhancement in `Other` (one with a hand-typed incident number), an analyst-created reports-only application with two report requests, and a soft association. Refuses to seed twice. Nothing it adds is Delivered and no hours are logged — that is the modeling rule `verify-throughput-page.mjs` depends on. |
 | `npm run purge:submissions` | **Every** submission and its children. Needs `--confirm=<count>`. |
 | `npm run remove:verification-tickets` | Remove `VERIFY`-prefixed fixtures by id |
 | `npm run remove:verification-applications` | Remove `VERIFY`-prefixed **applications** by name, with their grants. Refuses any application a submission still points at — a row with tickets in it is not a fixture, and destroying it would orphan them. Exists because `POST /api/admin/applications` has no DELETE to match, and the browser check that proves that control works has to use it. |
@@ -2671,7 +2679,7 @@ load-bearing** — see [§3](#3-architecture). **The API host is hardcoded in tw
 places**: `client/vercel.json` and `client/src/lib/socket.js`'s production fallback.
 In a rebuild, drive both from configuration.
 
-`NODE_ENV=production` turns on four behaviours at once, which is worth knowing
+`NODE_ENV=production` turns on four behaviors at once, which is worth knowing
 because production and local differ in more than logging:
 
 1. `trust proxy 1` — TLS terminates upstream.
@@ -2715,7 +2723,7 @@ connects **straight to the API host**, which broke cookie auth, which required a
 database provider** and does *not* mean you are connected to Supabase.)
 
 **4. The Supabase Storage backend, and the public-bucket problem with it.** On your
-own infrastructure this becomes a file share or object store **behind an authorising
+own infrastructure this becomes a file share or object store **behind an authorizing
 endpoint**, which is what it should have been.
 
 Also delete once SSO lands: the dev impersonation route, and the browser-remembered
@@ -2727,7 +2735,7 @@ Platform-neutral requirements — what the app actually needs, independent of ho
 
 | # | Requirement | Why | If you skip it |
 |---|---|---|---|
-| 1 | **Persistent, backed-up attachment storage**, served through an **authorising** endpoint or signed expiring URLs | Attachments are screenshots that may contain customer policy and account data | On ephemeral compute they vanish on restart and leave `attachments` rows pointing at nothing. On a public URL scheme they are readable by anyone with the link. |
+| 1 | **Persistent, backed-up attachment storage**, served through an **authorizing** endpoint or signed expiring URLs | Attachments are screenshots that may contain customer policy and account data | On ephemeral compute they vanish on restart and leave `attachments` rows pointing at nothing. On a public URL scheme they are readable by anyone with the link. |
 | 2 | **A shared session store** (database or Redis), or SSO with stateless tokens | **Partly done** — `connect-pg-simple` against Postgres. Keep a real store on whatever engine you pick. | Every restart signs every admin out, and you cannot run more than one instance |
 | 3 | **A reverse proxy that carries WebSocket upgrades** | Lets the socket stay same-origin and use the session cookie | You are stuck reproducing the cross-origin token workaround for no reason |
 | 4 | **TLS terminating in front**, with `trust proxy` configured to match | `secure: true` cookies require HTTPS; `req.ip` for rate limiting must be the real client IP | Cookies silently fail to set, or every client shares one rate-limit bucket |
@@ -2844,7 +2852,7 @@ null out, or quarantine.
 **4. Timezone is unstated.** Server-written values come from
 `new Date().toISOString()` (UTC, with `Z`). `date_time_of_error` comes from a browser
 form and may carry local time with no offset. Decide on `timestamptz` with an
-explicit inbound normalisation, and be aware that historical values may not be
+explicit inbound normalization, and be aware that historical values may not be
 recoverable to a true instant.
 
 `worked_on` is a **date, not a moment**, on purpose — the day the work happened. Keep
@@ -2870,7 +2878,7 @@ HTML/JS/CSS any web server can serve) and a **Node API** (`node src/index.js` on
 | **SPA fallback** — any unmatched path returns `/index.html` | Without it, deep links like `/admin/metadata` 404 on refresh. IIS: URL Rewrite. nginx: `try_files $uri /index.html`. |
 | **Reverse-proxy `/api/*` to the Node process** | Keeps the API same-origin, so the session cookie just works |
 | **Reverse-proxy `/socket.io/*` with WebSocket upgrade support** | The piece Vercel could not do. IIS: enable the WebSocket Protocol feature + ARR. nginx: `proxy_set_header Upgrade $http_upgrade; proxy_set_header Connection "upgrade";`. **Getting this right is what lets you delete the realtime-token mechanism.** |
-| **Reverse-proxy `/uploads/*`, or replace it** | Only if you keep local-disk attachments. Preferably replace with an authorising endpoint. |
+| **Reverse-proxy `/uploads/*`, or replace it** | Only if you keep local-disk attachments. Preferably replace with an authorizing endpoint. |
 | **Terminate TLS, forward the real client IP** | `X-Forwarded-For` / `X-Forwarded-Proto`, with `trust proxy` set to match the hop count |
 | **Send `X-Content-Type-Options: nosniff` on any file-serving path** | The app sets it on `/uploads`; do not lose it at the proxy |
 
@@ -2880,7 +2888,7 @@ in-memory maps**, so as written the app cannot run more than one replica. Presen
 degrading is cosmetic; rate limiting is not. (Sessions are now in Postgres, so that
 one is handled.)
 
-**Windows note.** Developed on Windows Server, and attachment paths are normalised
+**Windows note.** Developed on Windows Server, and attachment paths are normalized
 accordingly (`path.relative(...).replaceAll('\\', '/')`). On Linux that is harmless,
 but audit any path handling you add.
 
@@ -2894,7 +2902,7 @@ Third-party AI calls are permitted, so the current design carries over unchanged
 | **Keys in the secret store** | Never in a dotfile. **Rotate the key currently sitting in `server/.env`.** |
 | **A cost bound** | `AI_SEARCH_TOP_K` (20) caps candidates per summary call; `AI_SEARCH_MAX_INLINE_EMBED` (25) caps inline embedding work per search; `AI_SEARCH_PUBLIC_RATE_LIMIT` (20/min per IP) bounds the anonymous surface. **Set these deliberately.** |
 | **Where embeddings run** | `AI_PROVIDER=anthropic` gives Claude summaries with **local, in-process embeddings** — no embeddings vendor, no per-call embedding cost, and ticket text never leaves your servers. Given internal hosting, worth considering: it reduces what leaves the network to just the summary call. |
-| **First-run behaviour of local embeddings** | Downloads ~90MB of weights to the transformers.js cache. In a locked-down or offline environment, pre-seed that cache into the image or a mounted volume. |
+| **First-run behavior of local embeddings** | Downloads ~90MB of weights to the transformers.js cache. In a locked-down or offline environment, pre-seed that cache into the image or a mounted volume. |
 | **The feature self-disables** | With no summary key, `/api/ai-search/status` reports `enabled: false` and every AI surface renders nothing. **A blocked or delayed egress approval does not block the deployment.** |
 
 ## Deployment gotchas — the ones that bite silently
@@ -2924,7 +2932,7 @@ Third-party AI calls are permitted, so the current design carries over unchanged
 - [ ] `DEV_IMPERSONATION` unset
 
 **Infrastructure**
-- [ ] Persistent, backed-up attachment storage, behind authorisation
+- [ ] Persistent, backed-up attachment storage, behind authorization
 - [ ] Reverse proxy: static root, SPA fallback, `/api` proxy, **`/socket.io` with WebSocket upgrade**
 - [ ] TLS terminating in front, `trust proxy` matching the hop count
 - [ ] Outbound HTTPS egress to the AI vendor verified **through the corporate proxy**
@@ -2971,7 +2979,7 @@ re-derives it.
 | **2026-07 → 08-01** | The defect/enhancement portal: intake, triage, the public board, EasyVista, bulk actions, per-admin views, AI search |
 | **2026-08-03** | Per-application access control, the redirect ledger, reporter binding, the pinned queue, the per-application EasyVista catalog |
 | **2026-08-05** | The portal rename and `TRACKER_LABEL`; three approved redesigns (metadata page, submit form, data-entry dialogs); the money-column fix; the legacy text columns dropped |
-| **2026-08-06 → 08-07** | **Report requests, in fifteen passes.** Schema, authorisation sweep, submit-form branch, detail-modal fields, throughput page, spreadsheet round trip, the private-report rule, session persistence, and eleven items the owner found while testing the deployed site |
+| **2026-08-06 → 08-07** | **Report requests, in fifteen passes.** Schema, authorization sweep, submit-form branch, detail-modal fields, throughput page, spreadsheet round trip, the private-report rule, session persistence, and eleven items the owner found while testing the deployed site |
 | **2026-08-07** | Filing requires sign-in for every type; the documentation set and the screenshot harness |
 
 ## The rename, and why the name is not narrower
@@ -2995,7 +3003,7 @@ were added so a sheet exported with the new header re-imports.
 
 ## Report requests: the design decisions, in the order they were taken
 
-### It is not one request type — it is a service catalogue
+### It is not one request type — it is a service catalog
 
 The owner's original list was nine kinds of request, of which report/dashboard
 requests were one. **Phase 1 was scoped to report requests alone**, and types 3–9 are
@@ -3052,9 +3060,9 @@ report/dashboard"*. So it is a gate **before** work starts, which is how it is b
   grant here, and the accountability is `approval_recorded_by`, an id the server fills
   in.
 - It is genuinely a **SECOND gate**, not a restatement of the `Approved` status.
-  Triage accepting a request as valid and a manager authorising the spend are
+  Triage accepting a request as valid and a manager authorizing the spend are
   different people saying yes to different questions. **Keep them separate, and keep
-  the group labelled "Go-ahead" so the two never read as one.**
+  the group labeled "Go-ahead" so the two never read as one.**
 
 **2. Report requests get their own status list.** Owner: *"we probably aren't
 submitting to easyvista, but I imagine most statuses can transfer."*
@@ -3165,12 +3173,12 @@ why a test pins that asymmetry from the router's own stack.
 
 ## Three earlier corrections worth keeping
 
-**The application picker looked like a system dialog from another decade** — grey
+**The application picker looked like a system dialog from another decade** — gray
 bevel, its own font, nothing to do with the field above it. It was the submit form's
 **first** select, so `.rs-field select` had never been written: `input` and `textarea`
 were styled and nothing else. It now shares that rule, with the browser chrome
 switched off and the caret drawn as a background image — plus **explicit option
-colours**, or dark mode gives black text on a black sheet.
+colors**, or dark mode gives black text on a black sheet.
 
 **"Other" is a real application, not a flag.** Sometimes the honest answer to "whose
 data is this?" is "both" or "I do not know", and the request still has to land where
@@ -3400,7 +3408,7 @@ Added to [the trap table](#the-four-traps-this-harness-was-built-around):
 | **`users.email` is not populated** | EasyVista requestor mail comes from a `username:mail` env map as a stopgap. The code already prefers a real `user.email` the moment one exists. |
 | **AD group names unknown** | `application_ad_groups` is empty. The app works without it. |
 | **EasyVista catalogs unset** | `EASYVISTA_CATALOG_GUIDS` is empty, so no application has a catalog and every send is refused. Correct — the values belong to the EasyVista team. |
-| **Types 3–9 of the service catalogue** | Recorded future scope, not current work. The extension points exist. |
+| **Types 3–9 of the service catalog** | Recorded future scope, not current work. The extension points exist. |
 
 ## Data-type defects
 
@@ -3413,7 +3421,7 @@ Added to [the trap table](#the-four-traps-this-harness-was-built-around):
 
 | Issue | Detail |
 |---|---|
-| **Attachment URLs are unauthenticated** | Uploads go to a **public** bucket. Unguessable, but anyone with the URL can read it — and attachments are screenshots that may contain customer policy and account data. **This is the one route around an otherwise carefully allow-listed public boundary.** Fix with an authorising endpoint or signed expiring URLs. |
+| **Attachment URLs are unauthenticated** | Uploads go to a **public** bucket. Unguessable, but anyone with the URL can read it — and attachments are screenshots that may contain customer policy and account data. **This is the one route around an otherwise carefully allow-listed public boundary.** Fix with an authorizing endpoint or signed expiring URLs. |
 | **`sameSite: 'none'` in production** | More permissive than the proxy setup requires; `lax` would do. |
 | **Sessions are not invalidated server-side on demotion** | The *rights* re-read on every request, which is the important half, but the session row itself persists. |
 | **Credentials in a gitignored `.env`** | `server/.env` is untracked, so **no credential is in git history** — but each developer's default is whatever they happen to have locally, and it currently points at the shared hosted database. **Default to a local database, make production access an explicit opt-in, and put the secrets in a manager.** |
@@ -3461,7 +3469,7 @@ keep a dual-provider setup you will hit every one.
    SQLite's `REAL` is a double, Postgres's is `float4`, so **the bug only ever damaged
    hosted data and never reproduced locally.**
 
-All catalogued with reasons in `server/db/models/index.js` (`RAW_UNIQUE_INDEXES`,
+All cataloged with reasons in `server/db/models/index.js` (`RAW_UNIQUE_INDEXES`,
 `NO_ALTER_MODEL_NAMES`, `ensureColumn`).
 
 ## Operational notes
@@ -3504,7 +3512,7 @@ All catalogued with reasons in `server/db/models/index.js` (`RAW_UNIQUE_INDEXES`
 
 # Part XI — Rebuild acceptance checklist
 
-Behaviours that are **load-bearing**. Each one either encodes a domain rule or fixes a
+Behaviors that are **load-bearing**. Each one either encodes a domain rule or fixes a
 bug that was actually hit. **If the rebuild breaks one, it is a regression, not a
 design difference.**
 
@@ -3561,7 +3569,7 @@ design difference.**
 - [ ] Optimistic concurrency is enforced **both** at save time **and** inside the `UPDATE … WHERE`.
 - [ ] A conflict offers a **field-by-field three-way diff**, not just an error.
 - [ ] A pure viewer's open modal **silently re-bases** on a remote change; someone with unsaved edits is **warned**.
-- [ ] Authorisation is checked **before** the conflict check.
+- [ ] Authorization is checked **before** the conflict check.
 
 ### Bulk
 - [ ] The selection scope (**all pages of the filtered set**) is stated in words.
@@ -3602,7 +3610,7 @@ design difference.**
 - [ ] Top-K is selected by **raw** similarity; recency and same-type only tiebreak display.
 - [ ] `has_relevant_match === false` forces an empty match list.
 - [ ] Identifiers are matched **literally** and are **not embedded**.
-- [ ] Semantic and literal matches stay in **separate labelled sections**.
+- [ ] Semantic and literal matches stay in **separate labeled sections**.
 - [ ] The duplicate check **narrows by type in the query**, and **says what it searched**.
 - [ ] Excluding one type does **not** also exclude rows with a null type.
 - [ ] A provider failure degrades to literal matches; it never fails the search.
@@ -3629,7 +3637,7 @@ design difference.**
 - [ ] **A round-trip test exists**: export, re-import the file the app itself wrote, compare every column.
 - [ ] The shared insert column list is **append-only**, and a test pins the whole list in order.
 
-### UI behaviours
+### UI behaviors
 - [ ] Both list surfaces implement **all four** data states; the skeleton matches real row height and never leaves stale rows presenting as current.
 - [ ] "Whole queue" and "filtered view" counts are **visibly distinguished** and each says whether filters affect it; totals equal the sum of their cards.
 - [ ] Applied filters render as **individually removable** chips, derived **once** and shared by badge, chips, summary line and empty state.
@@ -3651,13 +3659,13 @@ design difference.**
 - [ ] If money comes back from the driver as a string, it is coerced at **one** boundary.
 - [ ] A money column with no value reads as **null, not 0**.
 - [ ] Hours are `DECIMAL`, not float.
-- [ ] Timestamps are native columns, normalised to one timezone convention; `worked_on` stays a **date**.
+- [ ] Timestamps are native columns, normalized to one timezone convention; `worked_on` stays a **date**.
 - [ ] Optimistic concurrency uses an **explicit version column**, not a timestamp string compare.
 - [ ] Malformed legacy date values are found and resolved **before** the type conversion.
 
 ### Storage, sessions and deployment
 - [ ] Attachments survive a restart/redeploy — object storage or a persistent disk.
-- [ ] Attachment reads are **authorised**, not merely unguessable — and an `approval` file is never on the unauthenticated path.
+- [ ] Attachment reads are **authorized**, not merely unguessable — and an `approval` file is never on the unauthenticated path.
 - [ ] Uploads validate **extension and MIME type**, and are served with `nosniff`.
 - [ ] Sessions survive a restart and are shareable across instances; the fallback path is **tested**, not assumed.
 - [ ] Schema changes go through **reviewable versioned migrations**, not boot-time `alter: true`.
@@ -3666,6 +3674,169 @@ design difference.**
 - [ ] Rate limiting and presence work with more than one instance, or single-instance is an **accepted, documented** constraint.
 - [ ] Dev impersonation is deleted, or provably unreachable in every deployed environment.
 - [ ] Every destructive maintenance script is **dry-run by default** and prints its dialect before its numbers.
+
+---
+
+# Part XII — Wanted next
+
+**None of this is built.** It is the owner's stated intent as of **2026-08-11**,
+recorded here so a rebuild designs *for* it instead of around it. Part X is what is
+wrong with what exists; this is what does not exist yet.
+
+Read §25 and §26 together — **they are one problem at two levels**, and solving the
+first without the second means solving it twice.
+
+## 25. More applications, starting with Claims
+
+**Today an application varies in almost everything except its fields.** Grants are
+per application ([§10](#10-access-control)), the EasyVista catalog is per application
+([§14](#the-catalog-is-per-application-and-lives-in-the-environment)), the board and
+the queues filter by it — but **which fields a ticket has is driven by Type, not by
+application** ([§5](#5-domain-vocabulary--read-this-first)). Billing Center and Policy
+Center share one intake form today, and the reference-number trio (policy number,
+account number, transaction number) is already a Billing-Center-shaped compromise that
+Policy Center fills differently. **So the divergence has existed since before Claims
+was raised — it is currently absorbed by asking everyone the same questions.**
+
+Claims makes that untenable, because a claim has its own identifiers and its own
+shape. The real change is that a field set becomes a function of **(application,
+type)** rather than of type alone.
+
+Three ways to do it, and the trade is the same one every time — where the schema
+lives:
+
+| Approach | Buys | Costs |
+|---|---|---|
+| **More columns** on `submissions` | Nothing new to learn; matches today's shape exactly | 71 columns becomes 100+, and **every application widens the table for every other one**. `SUBMISSION_INSERT_COLUMNS` is a positional contract ([§17](#submission_insert_columns-is-a-positional-contract)) that grows with it |
+| **A JSON column** for the application-specific part | No migration per application | Nothing validates it, it cannot be indexed usefully, and the **Excel round-trip loses its column contract** ([§15](#15-excel-round-trip-and-file-storage)) |
+| **A field-definition table** — (application × type) → field, with label, kind, required, order — plus a values child table | One place to add an application; extends the Metadata page's existing job rather than inventing a new idea | "The fields for this ticket" becomes a join, and the submit form must **render from data instead of JSX** |
+
+**Recommendation: the definition table if Claims is the first of several, more columns
+if Claims is the last.** How many applications are coming is the only input that
+changes the answer — decide that before choosing.
+
+Two things a per-application field set collides with, both of which assume a uniform
+record today:
+
+- **The Excel round-trip** is one sheet with fixed columns, compared cell by cell on
+  re-import. Per-application fields mean either one sheet per application or a sheet
+  wide enough for all of them.
+- **The EasyVista payload** is built by one description builder shared by preview and
+  send ([§14](#one-payload-builder-shared-by-preview-and-send)). A claims ticket needs
+  its own section in that description, and **Claims will need its own catalog** — the
+  per-application catalog already supports that, so nothing there has to change shape.
+
+What does *not* need attention: the public board. `mapPublicSubmission` is an
+allow-list, so **any new field is private until somebody adds it** — the right
+default, and it should stay that way.
+
+## 26. Report requests in more than one flavour
+
+Today `report` is a single type, and every report request answers the same questions.
+The wanted change is several kinds of report request, each with its own fields —
+which is **§25's problem one level down**: a *subtype* whose field set varies.
+
+**If §25 is solved with a definition table, key it by (application, type, subtype)
+from the start.** Adding a third key later means touching every row that already has
+two. That is the whole reason these two belong in one design.
+
+**Do not model a report flavour as a new Type.** Type drives the status vocabulary,
+the required fields *and* what the Service Desk is told. A flavour that borrows all
+three but differs only in fields would fork all three, and the three report-only
+statuses would have to be duplicated per flavour.
+
+Open questions to settle before modeling:
+
+- Does a flavour change the **status vocabulary**, or only the fields? If only the
+  fields, subtype stays a field-set key and nothing else moves.
+- Do the three report-only statuses apply to every flavour?
+- Does **level of effort** still mean the same thing across flavours? The throughput
+  page and its median depend on it meaning one thing.
+
+## 27. Approval signed inside the app
+
+**How it works now.** An approval is `approved_at` plus `approved_by_name` — **typed
+text, not a user id** — with `approval_recorded_by` holding the id of whoever entered
+it in the portal, and the evidence stored as an attachment whose `purpose` is
+`'approval'`, readable only through `GET /api/admin/attachments/:id/file`.
+`is_approved` is **derived** from the pair, never stored. **The approver is a name and
+not an id on purpose: they are usually not a portal user** ([§17](#17-data-model)).
+
+What is wanted is three separate things:
+
+1. A manager with permission to **sign off inside the app**.
+2. A **prompt when they sign in**, asking them to review what is waiting.
+3. A **direct link**, sent from the app by picking the manager out of Active
+   Directory, that verifies them by email without a normal sign-in and records that
+   they approved, when, and how.
+
+**The typed-name path must survive all three.** Imported rows have no portal user —
+that is exactly why `approval_recorded_by` is not importable — and out-of-band
+approvals will keep happening. So an in-app signature is a **second route, not a
+replacement**:
+
+- Add `approval_method` (`typed` | `in_app` | `link`) and a nullable
+  `approved_by_user_id`. **`is_approved` then still reads off the one pair**, the
+  derived-not-stored rule holds, and the record answers *how* it was approved rather
+  than only *that* it was.
+- **Do not reuse the `manager` role for approval rights** unless the organization
+  genuinely means the same people. `manager` today gates exactly one thing — seeing
+  other people's throughput numbers — and approval is a different question.
+  `user_application_roles` is already per application *per request type*, which is the
+  right grain for "who may approve report requests here".
+- The sign-in prompt is a **query, not a new table**: report requests in the
+  applications you are granted, awaiting approval. Live notification already exists
+  over websockets, and **audience is decided in `resolveAdminAudienceForRow`** — a
+  "needs your approval" event has to be scoped there, or it tells everybody
+  ([§12](#12-real-time-presence-and-concurrency)).
+
+**The direct link is the security-critical piece, and it is a bearer token whether or
+not it is called one.** A URL that approves something without a sign-in must be:
+single-use, expiring, bound to **one** submission and **one** recipient address,
+stored **hashed**, invalidated the moment it is used, and recorded with both the
+address it was sent to and the address that confirmed. "Verifies them by email
+automatically" **cannot** mean trusting an address in a query parameter or one the
+visitor types — the only proof is that the unguessable link reached that mailbox.
+Reuse across submissions, or a guessable token, means anyone can approve anything.
+
+Also note **Active Directory is not wired in today** — identity is the `users` table
+plus the `bc_sid` session cookie ([§9](#9-identity-and-the-viewer-envelope)). Picking
+a name out of AD is a new integration with its own authentication, not a lookup
+against something already present.
+
+Open: does an in-app signature still need the uploaded screenshot? If the app captured
+the approval itself the evidence is redundant — but imported history has only
+screenshots, **so the attachment path stays either way**.
+
+## 28. Email out of the app, prefilled from the request
+
+**There is no email capability at all today** — no transport, no templates, no queue.
+Every notification is a websocket event to a browser that is already signed in, and a
+rep learns about a change by looking at the board. This one is entirely greenfield.
+
+What is wanted: send a formatted message to the person who filed something, with the
+subject and body prefilled from their request, and add to it before sending.
+
+- **The record is the part that matters most.** [§1](#1-the-problem) says this portal
+  exists because the work used to live in email threads with no audit trail. An email
+  sent from the app that nobody can see afterwards **recreates the problem the app was
+  built to solve**. Store the sent message as a child row — the way hours and status
+  events are stored — and show it on the ticket.
+- **Prefill exactly, and only from the safe set.** Ticket id, type, application,
+  summary and current stage are the useful ones. Reviewer, decision and impact notes,
+  and the duplicate fingerprint must never go out; `mapPublicSubmission` is the
+  existing list of what is safe to show someone outside the triage team
+  ([§11](#11-public-data-boundary)).
+- **Decide whose name it comes from** — the portal as a system address, or the person
+  clicking send. This determines whether replies can work at all, and it is a policy
+  question, not a technical one.
+- **Rate-limit it and log it.** A send button inside an internal tool is a spam vector
+  pointed at the organization's own field representatives.
+
+Open, and worth answering before a transport is chosen: **do replies come back into
+the app, or land in somebody's mailbox?** Threading replies onto the ticket is a much
+larger feature than sending, and "send only" and "send and receive" do not pick the
+same vendor.
 
 ---
 
@@ -3708,7 +3879,7 @@ comment above the code rather than inferring intent from the code.
 | Document | Contents |
 |---|---|
 | [`USER_MANUAL.md`](USER_MANUAL.md) | Every feature and how to use it, with the current screenshots |
-| [`NEXT_STEPS.md`](NEXT_STEPS.md) | The programme decision, and what is being asked of the Customer Interactions team |
+| [`NEXT_STEPS.md`](NEXT_STEPS.md) | The program decision, and what is being asked of the Customer Interactions team |
 | `server/docs/ai-search.md` | AI search presets, cost, tuning, full variable list |
 | `server/docs/easyvista-description-format.md` | The EasyVista description payload format |
 | `CLAUDE.md` | Conventions and skills for AI-assisted work in this repo |
