@@ -14,7 +14,7 @@ here is never of a build nobody is running.
 are at the end. Sign in as `bc_rep` to see what a requester sees, or `admin` to see
 everything.
 
-**Prefer a PDF?** `docs/USER_MANUAL.pdf` is this document, screenshots and all, with
+**Prefer a PDF?** `docs/handoff/pdf/USER_MANUAL.pdf` is this document, screenshots and all, with
 the contents list and every cross-reference inside it still clickable. The handoff and
 next-steps documents have PDFs beside it. The few links that point from one document to
 another only work in the markdown, so read those here.

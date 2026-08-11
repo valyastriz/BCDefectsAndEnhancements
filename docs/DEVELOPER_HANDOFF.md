@@ -2527,9 +2527,9 @@ Design points a rebuild's own harness should keep:
 
 ## The PDFs
 
-The three documents also ship as PDFs beside their markdown — `docs/DEVELOPER_HANDOFF.pdf`,
-`docs/USER_MANUAL.pdf`, `docs/NEXT_STEPS.pdf` — for anyone who wants to read or send
-one without the repo.
+The three documents also ship as PDFs in `docs/handoff/pdf/` — `DEVELOPER_HANDOFF.pdf`,
+`USER_MANUAL.pdf`, `NEXT_STEPS.pdf` — for anyone who wants to read or send one without
+the repo.
 
 **They are exported by hand with the VS Code extension "Markdown PDF"
 (`yzane.markdown-pdf`):** open the document, then *Markdown PDF: Export (pdf)*. It

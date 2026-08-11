@@ -146,5 +146,7 @@ server/uploads/
 server/scripts/*.last-run.json
 
 # The Markdown PDF extension leaves an intermediate HTML file beside each
-# document it exports. The PDFs are the deliverable; the HTML is not.
+# document it exports, wherever that is. The PDFs are the deliverable; the
+# HTML is not.
 docs/*.html
+docs/**/*.html

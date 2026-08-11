@@ -82,8 +82,8 @@ path with its own application resolution.
 ## The three documents as PDFs — script built, then scrapped for the extension (2026-08-08 → 2026-08-11, twentieth pass)
 
 Asked for: the three deliverable documents as PDFs with the section links clickable
-the way they are in the markdown. **Shipped:** `docs/DEVELOPER_HANDOFF.pdf`,
-`docs/USER_MANUAL.pdf`, `docs/NEXT_STEPS.pdf`, exported by hand with the VS Code
+the way they are in the markdown. **Shipped:** `docs/handoff/pdf/` — `DEVELOPER_HANDOFF.pdf`,
+`USER_MANUAL.pdf`, `NEXT_STEPS.pdf`, exported by hand with the VS Code
 extension **Markdown PDF** (`yzane.markdown-pdf`). There is no build script and no
 check — **re-export after editing a document, because nothing else will.**
 
