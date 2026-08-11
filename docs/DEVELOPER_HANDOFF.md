@@ -815,7 +815,7 @@ decision notes, Jira number, public visibility, retire. **Reviewer fills itself 
 on SAVE**, not on open — prefilling would mark every ticket edited the moment
 somebody looked at one.
 
-**Tab 5 — Impact.** One judgement, one section: policy premium impact, direct
+**Tab 5 — Impact.** One judgment, one section: policy premium impact, direct
 dollar impact, policies affected, frequency, impact notes. Previously split across
 four boundaries for a single decision.
 
@@ -1720,7 +1720,7 @@ call to `easyVistaCatalogStatus`:
 | The detail modal footer | disables **Submit**, and prints the reason on its own line under the actions (`.dm-foot-blocked`) |
 | `POST …/easyvista` | refuses with the same `reason` as a 400 |
 
-One call, so a greyed-out button and a refused POST can never disagree.
+One call, so a grayed-out button and a refused POST can never disagree.
 
 **The reason is the whole procedure, not a diagnosis** — every step of it already
 exists, so naming them turns a dead end into an instruction:
@@ -2464,13 +2464,21 @@ at bytes that are not there is worse than an empty Files tab.
 cd server && npm test                        # node:test — 378 tests
 cd client && npm run lint                    # ESLint incl. react-compiler rules — must stay green
 cd client && npm run build                   # production build
-cd client && node scripts/check-doc-anchors.mjs   # every anchor link in the docs resolves
+cd client && node scripts/check-doc-anchors.mjs    # every anchor link in the docs resolves
+cd client && node scripts/check-doc-spelling.mjs   # the docs are US English
 ```
 
-The last one needs no server, no browser and no database — it reads the markdown.
-**Run it after renaming any heading**, in these documents or the README: a renamed
-heading moves its slug, every link to it dies silently, and the PDF export renders
-the dead link without complaint.
+The last two need no server, no browser and no database — they read the markdown.
+
+- **Run the anchor check after renaming any heading**, here or in the README: a
+  renamed heading moves its slug, every link to it dies silently, and the PDF
+  export renders the dead link without complaint.
+- **The spelling check exists because the US-English conversion was declared
+  finished four times and was wrong three of them.** It matches every *family* of
+  British/American divergence as a pattern and subtracts an allow-list of words
+  identical in both, rather than enumerating British words — a list only finds the
+  inflections its author thought of, which is how `honour`, `sanitised`, `greyed`
+  and `judgement` each survived a pass that reported clean.
 
 ## The browser harness
 

@@ -118,13 +118,21 @@ list can only find the inflections somebody thought of. It took three more round
 Also four in `README.md` and `CLAUDE.md`, outside the three files the first pass looked
 at.
 
-**The lesson, and the method worth reusing:** do not enumerate British words — sweep
-for the *patterns* (`-ise`, `-ised`, `-ising`, `-isation`, `-our`) and subtract an
-allow-list of the words that are the same in both spellings (`advise`, `otherwise`,
-`precise`, `promise`, `enterprise`, `expertise`, `supervised`, `comprise`, `raise`,
-`exercise`, …). That sweep found all three missed rounds in seconds; the word list had
-already declared victory. **A checker that can only see what you listed will always
-report clean.**
+Then a **fourth** round, after the owner asked whether it was actually finished: an
+audit across every *family* of divergence — not just the patterns already tried —
+turned up `greyed` (×5) and `judgement` (×3), two families nothing had looked at.
+
+**The lesson, and it took four misses to learn it:** do not enumerate British words.
+Match every *family* as a pattern and subtract an allow-list of words identical in
+both spellings (`advise`, `otherwise`, `precise`, `promise`, `enterprise`,
+`expertise`, `supervised`, `comprise`, …). **A checker that can only see what you
+listed will always report clean** — which is why three passes in a row said "0
+remaining" and meant nothing.
+
+That audit is now **`client/scripts/check-doc-spelling.mjs`**, in the Verification
+gates beside the anchor checker, so the claim is verifiable instead of asserted. Its
+`-our` pattern is anchored at the end of the word — `fourth`, `fourteen` and
+`yourself` merely *contain* "our" and were 11 of the 19 hits on the first run.
 
 ## Part X — Wanted next, and a US-English pass over the docs (2026-08-11, twenty-first pass)
 

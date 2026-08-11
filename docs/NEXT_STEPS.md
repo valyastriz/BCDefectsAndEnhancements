@@ -103,7 +103,7 @@ user id, what the nine report-request statuses mean and why three of them replac
 five — every one of those came out of the work the Customer Interactions team
 actually does, and several were corrected mid-build because the first answer was
 wrong in a way only somebody doing the job would notice. Continuity of that
-judgement is worth more to a rebuild than any document, including this one.
+judgment is worth more to a rebuild than any document, including this one.
 
 ---
 

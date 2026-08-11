@@ -460,7 +460,7 @@ nine; everything else offers the rest. See
 ![A defect in Other](handoff/screenshots/39-detail-other-unwired.png)
 
 Two things in one picture: the picker under *Ownership & tracking*, and the footer
-where **Submit to the Service Desk is greyed out** with the note telling you what to
+where **Submit to the Service Desk is grayed out** with the note telling you what to
 do instead (§2.6).
 
 **Only on a ticket in `Other`**, under *Ownership & tracking*, there is a picker
@@ -475,7 +475,7 @@ This is the third. Pick a queue and the ticket **also appears there**, while
 staying in `Other`:
 
 - It does **not** move. `Other` is still its application, so the Service Desk
-  hand-off stays correctly greyed out and the incident number stays something you
+  hand-off stays correctly grayed out and the incident number stays something you
   type in (§2.6).
 - It shows up in **both** lists — yours and `Other`.
 - Only queues **you** work in are offered, so nobody can put work on another team's
@@ -501,7 +501,7 @@ reason to change them.
 
 ![Impact tab](handoff/screenshots/32-detail-impact.png)
 
-One judgement in one place: policy premium impact, direct dollar impact, policies
+One judgment in one place: policy premium impact, direct dollar impact, policies
 affected, how often it happens, and impact notes. The dollar figures feed the
 totals in the `FILTERED VIEW` band.
 
@@ -599,13 +599,13 @@ Three things to know:
 
 ### When the application is not wired up to the Service Desk
 
-![Send greyed out](handoff/screenshots/39-detail-other-unwired.png)
+![Send grayed out](handoff/screenshots/39-detail-other-unwired.png)
 
 Some systems have no Service Desk catalog configured, so the portal cannot raise a
 ticket in them. **`Other` is the clearest example** — it is the queue for exactly
 that case (§2.1).
 
-For those, **Submit to the Service Desk is greyed out**, and the reason under the
+For those, **Submit to the Service Desk is grayed out**, and the reason under the
 buttons tells you what to do instead:
 
 > *"Other is not wired up to Service Desk, so this cannot be sent from the portal.
