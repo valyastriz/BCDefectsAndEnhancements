@@ -25,8 +25,6 @@
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.4.24",
     "globals": "^16.5.0",
-    "marked": "^18.0.9",
-    "pdfjs-dist": "^6.2.108",
     "playwright": "^1.62.1",
     "vite": "^5.4.11",
     "xlsx": "^0.18.5"

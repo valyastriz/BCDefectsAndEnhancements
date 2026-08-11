@@ -15,7 +15,7 @@ after it are the historical record.
 | | |
 |---|---|
 | **Shipped 2026-08-08** | `cdeb474` — the analyst's UI, the hand-off affordance, the soft association. `e481013` — 62 screenshots. `bd5993c` — plan.md. Then **two permission leaks the owner found**, the misleading "Filing as" line, and the demonstration data those needed. |
-| **Green** | 428 server tests · lint · build · **all eight** browser scripts: `verify-admin-data-entry` **150/150** · `verify-submit-form` 63/63 · `verify-throughput-page` 52/52 · `verify-metadata-page` 30/30 · `verify-public-board` 21/21 · `verify-report-import-export` 20/20 · `verify-session-store` 17/17 · `verify-docs-pdf` all links resolve · **65 screenshots** |
+| **Green** | 428 server tests · lint · build · **all seven** browser scripts: `verify-admin-data-entry` **150/150** · `verify-submit-form` 63/63 · `verify-throughput-page` 52/52 · `verify-metadata-page` 30/30 · `verify-public-board` 21/21 · `verify-report-import-export` 20/20 · `verify-session-store` 17/17 · **65 screenshots** |
 | **Database** | 43 submissions, 0 `VERIFY` leftovers, **4 applications** (`Marketing Analytics` is reports-only). `submissions.working_application_id` applied. Billing Center and Policy Center carry `DEMO-` catalogs; `Other` carries none. 22 grants. |
 
 ## What is actually left
@@ -79,47 +79,56 @@ path with its own application resolution.
 
 ---
 
-## The three documents as PDFs, with every link still a link (2026-08-08, twentieth pass)
+## The three documents as PDFs — script built, then scrapped for the extension (2026-08-08 → 2026-08-11, twentieth pass)
 
-Asked for: the three deliverable documents in PDF form, with the section links
-clickable the way they are in the markdown. Delivered in `docs/pdf/` — 124 + 66 + 7
-pages — plus the build and the check that proves the links survived.
+Asked for: the three deliverable documents as PDFs with the section links clickable
+the way they are in the markdown. **Shipped:** `docs/DEVELOPER_HANDOFF.pdf`,
+`docs/USER_MANUAL.pdf`, `docs/NEXT_STEPS.pdf`, exported by hand with the VS Code
+extension **Markdown PDF** (`yzane.markdown-pdf`). There is no build script and no
+check — **re-export after editing a document, because nothing else will.**
 
-**`client/scripts/build-docs-pdf.mjs`** — markdown → HTML (`marked`) → PDF (Playwright
-Chromium print). No PDF library: Chromium already turns `<a href="#slug">` into a real
-named destination and renders the screenshots the manual is mostly made of.
-**`client/scripts/verify-docs-pdf.mjs`** is the eighth browser script and needs no
-server — it reads the produced bytes.
+### The route not taken, and why
 
-What was actually hard, and is worth not re-learning:
+A scripted build shipped first (`client/scripts/build-docs-pdf.mjs` +
+`verify-docs-pdf.mjs`, commit `c0ec9c9`) and was **deleted on 2026-08-11**. The owner
+exported the same documents with the extension, compared them, and preferred those.
+The script's own output was the argument against it:
 
-- **Cross-document links need `#nameddest=anchor`.** A bare `#anchor` opens the
-  sibling PDF at page 1. `nameddest` is what Acrobat and the Chrome viewer honour.
-- **`doc.getDestinations()` returns `{}` for Chromium PDFs** — they live in a name
-  tree pdf.js's bulk enumerator does not walk, while `getDestination(name)` resolves
-  fine. The first verifier therefore reported all 66 links dead. **A check that fails
-  wholesale is suspect before the thing it measures is.** It now also asserts the
-  links land across 43 *distinct* pages, which an all-page-1 fallback could not fake.
-- **Heading slugs must match GitHub's algorithm exactly**, because the docs were
-  written against GitHub's anchors. Anchors are validated *before* rendering, so a
-  link to a missing heading fails the build instead of reaching a reader — it caught
-  one immediately, a numbered paragraph with no heading, fixed with an `<a id>`.
-- **Two defects only a rendered page showed.** Verification proved the links worked;
-  looking at the pages proved the layout did not. `overflow-wrap: anywhere` on table
-  cells collapsed the vocabulary table's first column until ordinary words split
-  (`Submiss` / `ion`) — `anywhere` counts mid-word breaks when computing min-content
-  width, `break-word` does not. And part-divider `h1`s were stranded at the foot of
-  the contents page; `h1` now breaks before, with `h1 + h2` cancelling it so the
-  part title and its first section share a page.
+- **The print CSS forced a page break at every `h2`.** Measured after the fact: the
+  manual's median page reached only **34%** down the printable area, and 42 of the
+  handoff's 124 pages were under 60% full. Dropping the rule to part dividers only
+  took the handoff to **96%** median and 101 pages — but by then the decision was made.
+- **A fixed-height flex cover fragmented catastrophically.** `height: 9.1in` with
+  `display: flex` made Chromium paint the **entire cover a second time on page 2**, a
+  34pt title overlapping a 21pt heading. **Chromium's print fragmentation of a
+  fixed-height flex container is not to be trusted** — a plain block with padding is.
+- **The defect was introduced by a "fix" and shipped, because verification passed.**
+  Every link check stayed green through it. Links resolving says nothing about whether
+  a page is readable, and **sampling 11 of 197 pages is not looking at the output** —
+  the pages that broke were ones no sample covered.
 
-`docs/pdf/*.build.html` is gitignored — `--keep-html` exists only so the verifier can
-run its printable-width overflow check. The handoff (Part VII), the manual's intro and
-the README all point at the PDFs now.
+What the extension route costs, measured against its own files before committing:
 
-**Still open:** the ~31 MB of PDFs are untracked, pending a call on whether they
-belong in git. Separately, the handoff's Contents list labels parts **V** and **VI**
-where the headings say **VII**–**XI** — the links resolve, the numbering does not
-agree.
+- **Zero PDF bookmarks** in all three, against 171 / 49 / 10 from the script. A
+  92-page reference with no outline sidebar.
+- **Cross-document links do not travel.** They export as absolute
+  `file:///c:/Users/Administrator/…/docs/USER_MANUAL.md` paths — the *markdown*, on
+  the exporting machine. In-document links are unaffected: 65/65 in the handoff,
+  37/37 in the manual.
+- **No anchor validation.** The script failed the build on a link to a missing
+  heading and caught one immediately; a renamed heading now silently yields a dead
+  link in a PDF someone already has.
+
+Also gone with the scripts: the `marked` and `pdfjs-dist` devDependencies, and
+`docs/pdf/`. `docs/*.html` is gitignored — the extension leaves an intermediate HTML
+file beside each document.
+
+**Still open:** the PDFs committed here were exported *before* the doc sections
+describing them were written, so they do not contain those sections until the next
+re-export. Nothing pins the extension's settings (there is no `.vscode/settings.json`),
+so another machine may export differently. And the handoff's Contents list labels
+parts **V** and **VI** where the headings say **VII**–**XI** — the links resolve, the
+numbering does not agree.
 
 ## Two permission leaks, a misleading line, and the data to show any of it (2026-08-08, nineteenth pass)
 

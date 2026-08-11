@@ -23,9 +23,14 @@ for a rebuild on the organisation's own stack — not the thing that ships long-
 > `docs/handoff/README.md` is gone; its content is in `docs/DEVELOPER_HANDOFF.md`.
 > `docs/handoff/` now holds only the screenshots and their manifest.
 
-**To send one to somebody:** all three are also in [`docs/pdf/`](docs/pdf/), built by
-`node client/scripts/build-docs-pdf.mjs`, with the contents list and every
-cross-reference — including the links between the three documents — still clickable.
+**To send one to somebody:** each has a PDF beside it —
+[`docs/DEVELOPER_HANDOFF.pdf`](docs/DEVELOPER_HANDOFF.pdf),
+[`docs/USER_MANUAL.pdf`](docs/USER_MANUAL.pdf),
+[`docs/NEXT_STEPS.pdf`](docs/NEXT_STEPS.pdf) — with the contents list and every
+cross-reference inside each document clickable. They are exported by hand with the
+VS Code extension **Markdown PDF** (`yzane.markdown-pdf`), so **re-export after
+editing a document**; see
+[the handoff](docs/DEVELOPER_HANDOFF.md#the-pdfs) for the three limits of that route.
 
 Also: [`plan.md`](plan.md) is the running project record ·
 [`CLAUDE.md`](CLAUDE.md) is the conventions file for AI-assisted work in this repo ·
