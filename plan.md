@@ -79,12 +79,59 @@ path with its own application resolution.
 
 ---
 
-## Part XII — Wanted next, and a US-English pass over the docs (2026-08-11, twenty-first pass)
+## The parts renumbered I–X, and an anchor checker to prove it (2026-08-11, twenty-second pass)
+
+The handoff's parts were numbered **I, II, III, IV, VII, VIII, IX, X, XI, XII** — V
+and VI never existed as headings, only as invented grouping labels in the Contents,
+which then linked to Part VII and Part VIII under the names "Operating" and "The
+record". Every link resolved, so nothing ever failed; it just read wrong.
+
+Now **I–X consecutively**. 26 mechanical changes across the handoff, the README and
+this file: six headings, their six anchors, and every prose mention. Done as **one
+simultaneous pass per category** — sequential replacement would collide, since
+rewriting IX→VII while a real Part VII still exists produces two Part VIIs and then
+remaps both.
+
+The Contents no longer invents groups: Parts V–IX are listed under plain **Operating**
+and **The record** headings by their real names. That removed the pseudo-numbers
+20–24, so the one prose reference to `§21` now names the section it links to instead —
+**nothing depends on a number that is not a heading.**
+
+**New: `client/scripts/check-doc-anchors.mjs`** — 115 anchor links across the handoff,
+the manual, next-steps and the README, checked against the headings that exist, using
+GitHub's own slug rules. No server, no browser, no database. It replaces the validator
+that went out with the scrapped PDF build, and it is now in the Verification gates.
+**This renumbering is exactly what it exists for**: six headings moved and it proved
+all 115 links still landed.
+
+**The spelling pass turned out to be half-finished, three times over.** The first pass
+reported "0 changes remaining" and was wrong, because a hand-written `\b`-anchored word
+list can only find the inflections somebody thought of. It took three more rounds:
+
+1. Prefixes and plurals — `unrecognised`, `unauthorised`, `defences`.
+2. Every `-our` word — `honour`/`honoured`/`honouring`/`honours`, `labour`, `flavour`,
+   19 occurrences, one of them in a heading (`…more than one flavour`), so its slug
+   moved and the Contents link had to move with it.
+3. `centralised`, `containerised`, `generalised`, `realised`, `sanitised`,
+   `sanitisation`, `serialisation`, `vectorised`.
+
+Also four in `README.md` and `CLAUDE.md`, outside the three files the first pass looked
+at.
+
+**The lesson, and the method worth reusing:** do not enumerate British words — sweep
+for the *patterns* (`-ise`, `-ised`, `-ising`, `-isation`, `-our`) and subtract an
+allow-list of the words that are the same in both spellings (`advise`, `otherwise`,
+`precise`, `promise`, `enterprise`, `expertise`, `supervised`, `comprise`, `raise`,
+`exercise`, …). That sweep found all three missed rounds in seconds; the word list had
+already declared victory. **A checker that can only see what you listed will always
+report clean.**
+
+## Part X — Wanted next, and a US-English pass over the docs (2026-08-11, twenty-first pass)
 
 The owner edited the handoff's opening and asked for a roadmap section. Both landed,
 plus the knock-on fixes their edits exposed.
 
-**New: `DEVELOPER_HANDOFF.md` Part XII — Wanted next** (§25–28), the owner's stated
+**New: `DEVELOPER_HANDOFF.md` Part X — Wanted next** (§25–28), the owner's stated
 intent, marked explicitly as not built. Each item is grounded in what the code
 actually does, which changed the advice in three places:
 
@@ -123,11 +170,9 @@ two identical. The owner's new §1 bullet was rewritten to say what they meant: 
 Product Owners could not see each other's work** — not the rep-visibility point above
 it, which is a different problem.
 
-**All 112 anchor links across the three documents verified**, twice — once after the
-new section and once after the spelling pass, since renaming a heading moves its slug.
-Worth knowing: **the build-time anchor validator went with the scrapped PDF script**,
-so nothing in the repo checks this now. It was done with a throwaway script; if dead
-links matter, that check is the one thing worth bringing back.
+**All anchor links across the documents verified**, twice — once after the new section
+and once after the spelling pass, since renaming a heading moves its slug. The
+throwaway used for it became `client/scripts/check-doc-anchors.mjs` in the next pass.
 
 ## The three documents as PDFs — script built, then scrapped for the extension (2026-08-08 → 2026-08-11, twentieth pass)
 
@@ -717,7 +762,7 @@ for the other two types being different, only the missing login.
   (1196 lines) and `docs/handoff/README.md` (2560 lines) overlapped and both went
   stale in different places. They are now **one** document carrying the how AND the
   why, with the reasoning from this file's dated sections woven in where it belongs
-  plus a chronological **decision record** (Part IX) that keeps the corrections
+  plus a chronological **decision record** (Part VII) that keeps the corrections
   visible. `docs/handoff/README.md` is deleted; `docs/handoff/` holds only the
   screenshots and their manifest.
 - **[`docs/USER_MANUAL.md`](docs/USER_MANUAL.md)** — every feature and how to use it,

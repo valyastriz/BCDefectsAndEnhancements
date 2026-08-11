@@ -21,7 +21,7 @@ Monorepo with two apps:
   tests when changing the code they cover.
 - **Browser verification:** `client/scripts/verify-*.mjs` (Playwright) drive the
   real app at 1500/820/390px in both themes and assert what unit tests cannot —
-  per-container overflow, field counts, live behaviour. Run with the server on
+  per-container overflow, field counts, live behavior. Run with the server on
   :4000 and Vite on :5173 already up; `--shots <dir>` also writes PNGs. Extend
   these rather than writing throwaway checkers. A script that WRITES must prove it
   put the data back (see `verify-metadata-page.mjs`'s closing check).
@@ -35,7 +35,7 @@ Monorepo with two apps:
 - **Documentation:** three files, and they are the deliverable.
   `docs/DEVELOPER_HANDOFF.md` (how AND why, plus the decision record),
   `docs/USER_MANUAL.md` (every feature, with the screenshots and the test logins),
-  `docs/NEXT_STEPS.md` (the programme decision). The root `README.md` is a short
+  `docs/NEXT_STEPS.md` (the program decision). The root `README.md` is a short
   orientation page pointing at them. **After a verified feature change, update the
   handoff and the manual, not just `plan.md`.**
 

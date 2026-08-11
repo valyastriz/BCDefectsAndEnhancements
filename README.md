@@ -7,7 +7,7 @@ enhancements are escalated to Tier 2 GTS in EasyVista, and report requests are b
 in-house. Everything is visible to the person who reported it on a live status board.
 
 **Status: working prototype.** It runs, it holds test data, and it is the reference
-for a rebuild on the organisation's own stack — not the thing that ships long-term.
+for a rebuild on the organization's own stack — not the thing that ships long-term.
 
 ---
 
@@ -101,9 +101,9 @@ node scripts/capture-screenshots.mjs         # 62 shots + the manifest
 ```
 
 The browser harness is what proves the things unit tests cannot — per-container
-overflow, field counts, live behaviour, and the four traps that make browser probes
+overflow, field counts, live behavior, and the four traps that make browser probes
 wrong more often than the code is. See
-[the handoff, Part VII](docs/DEVELOPER_HANDOFF.md#part-vii--running-and-verifying).
+[the handoff, Part V](docs/DEVELOPER_HANDOFF.md#part-v--running-and-verifying).
 
 **Do not pipe a verify script through `head`** — SIGPIPE kills the run before its
 cleanup and strands fixtures in the shared database. Redirect to a file.

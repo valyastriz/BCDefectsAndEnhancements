@@ -13,7 +13,7 @@ for the program decision (it is a **Rebuild**).
 **How to read it.** Every section answers *what it does* and *why*. Where a
 decision was forced by a constraint you may not share — a SQLite quirk, a hosting
 proxy, an unfinished vendor contract — it says so explicitly, so you can **delete
-the workaround instead of faithfully reproducing it**. [Part IX](#part-ix--decision-record)
+the workaround instead of faithfully reproducing it**. [Part VII](#part-vii--decision-record)
 is the chronological record of decisions made while building, kept in full because
 several of them were corrected once and the reasoning is the only thing that stops
 them being un-corrected.
@@ -24,7 +24,7 @@ them being un-corrected.
 |---|---|
 | What the product does | this document + [`USER_MANUAL.md`](USER_MANUAL.md) + the screenshots |
 | Exact field and API shapes | the prototype source, cited by path throughout |
-| What EasyVista accepts | **nobody yet** — see [Known gaps](#part-x--known-gaps-traps-and-open-questions) |
+| What EasyVista accepts | **nobody yet** — see [Known gaps](#part-viii--known-gaps-traps-and-open-questions) |
 | Current data | the live database, *not* this document |
 
 > **Screenshots** in [`handoff/screenshots/`](handoff/screenshots/) were captured
@@ -32,7 +32,7 @@ them being un-corrected.
 > database, which holds a purpose-built demonstration set. It is entirely test
 > data.
 > `handoff/screenshot-manifest.json` is written **by** that script, so it cannot
-> describe a shot the script did not take. See [Part VII](#part-vii--running-and-verifying).
+> describe a shot the script did not take. See [Part V](#part-v--running-and-verifying).
 
 ---
 
@@ -65,18 +65,18 @@ them being un-corrected.
 [18. API surface](#18-api-surface) ·
 [19. Configuration](#19-configuration)
 
-**Part V — Operating**
-[20. Running and verifying](#part-vii--running-and-verifying) ·
-[21. Deployment and the rebuild decisions](#part-viii--deployment-and-the-rebuild-decisions)
+**Operating**
+[Part V — Running and verifying](#part-v--running-and-verifying) ·
+[Part VI — Deployment and the rebuild decisions](#part-vi--deployment-and-the-rebuild-decisions)
 
-**Part VI — The record**
-[22. Decision record](#part-ix--decision-record) ·
-[23. Known gaps](#part-x--known-gaps-traps-and-open-questions) ·
-[24. Acceptance checklist](#part-xi--rebuild-acceptance-checklist)
+**The record**
+[Part VII — Decision record](#part-vii--decision-record) ·
+[Part VIII — Known gaps, traps and open questions](#part-viii--known-gaps-traps-and-open-questions) ·
+[Part IX — Rebuild acceptance checklist](#part-ix--rebuild-acceptance-checklist)
 
-**Part XII — Wanted next** — asked for, not built
+**Part X — Wanted next** — asked for, not built
 [25. More applications, Claims first](#25-more-applications-starting-with-claims) ·
-[26. Report requests in more than one flavour](#26-report-requests-in-more-than-one-flavour) ·
+[26. Report requests in more than one flavor](#26-report-requests-in-more-than-one-flavor) ·
 [27. Approval signed inside the app](#27-approval-signed-inside-the-app) ·
 [28. Email out of the app](#28-email-out-of-the-app-prefilled-from-the-request)
 
@@ -162,7 +162,8 @@ administer Billing Center and have no access at all to Policy Center.
 > The host names are the **prototype's** hosting. The internal deployment will be
 > company servers and a company database. The application structure does not
 > change. **Four things in this codebase exist only because of that hosting and
-> should be deleted** — see [§21](#what-you-can-delete-on-your-own-infrastructure).
+> should be deleted** — see
+> [What you can delete on your own infrastructure](#what-you-can-delete-on-your-own-infrastructure).
 
 **Why the WebSocket bypasses the host proxy.** Vercel rewrites cannot carry
 WebSocket upgrades, so a same-origin socket degrades to perpetual HTTP
@@ -203,7 +204,7 @@ client/src/
   lib/              api.js (the single request helper), socket.js
   utils/            filter/sort/format helpers shared admin↔public
   constants/        column, filter, sort and status registries
-client/scripts/     the verification + screenshot harness (see Part VII)
+client/scripts/     the verification + screenshot harness (see Part V)
 
 server/src/
   routes/           13 thin route modules; validation at the boundary
@@ -312,7 +313,7 @@ work they are doing. The rule that keeps it honest is that the soft column is
 ### Report requests are the second half of the product
 
 They arrived after the defect/enhancement portal was working, and they are not a
-fourth flavour of the same thing. What is different:
+fourth flavor of the same thing. What is different:
 
 - **Two branches.** `is_new_dashboard` decides which half of the form is asked and
   which half is stored. A **new** dashboard states its measures and their sources;
@@ -397,7 +398,7 @@ Rules (`client/src/components/public/StatusBoardRow.jsx`):
   lie, because nothing further is coming.
 - **Parked** statuses (`Backlog`, `Future Consideration`, `Deferred`, **`On
   hold`**) say so rather than drawing a stalled track.
-- An unrecognised status renders as a neutral "holding" badge, never unstyled.
+- An unrecognized status renders as a neutral "holding" badge, never unstyled.
 
 The stage tiles name **both** vocabularies at the two positions where the words
 differ — "With Service Desk / In progress" and "Deployed / Delivered" — because a
@@ -693,7 +694,7 @@ meaning anything after a reload.
 read all of them to find one; named groups let them jump. `search` and
 `retiredFilter` are promoted for the same reasons as on the public board;
 `application` joins them when the caller can see more than one — for that person
-it is a **scope**, not a filter. Both promoted controls still honour the admin's
+it is a **scope**, not a filter. Both promoted controls still honor the admin's
 visible-filter set, because the page **resets the value of any hidden filter**:
 rendering a hidden control would show a value being cleared behind the scenes, and
 leaving a hidden filter's value in place would let it silently constrain the table.
@@ -721,7 +722,7 @@ meaningless for Summary — and mirrors the comparator the server uses.
 **Customize View** is saved **server-side** per admin so it follows them across
 devices; localStorage is only a cache to avoid a flash. Two rules that matter: the
 server allow-lists column and filter keys and **drops unknown ones**, so
-client/server drift fails safe; and sanitisation runs against the **full**
+client/server drift fails safe; and sanitization runs against the **full**
 registries, not the default visible sets — narrowing to defaults would silently
 strip an admin's kept columns on every load.
 
@@ -798,7 +799,7 @@ requester fields were stored, exported and imported and drawn **nowhere**.
 
 > **Honest caveat, shown in the UI:** *"Not yet sent to the Service Desk. Showing
 > the current saved values."* True snapshots do not exist. See
-> [Known gaps](#part-x--known-gaps-traps-and-open-questions).
+> [Known gaps](#part-viii--known-gaps-traps-and-open-questions).
 
 **Tab 2 — Files.** The per-file remove action is a **quiet text button**, not a red
 danger button — five attachments used to mean five red buttons competing with the
@@ -1066,7 +1067,7 @@ not an error. **It always returns 200.**
 
 `viewerService.resolveSessionIdentity` is the *one function* that reads the
 session. Today it reads what the local login wrote. Under SSO it reads what the
-provider asserted — including `groups`, which is **already honoured everywhere
+provider asserted — including `groups`, which is **already honored everywhere
 downstream**. Group-driven home applications start working the moment the
 assertion carries them, with no other change. `reporterService` mirrors the same
 seam for submissions.
@@ -1187,7 +1188,7 @@ rather than a list of exceptions.
   throughput numbers**. That is the only thing it gates.
 
 Deliberately a **code-level catalog, not a lookup table** — unlike statuses, a role
-means nothing without the code paths that honour it, so a row someone added by hand
+means nothing without the code paths that honor it, so a row someone added by hand
 could only ever be a role that does nothing. Unknown roles **fail closed**.
 
 > **Nobody was seeded with `manager`.** It is a privacy decision, and handing it out
@@ -1306,7 +1307,7 @@ Two rules worth keeping:
   means the scoping did not run, and broadcasting then is the leak this exists to
   close.
 
-### Middleware division of labour
+### Middleware division of labor
 
 - `ensureAdmin` — *whether* the caller is an admin at all.
 - `resolveViewer` → `req.viewer` — *what* they administer, resolved **once per
@@ -1454,7 +1455,7 @@ Two independent checks, and you need both:
    rows** and gets the same 409.
 
 **Check 1 alone is a race. Check 2 is what actually makes it safe.** The
-authorization check runs **before** the conflict check, so an unauthorised caller
+authorization check runs **before** the conflict check, so an unauthorized caller
 learns nothing about the row's edit history.
 
 ### Conflict resolution UI
@@ -1600,7 +1601,7 @@ is careful about false positives:
   to contain it.
 - The numeric ticket id is **equality-only**, so `42` finds `#42` and not `#1420`.
 
-Literal matching runs over **every** window-surviving row, not just vectorised ones,
+Literal matching runs over **every** window-surviving row, not just vectorized ones,
 so a ticket created minutes ago is findable by its incident number before the
 backfill reaches it.
 
@@ -1696,7 +1697,7 @@ the send is refused rather than misrouted.**
 The value comes from `EASYVISTA_CATALOG_GUIDS` / `_CODES` — a catalog per named
 application in the same `Name:value,Name:value` shape as `EASYVISTA_ADMIN_MAILS`,
 beside the API key where GTS already works. Resolution order: the application column
-(nothing writes it now, but a direct fix is still honoured) → the map → the
+(nothing writes it now, but a direct fix is still honored) → the map → the
 single-catalog form for the one application `EASYVISTA_DEFAULT_APPLICATION` names.
 **Nothing inherits another application's catalog at any step** — that was the
 original bug.
@@ -1740,7 +1741,7 @@ configured — and writing a plausible-looking GUID into their rows would mean t
 on the day the integration is switched on, a real send posts into a catalog that
 does not exist.
 
-So the placeholder says what it is, and `easyVistaCatalogStatus` **stops honouring
+So the placeholder says what it is, and `easyVistaCatalogStatus` **stops honoring
 it the moment `easyVistaIsLive()` is true**:
 
 | Catalog value | Demo path | Live path |
@@ -1881,7 +1882,7 @@ were never read. With it:
   so it stays null rather than borrowing the importer's name; `approved_by_name` and
   `approved_at` carry what the sheet actually knows.
 
-Visibility mirrors the create path: honour an explicitly mapped `is_public` column,
+Visibility mirrors the create path: honor an explicitly mapped `is_public` column,
 but when unmapped or blank **default to public** — unless the row is a cleanup-only
 task. Imported tickets are indexed for AI search in the **background, batched and
 non-blocking** (lookup maps built once, not per row), and it is a no-op when AI
@@ -1937,7 +1938,7 @@ Two backends, chosen at runtime (`server/src/helpers/storage.js`):
 > computes it from `server/src/helpers`. Getting it wrong makes every local file
 > look already-missing, which is exactly what the purge script did on its first run.
 
-Filenames are sanitised to `[a-zA-Z0-9._-]` and prefixed with a timestamp (plus a
+Filenames are sanitized to `[a-zA-Z0-9._-]` and prefixed with a timestamp (plus a
 random segment on the Supabase path) so two uploads of `screenshot.png` cannot
 collide. The temp file is removed in a `finally` block whichever backend runs.
 
@@ -2274,7 +2275,7 @@ internal details never reach a client.
 - **CSRF: double-submit cookie**, no external dependency. A non-httpOnly `bc_csrf`
   cookie is issued to every client; state-changing requests to `/api/admin/*` must
   echo it in `X-CSRF-Token`. The client does this centrally in `lib/api.js`'s shared
-  `request()` helper — **keep it centralised.**
+  `request()` helper — **keep it centralized.**
 - `/uploads` is served with `X-Content-Type-Options: nosniff`.
 - **Two upload configurations, deliberately:** a generic temp upload for trusted,
   separately-validated files (the admin Excel import), and an **image-only** upload
@@ -2296,7 +2297,7 @@ internal details never reach a client.
 | `NODE_ENV` | `development` | `production` enables proxy trust, boot self-sync, secure cookies, generic 5xx |
 | `CLIENT_ORIGIN` | `http://localhost:5173` | Comma-separated CORS allow-list |
 | `SESSION_SECRET` | dev default | **≥32 chars in production or the server refuses to start** |
-| `SESSION_COOKIE_SAME_SITE` | `none` (prod) / `lax` (dev) | `none` is more permissive than needed — see Part VIII |
+| `SESSION_COOKIE_SAME_SITE` | `none` (prod) / `lax` (dev) | `none` is more permissive than needed — see Part VI |
 | `SESSION_COOKIE_SECURE` | `true` (prod) / `false` (dev) | |
 | `SESSION_COOKIE_DOMAIN` | — | For cross-origin cookie setups |
 | `SESSION_STORE` | `auto` | `auto` \| `pg` \| `memory`. `pg` without `DATABASE_URL` **throws**. |
@@ -2371,7 +2372,7 @@ Resolution: `DB_PROVIDER || (DB_MODE === 'hosted' ? 'postgres' : 'sqljs')`.
 
 ---
 
-# Part VII — Running and verifying
+# Part V — Running and verifying
 
 ## Running the prototype
 
@@ -2460,10 +2461,16 @@ at bytes that are not there is worse than an empty Files tab.
 ## Verification gates
 
 ```bash
-cd server && npm test        # node:test — 378 tests
-cd client && npm run lint    # ESLint incl. react-compiler rules — must stay green
-cd client && npm run build   # production build
+cd server && npm test                        # node:test — 378 tests
+cd client && npm run lint                    # ESLint incl. react-compiler rules — must stay green
+cd client && npm run build                   # production build
+cd client && node scripts/check-doc-anchors.mjs   # every anchor link in the docs resolves
 ```
+
+The last one needs no server, no browser and no database — it reads the markdown.
+**Run it after renaming any heading**, in these documents or the README: a renamed
+heading moves its slug, every link to it dies silently, and the PDF export renders
+the dead link without complaint.
 
 ## The browser harness
 
@@ -2556,9 +2563,10 @@ them:
   machine that did the export. Within one document every link works; between them,
   they only work for the person who produced them. **Send the markdown, or the whole
   set, if a cross-document jump matters.**
-- **Nothing validates the anchors.** A link to a heading that no longer exists becomes
-  a dead link in a PDF a reader already has, and the export will not complain.
-  Checking the contents list after a heading is renamed is a manual step.
+- **The export does not validate the anchors** — a link to a heading that no longer
+  exists renders as a dead link and nothing complains. **Run
+  `node scripts/check-doc-anchors.mjs` from `client/` before exporting**; it is the
+  only thing standing between a renamed heading and a broken contents list.
 
 An earlier pass built these from a script (`marked` → Playwright Chromium print) with
 GitHub-compatible slugs, `#nameddest=` cross-document targeting, bookmarks, and a
@@ -2649,7 +2657,7 @@ would do.
 
 ---
 
-# Part VIII — Deployment and the rebuild decisions
+# Part VI — Deployment and the rebuild decisions
 
 > **The internal deployment will be on company servers and a company database —
 > not Vercel, Render or Supabase.** Read this part as *"here is what the prototype's
@@ -2831,7 +2839,7 @@ const updateWhere = { id: Number(id), updated_at: rawExisting.updated_at };
 ```
 
 The client loads a row, keeps `updated_at` verbatim, and echoes it back on save. With
-a native timestamp column that round-trip has to survive **JSON serialisation and
+a native timestamp column that round-trip has to survive **JSON serialization and
 back with identical precision** — and it will not: Postgres `timestamptz` carries
 microseconds, a JS `Date` carries milliseconds. The string compare then fails on
 every save and **every edit returns a spurious 409 conflict.** Fix it by versioning
@@ -2882,7 +2890,7 @@ HTML/JS/CSS any web server can serve) and a **Node API** (`node src/index.js` on
 | **Terminate TLS, forward the real client IP** | `X-Forwarded-For` / `X-Forwarded-Proto`, with `trust proxy` set to match the hop count |
 | **Send `X-Content-Type-Options: nosniff` on any file-serving path** | The app sets it on `/uploads`; do not lose it at the proxy |
 
-**If you containerise**, requirements 1 and 3 and the in-memory state are not
+**If you containerize**, requirements 1 and 3 and the in-memory state are not
 optional — they are the blockers. **Ticket presence and rate-limit counters are plain
 in-memory maps**, so as written the app cannot run more than one replica. Presence
 degrading is cosmetic; rate limiting is not. (Sessions are now in Postgres, so that
@@ -2898,7 +2906,7 @@ Third-party AI calls are permitted, so the current design carries over unchanged
 
 | Item | Detail |
 |---|---|
-| **Outbound HTTPS** to the chosen vendor | `api.anthropic.com` or `api.openai.com`. `embeddings.js` and the OpenAI path use **native `fetch`**, which honours `HTTPS_PROXY` only if you configure an agent or run Node with proxy support — **verify this early, it is a common first-deploy failure.** |
+| **Outbound HTTPS** to the chosen vendor | `api.anthropic.com` or `api.openai.com`. `embeddings.js` and the OpenAI path use **native `fetch`**, which honors `HTTPS_PROXY` only if you configure an agent or run Node with proxy support — **verify this early, it is a common first-deploy failure.** |
 | **Keys in the secret store** | Never in a dotfile. **Rotate the key currently sitting in `server/.env`.** |
 | **A cost bound** | `AI_SEARCH_TOP_K` (20) caps candidates per summary call; `AI_SEARCH_MAX_INLINE_EMBED` (25) caps inline embedding work per search; `AI_SEARCH_PUBLIC_RATE_LIMIT` (20/min per IP) bounds the anonymous surface. **Set these deliberately.** |
 | **Where embeddings run** | `AI_PROVIDER=anthropic` gives Claude summaries with **local, in-process embeddings** — no embeddings vendor, no per-call embedding cost, and ticket text never leaves your servers. Given internal hosting, worth considering: it reduces what leaves the network to just the summary call. |
@@ -2909,7 +2917,7 @@ Third-party AI calls are permitted, so the current design carries over unchanged
 
 | # | Problem | Why it happens | Carries over? |
 |---|---|---|---|
-| 1 | **Attachments vanish on every deploy** | Ephemeral filesystem plus local-disk storage. `attachments` rows survive, pointing at nothing. | **Yes, if containerised** or on any non-persistent disk |
+| 1 | **Attachments vanish on every deploy** | Ephemeral filesystem plus local-disk storage. `attachments` rows survive, pointing at nothing. | **Yes, if containerized** or on any non-persistent disk |
 | 2 | ~~Every admin is signed out on every deploy~~ | ~~`express-session` had no store~~ | **Fixed** — `connect-pg-simple`. Keep a real store. |
 | 3 | **Presence and rate limiting are single-instance** | Plain in-memory maps | **Yes, with more than one replica.** Presence is cosmetic; rate limiting is not. |
 | 4 | **Attachment URLs are publicly reachable** | Uploads go to a **public** bucket — unguessable but unauthenticated | **Only if you copy the scheme.** Don't. |
@@ -2959,7 +2967,7 @@ Third-party AI calls are permitted, so the current design carries over unchanged
 
 ---
 
-# Part IX — Decision record
+# Part VII — Decision record
 
 **Why this part exists.** The sections above describe the system as it stands. This
 one records **how it got there, in order**, because several of these decisions were
@@ -3127,7 +3135,7 @@ anonymous report request belongs to nobody. The form says so when the type is pi
 keeps what was typed, and disables **both** submit buttons. **There are two** — the
 readiness rail's and the sticky bar's — and the first version of that check read only
 the first match and missed that the one a desktop user clicks was still live. *(This
-was later generalised to every type; see [§9](#who-may-file).)*
+was later generalized to every type; see [§9](#who-may-file).)*
 
 **4–7. The detail modal, told apart by type.** Release # and Release Notes gone from a
 report request (nothing ships), Workaround gone from its Triage tab (nothing is
@@ -3362,7 +3370,7 @@ there is nowhere else to put it.
   names every column the MODEL declares, so adding `working_application_id` to
   `db/models/index.js` while the database lacked it broke queries immediately —
   the same trap `viewerService.listActiveApplications` and `helpers/lookups.js`
-  already carry defences for. Run the migration in the same breath as the model edit.
+  already carry defenses for. Run the migration in the same breath as the model edit.
 - **Editing server source during a browser verification restarts the server under
   it.** Two runs died on `ECONNREFUSED` and a 500 that looked like product faults
   and were nodemon doing its job. Finish the code, then verify.
@@ -3395,7 +3403,7 @@ Added to [the trap table](#the-four-traps-this-harness-was-built-around):
 
 ---
 
-# Part X — Known gaps, traps and open questions
+# Part VIII — Known gaps, traps and open questions
 
 ## Unfinished
 
@@ -3510,7 +3518,7 @@ All cataloged with reasons in `server/db/models/index.js` (`RAW_UNIQUE_INDEXES`,
 
 ---
 
-# Part XI — Rebuild acceptance checklist
+# Part IX — Rebuild acceptance checklist
 
 Behaviors that are **load-bearing**. Each one either encodes a domain rule or fixes a
 bug that was actually hit. **If the rebuild breaks one, it is a regression, not a
@@ -3581,7 +3589,7 @@ design difference.**
 ### Lifecycle
 - [ ] Nothing hard-deletes a submission.
 - [ ] Statuses are **data**; nothing hardcodes the full list.
-- [ ] **Which statuses a type may hold is scoped in one place**, enforced on create, update and backdated history, and honoured by the import's analyze step too.
+- [ ] **Which statuses a type may hold is scoped in one place**, enforced on create, update and backdated history, and honored by the import's analyze step too.
 - [ ] A **retired status does not hide a live ticket** (drop the whitelist when all are selected).
 - [ ] Board position derives from **current status**, never furthest timestamp.
 - [ ] Closed outcomes and parked statuses do **not** draw a pipeline track.
@@ -3643,7 +3651,7 @@ design difference.**
 - [ ] Applied filters render as **individually removable** chips, derived **once** and shared by badge, chips, summary line and empty state.
 - [ ] Hidden filters have their **values reset** so they cannot silently constrain.
 - [ ] Sorting is reachable independently of which columns are visible, both paths writing one value.
-- [ ] Per-admin view preferences persist **server-side**, allow-listed, sanitised against the **full** registry, and hold **one layout per queue**.
+- [ ] Per-admin view preferences persist **server-side**, allow-listed, sanitized against the **full** registry, and hold **one layout per queue**.
 - [ ] A **pin** is distinct from "the last thing I looked at".
 - [ ] The kind-of-work switch and the filter panel write the **same** value.
 - [ ] Validation appears only **after** a submit attempt, and focus moves to the first problem.
@@ -3677,10 +3685,10 @@ design difference.**
 
 ---
 
-# Part XII — Wanted next
+# Part X — Wanted next
 
 **None of this is built.** It is the owner's stated intent as of **2026-08-11**,
-recorded here so a rebuild designs *for* it instead of around it. Part X is what is
+recorded here so a rebuild designs *for* it instead of around it. Part VIII is what is
 wrong with what exists; this is what does not exist yet.
 
 Read §25 and §26 together — **they are one problem at two levels**, and solving the
@@ -3730,7 +3738,7 @@ What does *not* need attention: the public board. `mapPublicSubmission` is an
 allow-list, so **any new field is private until somebody adds it** — the right
 default, and it should stay that way.
 
-## 26. Report requests in more than one flavour
+## 26. Report requests in more than one flavor
 
 Today `report` is a single type, and every report request answers the same questions.
 The wanted change is several kinds of report request, each with its own fields —
@@ -3740,17 +3748,17 @@ which is **§25's problem one level down**: a *subtype* whose field set varies.
 from the start.** Adding a third key later means touching every row that already has
 two. That is the whole reason these two belong in one design.
 
-**Do not model a report flavour as a new Type.** Type drives the status vocabulary,
-the required fields *and* what the Service Desk is told. A flavour that borrows all
+**Do not model a report flavor as a new Type.** Type drives the status vocabulary,
+the required fields *and* what the Service Desk is told. A flavor that borrows all
 three but differs only in fields would fork all three, and the three report-only
-statuses would have to be duplicated per flavour.
+statuses would have to be duplicated per flavor.
 
 Open questions to settle before modeling:
 
-- Does a flavour change the **status vocabulary**, or only the fields? If only the
+- Does a flavor change the **status vocabulary**, or only the fields? If only the
   fields, subtype stays a field-set key and nothing else moves.
-- Do the three report-only statuses apply to every flavour?
-- Does **level of effort** still mean the same thing across flavours? The throughput
+- Do the three report-only statuses apply to every flavor?
+- Does **level of effort** still mean the same thing across flavors? The throughput
   page and its median depend on it meaning one thing.
 
 ## 27. Approval signed inside the app

@@ -697,7 +697,7 @@ in **two** places, and it is the same control:
 
 1. **Add a ticket… → Report request**, under the Application picker — you are
    recording a request for a system that is not in the list.
-2. **⋯ More → Redirect**, on a report request — you have realised an `Other` request
+2. **⋯ More → Redirect**, on a report request — you have realized an `Other` request
    is really Marketing Analytics'.
 
 ![Adding an application](handoff/screenshots/46-add-ticket-add-application.png)
