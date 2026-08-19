@@ -15,6 +15,11 @@ export const DETAIL_TABS = {
   // Takes the sixth slot for a report request, where easyvista sits for every
   // other type — a report request is finished in the portal and never handed on.
   delivery: 'delivery',
+  // Who has said this happened to them, and who is still blocked on it. Its own
+  // tab rather than a block on Impact: the reporters' log is evidence and the
+  // Impact tab holds the analyst's own estimate, and the point of showing both
+  // is that they are different claims by different people.
+  recurrences: 'recurrences',
 };
 
 /**

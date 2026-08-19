@@ -98,6 +98,46 @@ export function useAdminNotifications({ loadRows, openId, openDetail, isAnyAdmin
           } catch { /* silently ignore */ }
         }
       }
+
+      // \u2500\u2500 Somebody is blocked and waiting \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+      //
+      // The one event here that is about a PERSON rather than a row, so it gets
+      // the full treatment \u2014 toast, desktop notification, unread badge \u2014 while
+      // an ordinary recurrence just refreshes the queue through the reload
+      // above. Blocked means they cannot finish their work today; a number
+      // ticking up on a row they are not looking at would not reach anyone.
+      if (payload?.event === 'submission:workaround-requested') {
+        const sub = payload?.payload?.submission;
+        const who = payload?.payload?.reported_by || 'Someone';
+        const blockedOn = payload?.payload?.blocked_on || '';
+        const heading = `${who} is blocked${sub?.application_name ? ` \u2014 ${sub.application_name}` : ''}`;
+        const detail = sub?.summary_of_issue || 'An existing ticket';
+
+        if (document.hidden) {
+          setUnreadCount((c) => c + 1);
+        } else {
+          const toastId = Date.now();
+          setSubmissionToasts((prev) => [
+            ...prev,
+            { id: toastId, heading, from: detail, type: 'Needs a workaround', tone: 'blocked' },
+          ]);
+          // Held twice as long as a new-submission toast: this one asks somebody
+          // to do something today, so it should outlast a glance away.
+          setTimeout(() => {
+            setSubmissionToasts((prev) => prev.filter((t) => t.id !== toastId));
+          }, 16000);
+        }
+
+        if ('Notification' in window && Notification.permission === 'granted') {
+          try {
+            const n = new Notification('\u{26A0}\u{FE0F} Someone is blocked', {
+              body: [heading, detail, blockedOn].filter(Boolean).join('\n'),
+              icon: '/favicon.ico',
+            });
+            n.onclick = () => { window.focus(); n.close(); };
+          } catch { /* silently ignore */ }
+        }
+      }
     };
 
     socket.on('admin:notification', onNotification);

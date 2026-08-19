@@ -8,6 +8,9 @@ const { listRoutings, listRoutingsBySubmissionIds } = require('../services/redir
 // The report-request rule, shared with the socket broadcast and the public
 // semantic search so the four surfaces cannot drift apart.
 const { boardVisibilityFor } = require('../helpers/reportVisibility');
+// Shared with the AI search path, which renders the same rows through the same
+// StatusBoardRow and needs the same dates under the same stops.
+const { deriveStatusTimestamps, groupEventsBySubmissionId } = require('../helpers/statusTimestamps');
 
 const router = express.Router();
 
@@ -15,18 +18,6 @@ router.get('/api/health', (_req, res) => {
   res.json({ ok: true });
 });
 
-// A triager changing the status writes the event as
-// "Defect/Enhancement Status: Deployed", while the create, EasyVista-send and
-// retire paths write the bare name. The board's per-status timestamps matched
-// only the bare form, so a status reached through the admin form — which is how
-// Approved, Deployed and Duplicate are ALWAYS reached — never produced a date.
-// Reading both shapes fixes the four existing timestamps as well as the new one.
-const STATUS_EVENT_PREFIX = 'Defect/Enhancement Status: ';
-
-function normalizeEventStatus(value) {
-  const text = String(value || '').trim();
-  return text.startsWith(STATUS_EVENT_PREFIX) ? text.slice(STATUS_EVENT_PREFIX.length) : text;
-}
 
 /**
  * Mark the rows this caller filed.
@@ -80,12 +71,7 @@ router.get('/api/public/submissions', async (req, res) => {
         raw: true,
       })
       : [];
-    const bySubmissionId = new Map();
-    for (const event of events) {
-      const submissionId = Number(event.submission_id);
-      if (!bySubmissionId.has(submissionId)) bySubmissionId.set(submissionId, []);
-      bySubmissionId.get(submissionId).push(event);
-    }
+    const bySubmissionId = groupEventsBySubmissionId(events);
 
     // The hand-off trail, for the whole page in two queries. The board has
     // always had the markup for it but never the data — only the by-id endpoint
@@ -93,36 +79,10 @@ router.get('/api/public/submissions', async (req, res) => {
     // `forPublic` is what strips the internal note (mapPublicRouting).
     const routingsBySubmissionId = await listRoutingsBySubmissionIds(dbModels, ids, { forPublic: true });
 
-    const enrichedRows = rows.map((row) => {
-      const submissionEvents = bySubmissionId.get(Number(row.id)) || [];
-      const sortedEvents = [...submissionEvents].sort((a, b) => new Date(b.changed_at) - new Date(a.changed_at));
-      const latest = sortedEvents[0] || null;
-      const maxByStatus = (status) => {
-        const matches = sortedEvents.filter((event) => normalizeEventStatus(event.status) === status);
-        return matches.length > 0 ? matches.reduce((max, event) => (
-          !max || new Date(event.changed_at) > new Date(max) ? event.changed_at : max
-        ), null) : null;
-      };
-
-      return {
-        ...row,
-        latest_status_changed_at: latest?.changed_at || null,
-        latest_status_value: latest?.status || null,
-        // The board draws a four-stop track — Reported, Approved, In EasyVista,
-        // Deployed — and needs the date under each stop it has reached.
-        approved_status_at: maxByStatus('Approved'),
-        submitted_status_at: maxByStatus('Submitted'),
-        deployed_status_at: maxByStatus('Deployed'),
-        // The report-request track's own two stops. Same shape and same source as
-        // the four above — a report request never reaches Submitted or Deployed,
-        // and a defect never reaches these, so every row carries the two its own
-        // track needs and null for the others.
-        in_progress_status_at: maxByStatus('In progress'),
-        delivered_status_at: maxByStatus('Delivered'),
-        duplicate_status_at: maxByStatus('Duplicate'),
-        retired_status_at: maxByStatus('Retired'),
-      };
-    });
+    const enrichedRows = rows.map((row) => ({
+      ...row,
+      ...deriveStatusTimestamps(bySubmissionId.get(Number(row.id)) || []),
+    }));
 
     enrichedRows.sort((a, b) => String(b.updated_at || '').localeCompare(String(a.updated_at || '')));
 

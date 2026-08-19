@@ -166,6 +166,16 @@ export const ADMIN_TABLE_COLUMNS = [
   // to the Service Desk rather than to a person — so it is off the default view
   // and on by default in the report queue's own set below.
   { key: 'assignedTo', label: 'Assigned To', sortKey: null, exportKey: 'assigned_to_name' },
+  // How many people have said this happened to them. The reason the feature is
+  // worth having on the queue at all: "the thing fourteen people hit last week"
+  // is the ticket that should be worked next, and until now nothing on this
+  // table could say that. Sortable, and off by default like the other reporting
+  // columns — an admin turns it on through Customize View.
+  { key: 'recurrences', label: 'Reported by', sortKey: 'recurrences', exportKey: 'recurrence_count' },
+  // Who is stuck RIGHT NOW and still waiting. Separate from the count because
+  // they are different urgencies: eleven reports is a priority signal, one
+  // person blocked is somebody who cannot finish their work today.
+  { key: 'blocked', label: 'Blocked', sortKey: 'blocked', exportKey: 'open_workaround_requests' },
 ];
 
 /** The export fields behind a set of visible column keys, in registry order. */
@@ -196,6 +206,11 @@ export const ADMIN_FILTER_FIELDS = [
   { key: 'easyvistaNumber', label: `${TRACKER_LABEL} #` },
   { key: 'jiraNumber', label: 'JIRA #' },
   { key: 'releaseNumber', label: 'Release #' },
+  // Tickets people are still reporting after they were closed without a fix, or
+  // after their fix shipped. Without this the "including Rejected" decision
+  // would be a number on a dead row that nobody ever opens — the filter is what
+  // makes a challenged closure findable.
+  { key: 'recurrenceFilter', label: 'Reported again' },
 ];
 
 // Every key the registries know about. These are the sanitize allow-lists for
@@ -248,7 +263,7 @@ export const DEFAULT_VISIBLE_FILTER_KEYS = ALL_FILTER_KEYS;
 // count on the page. Every other ADMIN_FILTER_FIELDS key appears exactly once
 // here — a key missing from both places would be unreachable.
 export const ADMIN_FILTER_GROUPS = [
-  { key: 'ticket', label: 'Ticket', filterKeys: ['statuses', 'types', 'year', 'workaround'] },
+  { key: 'ticket', label: 'Ticket', filterKeys: ['statuses', 'types', 'year', 'workaround', 'recurrenceFilter'] },
   { key: 'cleanup', label: 'Cleanup', filterKeys: ['cleanupRequired', 'cleanupStatuses'] },
   { key: 'people', label: 'People & source', filterKeys: ['requester', 'submittedBy', 'createdVia'] },
   { key: 'refs', label: 'References', filterKeys: ['easyvistaNumber', 'jiraNumber', 'releaseNumber', 'inJira'] },

@@ -155,6 +155,18 @@ const DEFAULT_LEVELS_OF_EFFORT = [
   'L — up to a month',
   'XL — more than a month',
 ];
+
+// Why a ticket was closed without a fix. Seed values for a Metadata-managed
+// lookup — kept in step with db/models/index.js, which seeds them, and with
+// helpers/rejectionReasons.js, which decides what each one asks for when
+// somebody reports the issue happening again.
+const DEFAULT_REJECTION_REASONS = [
+  'Could not reproduce',
+  'Working as designed',
+  'Insufficient detail to investigate',
+  'Not cost-effective to fix',
+  'Vendor limitation',
+];
 const DEFAULT_APPLICATIONS = ['Billing Center', 'Policy Center'];
 const DEFAULT_ENHANCEMENT_REQUEST_TYPES = [...ENHANCEMENT_REQUEST_TYPES];
 const DEFAULT_PRIORITY_LEVELS = ['1 - Urgent', '2 - High', '3 - Medium', '4 - Low'];
@@ -366,6 +378,11 @@ const ADMIN_VIEW_COLUMN_KEYS = [
   // handed to the Service Desk, which is why this arrives with the report queue's
   // own column set rather than as one more column on the shared one.
   'assignedTo',
+  // How many people said it happened to them, and how many of those are still
+  // blocked. Two columns because they are two urgencies — a count is a priority
+  // signal, a blocked person is somebody who cannot work today.
+  'recurrences',
+  'blocked',
 ];
 const ADMIN_VIEW_FILTER_KEYS = [
   'statuses',
@@ -384,6 +401,7 @@ const ADMIN_VIEW_FILTER_KEYS = [
   'jiraNumber',
   'releaseNumber',
   'application',
+  'recurrenceFilter',
 ];
 
 // ── Application roles ───────────────────────────────────────────────────────
@@ -556,6 +574,13 @@ const LOOKUP_TABLES = {
     normalize: (value) => String(value || '').trim(),
     submissionIdColumn: 'occurrence_timeframe_id',
   },
+  'rejection-reasons': {
+    table: 'rejection_reasons',
+    modelName: 'RejectionReason',
+    hasRetiredFlag: false,
+    normalize: (value) => String(value || '').trim(),
+    submissionIdColumn: 'rejection_reason_id',
+  },
 };
 
 module.exports = {
@@ -601,4 +626,5 @@ module.exports = {
   statusesForRequestType,
   filingRequiresSignIn,
   DEFAULT_LEVELS_OF_EFFORT,
+  DEFAULT_REJECTION_REASONS,
 };

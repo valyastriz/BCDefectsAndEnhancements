@@ -2624,6 +2624,152 @@ future scope, not current work.
 
 ---
 
+## "It happened again" — recurrences, regressions and the blocked ask (2026-08-19)
+
+The similarity check had exactly two exits: file a full duplicate, or give up.
+There is now a third — **one gesture on any matched ticket**, whose depth the
+server picks from that ticket's own state.
+
+**The organising question is "does this need someone to pick up new work?"** A
+ticket still in flight does not — the work is queued, and what is missing is
+weight and evidence. A released one does: nobody is watching it, so a returned
+fix is a new ticket. That single question produces the whole design.
+
+### Three depths, resolved server-side, never by the client
+
+`server/src/helpers/recurrenceDepth.js` is a pure function over
+`(status, deployed_status_at, occurred_at, rejection_reason)`:
+
+| Depth | When | Asks for |
+|---|---|---|
+| **1 — add weight** | Not released. New/Approved/Submitted, and the parked-but-planned statuses | A line, policy + account, a screenshot |
+| **2 — challenge** | Rejected · Retired · Backlog - Monitoring Impact | Depth 1 **plus one targeted block**, chosen from *why* it was closed |
+| **3 — regression** | Released **and** it happened after that date | A full report, pre-filled from the old one, tagged as a regression |
+| **0 — already fixed** | Released and it happened **before** that date | Nothing — it says "this was fixed on the 18th, try again" |
+
+**The requester never classifies their own report.** That is a triage decision and
+they are the least equipped to make it; a client-supplied depth would also be a
+way to skip the questions. Depth 0 is the one nobody asked for and the one that
+earns its keep: the week after any deploy it is the common case, and treating it
+as depth 3 would bury the real regressions.
+
+**An unrecognised status is depth 1.** Statuses are a Metadata-managed lookup —
+the hosted data already carries `Pending Management Approval` and `Requires
+Additional Review`, neither of which is in any code-level list. The default is
+the least presumptuous of the three, and `test/recurrenceDepth.test.js` pins it.
+
+### Depth 2 asks the one question that would change the answer
+
+"More info" is the wrong frame. Each closure went the other way *for a reason*,
+and the evidence that overturns it differs:
+
+- **Could not reproduce** → steps and identifiers. Nothing else matters; the team
+  already believes it might be real, they just cannot make it happen.
+- **Working as designed** → what you expected instead, and what it costs. Steps
+  are useless here — they know it does this.
+- **Monitoring impact** → frequency, policies, money. That status is *literally*
+  waiting on this answer.
+
+That needed a new `rejection_reasons` lookup: `Rejected` was one status and the
+reason lived in free-text `decision_notes`, which nothing can branch on. Five
+seeded values, Metadata-managed. **An unrecognised reason asks for everything** —
+more work for the reporter, but never the wrong question.
+
+### The blocked ask is not a depth
+
+"I need a workaround" rides on **every** sheet regardless of status, because being
+stuck today has nothing to do with where a ticket sits in someone else's queue.
+
+**And it must not touch the parent's flags.** `needs_workaround` /
+`workaround_provided` is a documented pair — an open request is the first without
+the second, and handling one must never erase that it was made. If the team already
+answered the original reporter the pair reads *handled*, so setting
+`needs_workaround` again changes nothing and the new person's request is silently
+invisible; clearing `workaround_provided` would erase that the team helped. So the
+pair **repeats on the recurrence row**, per person per hit, and the parent's "open
+request" derives: the original un-serviced ask, OR any un-serviced recurrence ask.
+The existing three-state filter keeps working untouched. It is also more truthful —
+the workaround given to one person may genuinely not cover another's case.
+
+It reuses the existing notification plumbing end to end: `emitAdminNotification`
+→ `useAdminNotifications` → toast, browser notification, unread badge, scoped to
+that application's admins. Fire-and-forget, so a failed fan-out cannot fail the
+write.
+
+### Decisions worth keeping
+
+- **A deployed ticket is never reopened.** Deployed is a fact about a release;
+  un-deploying it would make the board's own dates lie and corrupt throughput
+  reporting. The regression is a new ticket with a link back.
+- **The regression link is a CLAIM, not a ruling.** `duplicate_of` is admin-set
+  during triage, so an unqualified FK from a requester would read on the queue as
+  a decision the team made. `regression_claim_confirmed` is tri-state: 0 claimed,
+  1 confirmed, −1 rejected on review. The link is never cleared — that somebody
+  believed it is worth knowing, and clearing it invites the same claim next week.
+- **Named "recurrence", never "occurrence".** `occurrence_count` /
+  `occurrence_rate` already exist and are the *admin's own* frequency estimate.
+  Two things called occurrences would make the queue's numbers unreadable. The
+  detail pane now shows both side by side — evidence beside judgement, and the
+  estimate is still the analyst's to make.
+- **Append-only.** A retraction is a timestamp, never a DELETE. The count feeds a
+  priority decision, so "who said what, and did anyone take it back" has to stay
+  answerable.
+- **The same person twice is signal, not noise.** No unique constraint: hitting the
+  same defect Monday and Thursday is two real data points. A double-tap is prevented
+  by showing "you reported this on the 11th", not by discarding the second hit.
+- **A Duplicate redirects to its canonical ticket.** Closing B as a duplicate of A
+  means A is where the work is; without the redirect the count fragments across
+  every duplicate and no row shows the real total. Bounded to four hops.
+- **Reference numbers belong to the application.** Billing Center identifies a case
+  by policy + account; a transaction number does not make one reproducible. Three
+  booleans on `applications`, enforced server-side as well as in the sheet — a
+  value no screen will show is worse than one the endpoint refuses.
+
+### Two latent bugs found on the way
+
+1. **AI search returned matches with no track timestamps at all.** The derivation
+   lived inline in `publicRoutes.js`; the search path computed those dates for the
+   Claude card and handed the raw row to `mapPublicSubmission`, which drops
+   `undefined`. So every match on the duplicate check and the status-board search
+   drew "—" under every stop and fell back to `updated_at` for "when". It also meant
+   depth 3 could never have fired. Fixed by extracting
+   `helpers/statusTimestamps.js` and using it on both paths. **Verified against the
+   running app before and after** — this was the blocking unknown flagged in the
+   mockup, and it was real.
+2. **`POST /api/submissions/:id/recurrences` had no CSRF cover.** The middleware
+   only guarded `/api/admin/*`, which was fine while every authenticated write
+   lived there. This one does not, and in production the session cookie is
+   `SameSite=none` — so it is genuinely reachable cross-site. `CSRF_PROTECTED_PATHS`
+   now covers it. Costs the client nothing: the shared `request()` helper already
+   attaches the token to every non-safe method.
+
+### Scope
+
+New: `submission_recurrences`, `rejection_reasons`, 9 columns on `submissions`,
+3 on `applications`. All additive; nothing renamed or dropped. Applied with
+`npm run migrate:recurrences -- --apply` (dry-run by default, idempotent,
+self-verifying).
+
+Endpoints: `GET/POST /api/submissions/:id/recurrence-context|recurrences`,
+`GET /api/admin/submissions/:id/recurrences`,
+`PATCH /api/admin/recurrences/:id/workaround|retract`,
+`PATCH /api/admin/submissions/:id/regression`.
+
+Public exposure is the **aggregate only** — `recurrence_count`,
+`last_recurrence_at`, `has_regression` on the allow-list; the log with its names,
+notes and policy numbers is behind `ensureAdmin` plus application scope.
+
+**Green:** 463 server tests (27 new) · lint · `verify-recurrences.mjs` **31/31**
+at three widths in both themes.
+
+**Deliberately out:** notifying the original reporter; pushing recurrence detail
+into the Service Desk payload; auto-updating the admin's `occurrence_rate`;
+changing which reference numbers the **main** submit form asks for — the flags
+exist and `RepSubmitPage` still asks for all three, which is the obvious next
+domino and its own decision.
+
+---
+
 ## Money columns were single-precision floats (2026-08-05)
 
 `policy_premium_impact` and `direct_dollar_impact` were `DataTypes.REAL`, which

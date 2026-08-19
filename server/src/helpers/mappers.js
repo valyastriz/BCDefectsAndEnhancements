@@ -67,6 +67,25 @@ function mapSubmission(row) {
     occurrence_timeframe_count: row.occurrence_timeframe_count ?? null,
     occurrence_timeframe: row.model_occurrence_timeframe_name || row.occurrence_timeframe || null,
     occurrence_rate: row.occurrence_rate ?? null,
+
+    // ── Recurrences ─────────────────────────────────────────────────────────
+    // Aggregates, not the log: the rows themselves carry reporter names, notes
+    // and policy numbers and are served only by the admin endpoint. Counts are
+    // coerced because a column added by a migration reads back null on every row
+    // that predates it, and the queue sorts on these — null would sort as its own
+    // thing rather than as zero.
+    recurrence_count: Number(row.recurrence_count || 0),
+    last_recurrence_at: row.last_recurrence_at || null,
+    recurrence_challenged: Boolean(row.recurrence_challenged),
+    open_workaround_requests: Number(row.open_workaround_requests || 0),
+    regression_of_submission_id: row.regression_of_submission_id || null,
+    // Tri-state, so Boolean() would be wrong: 0 claimed, 1 confirmed, -1 rejected
+    // on review. "Nobody has checked yet" and "we checked and it is not one" are
+    // different answers and the banner says which.
+    regression_claim_confirmed: Number(row.regression_claim_confirmed || 0),
+    has_regression: Boolean(row.has_regression),
+    latest_regression_submission_id: row.latest_regression_submission_id || null,
+    rejection_reason: row.model_rejection_reason_name || row.rejection_reason || null,
     // DECIMAL arrives as a string on Postgres and a number on SQLite — see
     // toMoneyNumber. Neither field is on PUBLIC_SUBMISSION_FIELDS, so this only
     // ever shapes admin payloads.
@@ -125,6 +144,20 @@ const PUBLIC_SUBMISSION_FIELDS = [
   'delivered_status_at',
   'duplicate_status_at',
   'retired_status_at',
+  // ── Recurrences: the AGGREGATE only ─────────────────────────────────────
+  // "11 people have reported this since 3 June" is itself a reason not to file
+  // a duplicate, so the count belongs on the public surfaces. The LOG does not,
+  // and must not be added here: its rows carry reporter names, free-text notes
+  // and policy/account numbers, and it is served exclusively by
+  // GET /api/admin/submissions/:id/recurrences behind ensureAdmin.
+  //
+  // `has_regression` rides along so the board can say "reported again after the
+  // fix" — a fact about the ticket, carrying no reporter's name with it. The
+  // pointer `latest_regression_submission_id` stays off: a ticket the reader may
+  // not be allowed to see should not have its id advertised here.
+  'recurrence_count',
+  'last_recurrence_at',
+  'has_regression',
 ];
 
 function mapPublicSubmission(row) {

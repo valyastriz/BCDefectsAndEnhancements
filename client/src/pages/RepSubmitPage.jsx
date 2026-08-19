@@ -285,6 +285,61 @@ export function RepSubmitPage() {
     setForm((prev) => ({ ...prev, [name]: value }));
   }
 
+  // ── "It happened to me too" ───────────────────────────────────────────────
+  // What the duplicate check hands the recurrence sheet, so it does not re-ask
+  // for things already on screen. Derived, never a second copy of the state.
+  const harvestForRecurrence = useMemo(() => ({
+    occurred_at: form.date_of_error
+      ? `${form.date_of_error}T${form.time_of_error || '00:00'}`
+      : '',
+    policy_num: form.policy_num,
+    account_num: form.account_num,
+    transaction_num: form.transaction_num,
+  }), [form.date_of_error, form.time_of_error, form.policy_num, form.account_num, form.transaction_num]);
+
+  // A recurrence landed on an open ticket. No new ticket is created, so the page
+  // has to say that plainly — otherwise the next thing they do is file the
+  // duplicate anyway, which is the whole thing this is preventing.
+  const [recurrenceNotice, setRecurrenceNotice] = useState(null);
+  function onRecurrenceLogged(result, ticket) {
+    setRecurrenceNotice({
+      ref: ticket.easyvista_ticket_id || `#${ticket.id}`,
+      count: result?.recurrence_count ?? null,
+      blocked: Boolean(result?.workaround_requested),
+    });
+    setForm(initialForm);
+    setFiles([]);
+    setShowErrors(false);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  // Depth 3: the fix shipped and it is back. The recurrence is already recorded;
+  // what follows is a real report, pre-filled from the ticket they matched so it
+  // is a review rather than fifteen fields of retyping. `regressionOf` is what
+  // tags the new submission when it is finally sent.
+  const [regressionOf, setRegressionOf] = useState(null);
+  function onRegression(result, ticket) {
+    const prefill = result?.prefill || {};
+    setRegressionOf({
+      id: result.submission_id,
+      ref: ticket.easyvista_ticket_id || `#${ticket.id}`,
+      releasedAt: result.released_at,
+      releaseNumber: prefill.release_number || '',
+    });
+    setForm((prev) => ({
+      ...prev,
+      type: prefill.type || prev.type,
+      application_name: prefill.application_name || prev.application_name,
+      screen_title: prefill.screen_title || prev.screen_title,
+      summary_of_issue: prefill.summary_of_issue || prev.summary_of_issue,
+      steps_to_reproduce: prefill.steps_to_reproduce || prev.steps_to_reproduce,
+      what_happened_exact_details: prefill.what_happened_exact_details || prev.what_happened_exact_details,
+      request: prefill.request || prev.request,
+    }));
+    setRecurrenceNotice(null);
+    formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
   function setType(nextType) {
     setForm((prev) => ({ ...prev, type: nextType }));
     setFiles([]);
@@ -350,6 +405,10 @@ export function RepSubmitPage() {
         // stopping anyone today.
         needs_workaround: isDefect && form.needs_workaround,
         date_time_of_error: isDefect ? `${form.date_of_error}T${form.time_of_error || '00:00'}` : '',
+        // The reporter's claim that a shipped fix has come back. Sent only when
+        // they arrived here through the depth-3 sheet, and recorded as a CLAIM —
+        // the server stores it unconfirmed until an admin rules on it.
+        ...(regressionOf ? { regression_of_submission_id: regressionOf.id } : {}),
       };
       Object.entries(payload).forEach(([key, value]) => formData.append(key, value));
       files.forEach((file) => formData.append('attachments', file));
@@ -368,10 +427,12 @@ export function RepSubmitPage() {
         name: knownReporter ? knownReporter.displayName : form.created_by,
         application: form.application_name,
         fileCount: files.length,
+        regressionOf: regressionOf ? regressionOf.ref : null,
       });
       setForm(initialForm);
       setFiles([]);
       setShowErrors(false);
+      setRegressionOf(null);
       formRef.current?.reset();
     } catch (submitError) {
       // A LAPSED SESSION, not a missing field. Sessions live in memory on the
@@ -495,6 +556,43 @@ export function RepSubmitPage() {
         </div>
         <Link className="rs-headlink" to="/public">Status Board →</Link>
       </div>
+
+      {/* Their report landed on an existing ticket rather than making a new one.
+          Said plainly, because "nothing happened" is what it looks like
+          otherwise — and the next thing they would do is file the duplicate. */}
+      {recurrenceNotice && (
+        <div className="rs-logged" role="status">
+          <span className="rs-logged-glyph" aria-hidden="true">✓</span>
+          <span className="rs-logged-txt">
+            <b>Added to {recurrenceNotice.ref} — no second ticket needed.</b>
+            <span>
+              The team sees your report against the one they are already working
+              {recurrenceNotice.count ? `, now reported by ${recurrenceNotice.count} ${recurrenceNotice.count === 1 ? 'person' : 'people'}` : ''}.
+              {recurrenceNotice.blocked ? ' They have been alerted that you are blocked.' : ''}
+            </span>
+          </span>
+          <button type="button" className="rs-logged-x" onClick={() => setRecurrenceNotice(null)} aria-label="Dismiss">×</button>
+        </div>
+      )}
+
+      {/* Depth 3 — the recurrence is already recorded; this is the report that
+          follows it, pre-filled from the ticket whose fix came back. */}
+      {regressionOf && (
+        <div className="rs-regression" role="status">
+          <span className="rs-logged-glyph" aria-hidden="true">↺</span>
+          <span className="rs-logged-txt">
+            <b>Filing this as a return of {regressionOf.ref}</b>
+            <span>
+              That fix shipped
+              {regressionOf.releasedAt ? ` on ${new Date(regressionOf.releasedAt).toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' })}` : ''}
+              {regressionOf.releaseNumber ? ` in release ${regressionOf.releaseNumber}` : ''}.
+              We have carried over what that ticket said — check it still reads true, and tell us
+              what is different this time. Your report has already been logged against it either way.
+            </span>
+          </span>
+          <button type="button" className="rs-logged-x" onClick={() => setRegressionOf(null)} aria-label="Do not tag this as a regression">×</button>
+        </div>
+      )}
 
       <form
         ref={formRef}
@@ -714,7 +812,13 @@ export function RepSubmitPage() {
               </select>
             </Field>
 
-            <DuplicateCheck query={form.summary_of_issue} requestType={form.type} />
+            <DuplicateCheck
+              query={form.summary_of_issue}
+              requestType={form.type}
+              harvest={harvestForRecurrence}
+              onRegression={onRegression}
+              onRecurrenceLogged={onRecurrenceLogged}
+            />
           </section>
 
           {isDefect && (

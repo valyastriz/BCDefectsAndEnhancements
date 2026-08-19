@@ -243,6 +243,9 @@ interchangeable.
 | **Workaround request** | A rep is blocked on a live case *now*. Two columns: `needs_workaround` (the ask), `workaround_provided` (the team closing it). |
 | **Redirect** | Hand a ticket to another application's queue. The ticket **moves**. |
 | **Resubmission** | Re-send to the Service Desk after changes. Creates a **new** submission and a **new** incident; the original is untouched. |
+| **Recurrence** | Somebody says an **already-reported** issue happened to them too. One row in `submission_recurrences`, no new ticket. Not to be confused with `occurrence_*`, which is the *admin's* frequency estimate. |
+| **Depth** | How much a recurrence sheet asks for — 1 add weight, 2 challenge a closure, 3 file a regression, 0 "already fixed, you are describing something older". Decided **server-side** from the parent ticket. |
+| **Regression** | A ticket filed because a **deployed** fix came back. A new submission with `regression_of_submission_id`, stored as the reporter's **claim** until an admin rules on it. The deployed ticket is never reopened. |
 | **Viewer envelope** | The single server answer to "who is this caller and what may they see". `GET /api/viewer`. |
 | **Home application** | The application a person most likely wants preselected. A **prefill**, never a lock. |
 | **Pinned application** | The queue an admin *decided* to land on. Distinct from "the last one I looked at". |
@@ -270,6 +273,20 @@ went.
 Handling the request must not erase the fact that it was made. "Open request"
 means the first without the second. A single tri-state column would lose the
 timing, and the pair is what lets history show how long the rep waited.
+
+**3a. A recurrence must never write to that pair — it repeats it.**
+Follows directly from 3, and it is the trap that design exists to catch. If the
+team already answered the original reporter, the parent reads
+`needs_workaround=1` + `workaround_provided=1`, i.e. **handled**. A second person
+who is now blocked cannot be recorded there: setting `needs_workaround` again
+changes nothing (it is already 1) so their request is silently invisible, and
+clearing `workaround_provided` would erase that the team helped. So
+`submission_recurrences` carries its own
+`workaround_requested` / `workaround_provided_at` pair, per person per hit, and
+`submissions.open_workaround_requests` is a derived count of the un-serviced
+recurrence asks — **added to** the original reporter's ask, never merged with it.
+It is also the truer model: the workaround that unblocked one person may simply
+not cover another's case.
 
 **4. A cleanup task is a flag, not a type.**
 `is_cleanup` plus `cleanup_tag_type` on a defect or an enhancement. This is why an
@@ -2104,7 +2121,10 @@ children or access control.
 | References | `policy_num`, `account_num`, `transaction_num`, `jira_number` |
 | Triage | `reviewer`, `decision_notes`, `duplicate_reference`, `duplicate_of`, `fingerprint` |
 | Impact | `impact_details`, `impact_notes`, `policy_premium_impact`, `direct_dollar_impact`, `policies_affected_count`, `occurrence_count`, `occurrence_timeframe_count`, `occurrence_timeframe_id`, `occurrence_rate` |
-| Workaround | **`needs_workaround`**, **`workaround_provided`** |
+| Workaround | **`needs_workaround`**, **`workaround_provided`** (the ORIGINAL reporter's, only — see invariant 3a) |
+| Recurrences | `recurrence_count`, `last_recurrence_at`, `recurrence_challenged`, `open_workaround_requests` — all **derived** from `submission_recurrences`, recomputed on every write to it, never incremented in place |
+| Regression | `regression_of_submission_id`, **`regression_claim_confirmed`** (0 claimed / 1 confirmed / −1 rejected), `has_regression`, `latest_regression_submission_id` |
+| Closure reason | `rejection_reason_id` — what the depth-2 sheet branches on |
 | Cleanup | `is_cleanup`, `cleanup_status_id`, `cleanup_tag_type_id` |
 | Service Desk | `easyvista_ticket_id`, `easyvista_submitted_by`, **`easyvista_application_id`** |
 | Resubmission | `is_resubmission`, `resubmission_of_submission_id`, `resubmission_of_easyvista_ticket_id`, `has_resubmission`, `latest_resubmission_submission_id`, `latest_resubmission_easyvista_ticket_id` |
@@ -3724,6 +3744,12 @@ design difference.**
 - [ ] Each type draws **its own** track, and the stage tiles name both vocabularies where the words differ.
 - [ ] Redirect **moves**; resubmission **forks**; a moved ticket lands as `New` with `status_at_handoff` preserved.
 - [ ] `needs_workaround` and `workaround_provided` stay **two** columns; the filter has **three** states.
+- [ ] A recurrence's workaround ask lives on **its own row**, never on the parent's pair.
+- [ ] The recurrence **depth** is resolved server-side; a client-supplied depth is ignored.
+- [ ] An unrecognised status is **depth 1**, and an unrecognised rejection reason asks for **everything**.
+- [ ] Public payloads carry the recurrence **count** and never the **log**.
+- [ ] A Deployed ticket is **never reopened** by a regression — the regression is a new ticket.
+- [ ] A reporter's regression link stays **unconfirmed** until an admin rules on it.
 - [ ] Real defect/enhancement tickets are **public by default**; cleanup-only is private.
 - [ ] A cleanup is a **flag** on a defect or enhancement, never a request type.
 - [ ] A `cleanup_only` task must have a type **chosen** before it can go to the Service Desk.

@@ -17,6 +17,8 @@
     "backfill:public-visibility": "node scripts/backfillPublicVisibility.js",
     "migrate:money-columns": "node scripts/migrateMoneyColumns.js",
     "migrate:easyvista-catalog-columns": "node scripts/migrateEasyVistaCatalogColumns.js",
+    "migrate:recurrences": "node scripts/migrateRecurrences.js",
+    "cleanup:verify-recurrences": "node scripts/cleanupVerifyRecurrences.js",
     "migrate:report-requests": "node scripts/migrateReportRequests.js",
     "migrate:report-statuses": "node scripts/migrateReportStatuses.js",
     "migrate:session-store": "node scripts/migrateSessionStore.js",

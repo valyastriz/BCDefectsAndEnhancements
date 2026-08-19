@@ -24,6 +24,7 @@ function buildAdminSubmissionsQuery({
   year = '',
   inJira = '',
   workaround = '',
+  recurrenceFilter = '',
   jiraNumber = '',
   easyvistaNumber = '',
   releaseNumber = '',
@@ -49,6 +50,7 @@ function buildAdminSubmissionsQuery({
   if (year) params.set('year', year);
   if (inJira) params.set('inJira', inJira);
   if (workaround) params.set('workaround', workaround);
+  if (recurrenceFilter) params.set('recurrenceFilter', recurrenceFilter);
   if (jiraNumber) params.set('jiraNumber', jiraNumber);
   if (easyvistaNumber) params.set('easyvistaNumber', easyvistaNumber);
   if (releaseNumber) params.set('releaseNumber', releaseNumber);
@@ -233,6 +235,7 @@ export const api = {
     year = '',
     inJira = '',
     workaround = '',
+    recurrenceFilter = '',
     jiraNumber = '',
     easyvistaNumber = '',
     releaseNumber = '',
@@ -254,6 +257,7 @@ export const api = {
       year,
       inJira,
       workaround,
+      recurrenceFilter,
       jiraNumber,
       easyvistaNumber,
       releaseNumber,
@@ -431,5 +435,43 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(params || {}),
       allowStatuses: [503],
+    }),
+
+  // ── "It happened to me too" ────────────────────────────────────────────────
+  // The DEPTH is the server's answer, never the client's guess: it depends on
+  // the ticket's status, its release date and when the reporter says it
+  // happened, and the last of those changes as they type. So the sheet asks
+  // every time the date moves rather than deciding once.
+  getRecurrenceContext: (id, { occurredAt } = {}) =>
+    request(`/api/submissions/${id}/recurrence-context${occurredAt ? `?occurredAt=${encodeURIComponent(occurredAt)}` : ''}`),
+  // 409 is not a failure: it means "this was fixed before the date you gave",
+  // and the body carries the release date so the sheet can say so.
+  reportRecurrence: (id, payload) =>
+    request(`/api/submissions/${id}/recurrences`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload || {}),
+      allowStatuses: [409],
+    }),
+  // Admin only — the rows carry reporter names, notes and policy numbers.
+  getRecurrences: (id, { includeRetracted = false } = {}) =>
+    request(`/api/admin/submissions/${id}/recurrences${includeRetracted ? '?includeRetracted=true' : ''}`),
+  setRecurrenceWorkaroundHandled: (recurrenceId, handled = true) =>
+    request(`/api/admin/recurrences/${recurrenceId}/workaround`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ handled }),
+    }),
+  retractRecurrence: (recurrenceId) =>
+    request(`/api/admin/recurrences/${recurrenceId}/retract`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    }),
+  setRegressionClaim: (submissionId, confirmed) =>
+    request(`/api/admin/submissions/${submissionId}/regression`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ confirmed }),
     }),
 };

@@ -12,6 +12,24 @@ const CSRF_COOKIE = 'bc_csrf';
 const CSRF_HEADER = 'x-csrf-token';
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 
+// Session-bound write paths OUTSIDE /api/admin/ that still need the check.
+//
+// `/api/admin/` was a fine rule while every authenticated write lived there.
+// Recording a recurrence does not: it is filed by a rep, so it sits under
+// /api/submissions, but it is still a state-changing action performed with the
+// caller's session — which is exactly the shape CSRF attacks. It matters in
+// production specifically, where the session cookie is SameSite=none (config.js)
+// and therefore IS sent on a cross-site POST.
+//
+// Costs the client nothing: the shared `request()` helper in client/src/lib/api.js
+// already attaches X-CSRF-Token to every non-safe method, admin or not.
+//
+// Matched with a regex per entry so an id in the path cannot be used to slip
+// past a prefix check.
+const CSRF_PROTECTED_PATHS = [
+  /^\/api\/submissions\/\d+\/recurrences\/?$/,
+];
+
 function parseCookies(cookieHeader) {
   const out = {};
   String(cookieHeader || '')
@@ -45,8 +63,12 @@ function csrfProtection() {
       res.cookie(CSRF_COOKIE, token, cookieOptions);
     }
 
-    // Only enforce on state-changing requests to the session-authenticated admin API.
-    const requiresCheck = !SAFE_METHODS.has(req.method) && req.path.startsWith('/api/admin/');
+    // Enforce on state-changing requests to the session-authenticated admin API,
+    // plus the explicitly listed session-bound write paths outside it.
+    const requiresCheck = !SAFE_METHODS.has(req.method) && (
+      req.path.startsWith('/api/admin/')
+      || CSRF_PROTECTED_PATHS.some((pattern) => pattern.test(req.path))
+    );
     if (!requiresCheck) return next();
 
     const provided = req.get(CSRF_HEADER);

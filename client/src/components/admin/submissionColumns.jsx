@@ -275,4 +275,41 @@ export const COLUMN_DEFS = {
       </td>
     ),
   },
+  // How many people said this happened to them. A pill rather than a bare number
+  // so a busy ticket reads at a glance in a column of dashes, and a regression
+  // marker beside it because "reported again after the fix shipped" is a
+  // different fact from "reported by eleven people".
+  recurrences: {
+    headerStyle: { width: 130 },
+    renderCell: (row) => {
+      const count = Number(row.recurrence_count || 0);
+      return (
+        <td data-label="Reported by">
+          {count > 0
+            ? <span className="adm-recur">◆ {count}</span>
+            : <span className="muted">—</span>}
+          {row.has_regression && <span className="adm-regress" title="Reported again after its fix shipped">↺</span>}
+          {row.recurrence_challenged && !row.has_regression && (
+            <span className="adm-challenged" title="Reported again after it was closed without a fix">!</span>
+          )}
+        </td>
+      );
+    },
+  },
+  // Who is stuck right now. Only ever shows a number when somebody is actually
+  // waiting — a handled request drops out, which is what makes the column
+  // scannable as a to-do rather than a history.
+  blocked: {
+    headerStyle: { width: 110 },
+    renderCell: (row) => {
+      const open = Number(row.open_workaround_requests || 0);
+      return (
+        <td data-label="Blocked">
+          {open > 0
+            ? <span className="adm-blocked">! {open} waiting</span>
+            : <span className="muted">—</span>}
+        </td>
+      );
+    },
+  },
 };

@@ -226,6 +226,36 @@ found; it never tells you not to file.
 If you edit your summary afterwards, it offers a **re-check** rather than quietly
 showing matches for the old wording.
 
+## 1.6a One of them IS your issue — say so instead of filing again
+
+Under every match there is a line asking whether it happened to you too, and a
+button. **Use it.** A second ticket for the same problem slows the first one down;
+adding your report to it speeds it up, because the team can see how many people a
+thing is actually hitting.
+
+You will also see **how many people have already reported it** — if eleven others
+have hit the same thing, that on its own is usually your answer.
+
+**What it asks you for depends on where that ticket has got to.** You do not choose;
+it works it out.
+
+| The ticket is… | What happens |
+|---|---|
+| **Still being worked on** | Your report is added to it. **No second ticket.** It asks for a line about anything different, and takes the policy number and date you already typed. |
+| **Closed without a fix** | It asks for the one thing that would change the team's mind — and *which* thing depends on why it was closed. "Could not reproduce" asks for **steps we can follow**. "Working as designed" asks what you **expected instead**, and what it costs. "Monitoring impact" asks **how often** and **how much**. |
+| **Already fixed and released** | If you saw it **after** the fix shipped, that means the fix did not hold — so it opens a full report for you, **pre-filled from the old ticket**, tagged to it. Check what carried over, say what is different, and send. |
+| **Fixed, and you saw it before the fix** | It tells you the date it was fixed and suggests trying again. If you have seen it since, change the date and it becomes the case above. |
+
+### If it is stopping you working, say that too
+
+Every one of those has a tick-box: **"This is stopping my work — I need a
+workaround."** It is there whatever state the ticket is in, because being stuck
+today has nothing to do with where somebody else's ticket has got to.
+
+Ticking it **alerts the admins for that system straight away**, separately from the
+queue, and tells them what you are stuck on. It does not replace the fix — it asks
+for a way to keep working until the fix arrives.
+
 ## 1.7 Attaching a screenshot
 
 Three ways, and the third is the one most people want:
@@ -439,6 +469,17 @@ Two things worth knowing:
   neither *open* nor *handled*, so "handled" does not sweep it in.
 - **Sorting is separate from which columns you show.** You can sort by a field whose
   column is hidden. Both the header click and the sort control do the same thing.
+- **"Reported again" is the filter that finds work you would otherwise miss.** Four
+  settings, and the middle two are the point: *Challenged* finds tickets people keep
+  reporting **after** they were closed without a fix, and *Came back after its fix
+  shipped* finds regressions. Nobody opens a rejected or a deployed ticket to notice
+  its count went up, so without this filter those are invisible. *Somebody is blocked*
+  finds the people who cannot work right now.
+
+**Two columns come with it**, both off by default — turn them on in Customize View.
+**Reported by** is how many people have hit each ticket, and sorting on it answers
+"what should we work next?" better than anything else on this table. **Blocked** is
+how many of them still cannot work.
 
 **Ticket search** works the same as on the public board, but over everything you can
 see rather than only public rows.
@@ -531,6 +572,31 @@ totals in the `FILTERED VIEW` band.
 
 Every status change, newest first, with who made it and when — plus where the ticket
 came from, its external identifiers and its release metadata.
+
+### Reported again
+
+**This tab only appears when somebody has actually reported the issue happening to
+them.** A tab that said "0" on every other ticket would be furniture; a tab that
+appears *is* the signal.
+
+It lists who, when, on which policy, and whatever they added — steps, what they
+expected, how often it happens, what it costs them. Two things to know:
+
+- **Your estimate and their reports sit side by side.** The Impact tab holds your
+  own "about five a month"; this holds what reporters actually said. Neither
+  overwrites the other — one is your judgement, the other is evidence for it.
+- **The same person appearing twice is not a mistake.** Hitting the same defect on
+  Monday and again on Thursday is two real data points, and the frequency here
+  would be wrong if it collapsed them.
+
+**Anyone blocked and still waiting is called out at the top**, with a **Mark
+handled** button per person. That is per person on purpose: the workaround that
+unblocked one reporter may not cover another's case, and marking one handled never
+touches anyone else's — or the original reporter's request, which stays where it
+always was, in the banner above.
+
+**Strike** removes a report from the count. The row is kept, never deleted — the
+count feeds a priority decision, so it has to stay possible to see who said what.
 
 ### Files
 

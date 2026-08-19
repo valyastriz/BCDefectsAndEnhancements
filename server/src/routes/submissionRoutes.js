@@ -23,6 +23,8 @@ const { resolveReporter } = require('../services/reporterService');
 const { SUBMIT_REQUIRES_AUTH } = require('../config');
 const { scheduleEmbeddingRefresh } = require('../services/embeddingIndexService');
 const { emitAdminNotification, emitPublicUpdate, publicAudienceFor } = require('../socket');
+const { deriveStatusTimestamps } = require('../helpers/statusTimestamps');
+const { releasedAt } = require('../helpers/recurrenceDepth');
 const { imageUpload } = require('../middleware/upload');
 
 const router = express.Router();
@@ -47,6 +49,9 @@ router.post('/api/submissions', imageUpload.array('attachments', 3), async (req,
     time_of_error,
     desired_completion_date,
     needs_workaround,
+    // The reporter's claim that a shipped fix has come back. Validated below —
+    // it must point at a real, public, actually-released ticket.
+    regression_of_submission_id,
     // Report requests. Title is `summary_of_issue`, Description is
     // `what_happened_exact_details` and "what's not working" is `request`, so
     // those three arrive above rather than here.
@@ -297,6 +302,29 @@ router.post('/api/submissions', imageUpload.array('attachments', 3), async (req,
     if (wrongQueue) {
       return res.status(wrongQueue.status).json({ error: wrongQueue.error });
     }
+
+    // ── Validate the regression claim ──────────────────────────────────────
+    // Never trusted as sent. It must point at a ticket that exists, is public
+    // (so the reporter could legitimately have seen it), and has ACTUALLY
+    // shipped — otherwise "the fix came back" is a claim about a fix that never
+    // went out. A pointer that fails any of those is dropped rather than
+    // refusing the report: the report is the valuable thing, the tag is a hint.
+    let validatedRegressionOf = null;
+    const claimedRegressionOf = Number(regression_of_submission_id);
+    if (Number.isFinite(claimedRegressionOf) && claimedRegressionOf > 0) {
+      const parent = await getSubmissionByIdWithLookups(db, claimedRegressionOf, { publicOnly: true });
+      if (parent) {
+        const events = dbModels.SubmissionStatusEvent
+          ? await dbModels.SubmissionStatusEvent.findAll({
+            where: { submission_id: claimedRegressionOf },
+            attributes: ['submission_id', 'status', 'changed_at'],
+            raw: true,
+          })
+          : [];
+        if (releasedAt(deriveStatusTimestamps(events))) validatedRegressionOf = claimedRegressionOf;
+      }
+    }
+
     const createPayload = {
       created_at: now,
       updated_at: now,
@@ -337,6 +365,13 @@ router.post('/api/submissions', imageUpload.array('attachments', 3), async (req,
       // only offers the box on a defect — so a value sent with an enhancement is
       // dropped here rather than trusted.
       needs_workaround: normalized.type === 'defect' && parseBooleanFlag(needs_workaround) ? 1 : 0,
+      // A CLAIM, stored unconfirmed (0). `duplicate_of` is set by an admin during
+      // triage and therefore reads as a decision the team made; this is set by
+      // whoever filed the report, so until somebody checks it, it is a claim and
+      // the banner says so. Null when the id does not survive validation — a bad
+      // pointer silently dropped is better than a report refused over a tag.
+      regression_of_submission_id: validatedRegressionOf,
+      regression_claim_confirmed: 0,
       // Report-request fields, null for every other type by construction: they
       // are only ever set inside the report branch above, so a defect payload
       // carrying them writes nothing.

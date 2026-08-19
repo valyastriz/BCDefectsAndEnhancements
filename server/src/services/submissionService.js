@@ -177,6 +177,11 @@ async function getSubmissionByIdWithLookups(db, submissionId, { publicOnly = fal
       table: 'levels_of_effort',
       targetKey: 'model_level_of_effort_name',
     },
+    {
+      idColumn: 'rejection_reason_id',
+      table: 'rejection_reasons',
+      targetKey: 'model_rejection_reason_name',
+    },
   ];
 
   const hydrated = { ...submission };
@@ -255,6 +260,7 @@ async function listFilteredAdminSubmissions(db, query = {}, scope) {
     year,
     inJira,
     workaround,
+    recurrenceFilter,
     jiraNumber,
     easyvistaNumber,
     releaseNumber,
@@ -453,6 +459,18 @@ async function listFilteredAdminSubmissions(db, query = {}, scope) {
       if (workaround === 'any' && !requested) return false;
     }
 
+    // Tickets people are still reporting. Four states, and the last two are the
+    // reason the filter exists: a challenged closure and a returned fix are both
+    // invisible otherwise, because nobody opens a rejected or deployed ticket to
+    // notice its count went up.
+    if (recurrenceFilter) {
+      const count = Number(row.recurrence_count || 0);
+      if (recurrenceFilter === 'any' && count === 0) return false;
+      if (recurrenceFilter === 'challenged' && !row.recurrence_challenged) return false;
+      if (recurrenceFilter === 'regressed' && !row.has_regression) return false;
+      if (recurrenceFilter === 'blocked' && Number(row.open_workaround_requests || 0) === 0) return false;
+    }
+
     if (jiraNumber && !containsIgnoreCase(row.jira_number, jiraNumber)) return false;
     if (easyvistaNumber && !containsIgnoreCase(row.easyvista_ticket_id, easyvistaNumber)) return false;
     if (releaseNumber && !containsIgnoreCase(row.release_number, releaseNumber)) return false;
@@ -548,6 +566,13 @@ async function listFilteredAdminSubmissions(db, query = {}, scope) {
     easyvista_desc: (a, b) => compareText(b.easyvista_ticket_id, a.easyvista_ticket_id),
     frequency_asc: (a, b) => compareNum(a.occurrence_rate, b.occurrence_rate),
     frequency_desc: (a, b) => compareNum(b.occurrence_rate, a.occurrence_rate),
+    // How many people have reported this happening to them, and how many are
+    // still blocked on it. The first is the "work this next" ordering the queue
+    // has never had; the second puts the people who cannot work at the top.
+    recurrences_asc: (a, b) => compareNum(a.recurrence_count, b.recurrence_count),
+    recurrences_desc: (a, b) => compareNum(b.recurrence_count, a.recurrence_count),
+    blocked_asc: (a, b) => compareNum(a.open_workaround_requests, b.open_workaround_requests),
+    blocked_desc: (a, b) => compareNum(b.open_workaround_requests, a.open_workaround_requests),
   };
 
   const comparator = comparatorMap[sortKey] || comparatorMap.updated_desc;

@@ -51,6 +51,9 @@ const {
   AI_SEARCH_MIN_SIMILARITY,
 } = require('../config');
 const { SUBMISSION_TYPE_REPORT } = require('../constants');
+// Shared with the public board route: the same rows are rendered by the same
+// StatusBoardRow, so they need the same per-stop dates derived the same way.
+const { attachStatusTimestamps } = require('../helpers/statusTimestamps');
 const { maySeeReportRequest } = require('../helpers/reportVisibility');
 
 const RECENCY_HALFLIFE_MS = AI_SEARCH_RECENCY_HALFLIFE_DAYS * 86400000;
@@ -601,13 +604,25 @@ async function runAiSearch(db, {
   if (!rawCandidates.length) {
     return { enabled: true, query: cleanQuery, summary: emptySummary(), matches: [], keywordMatches: [], window: { reportedWithinDays: reportedDays, resolvedWithinDays: resolvedDays }, windowExcluded: 0, meta: emptyMeta(applicationScope) };
   }
-  const hydrated = await hydrateRows(rawCandidates);
+  const rawHydrated = await hydrateRows(rawCandidates);
 
   // Status-event-derived dates (resolved_at, last change) for cards + window filter.
-  const candidateIds = hydrated.map((r) => Number(r.id));
+  const candidateIds = rawHydrated.map((r) => Number(r.id));
   const events = await loadStatusEvents(candidateIds);
   const resolvedMap = buildResolvedAtMap(events);
   const lastChangeMap = buildLatestChangeMap(events);
+
+  // The per-stop track dates, onto the ROW rather than only onto the LLM card.
+  //
+  // Every match here is rendered by the same StatusBoardRow the public board
+  // uses, and it reads `deployed_status_at` and friends off the row. They were
+  // derived for the card and the window filter but never attached, so
+  // `mapPublicSubmission` — which drops undefined keys — returned matches with
+  // none of them: a dated track showing "—" under every stop, and "when" falling
+  // back to `updated_at` instead of the last status change. The recurrence depth
+  // check reads `deployed_status_at` off the same row, so this is also what lets
+  // a match know whether its fix has already shipped.
+  const hydrated = attachStatusTimestamps(rawHydrated, events);
 
   // Apply time windows in JS; windowExcluded counts candidates the window
   // alone dropped (0 when no window params were sent).

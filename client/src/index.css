@@ -3389,6 +3389,167 @@ select.dm-prow-input { cursor: pointer; }
    the plain surface back to stay readable. */
 .rs-dupe .public-item { background: var(--color-surface); }
 
+/* ── "It happened to me too" ─────────────────────────────────────────────────
+   The strip under a matched ticket, its count, and the sheet that opens from
+   it. Only rendered where the surface passed StatusBoardRow an `onSameIssue`
+   handler — the admin queue never does. */
+.sb-again {
+  border-top: 1px dashed var(--color-border);
+  padding: 9px 13px;
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  background: color-mix(in srgb, var(--color-primary) 4%, var(--color-surface));
+}
+.sb-again-q { font-size: 12.5px; color: var(--color-muted); flex: 1 1 200px; min-width: 0; }
+.sb-again-count {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 11px; font-weight: 650; padding: 2px 8px; border-radius: 999px;
+  background: color-mix(in srgb, var(--color-warning, #b45309) 15%, var(--color-surface));
+  color: var(--color-warning, #b45309);
+  white-space: nowrap;
+}
+.sb-again-act {
+  font: inherit; font-size: 12.5px; font-weight: 600;
+  padding: 6px 13px; border-radius: var(--radius-sm);
+  border: 1px solid var(--color-primary); background: var(--color-primary);
+  color: #fff; cursor: pointer; white-space: nowrap;
+}
+.sb-again-act:hover { background: var(--color-primary-hover); border-color: var(--color-primary-hover); }
+.sb-again-act:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+
+/* The sheet body. Lives inside the shared Modal, so it only owns its own rows. */
+.rc-sheet { display: flex; flex-direction: column; gap: 14px; }
+.rc-which { margin: 0; font-size: 12.5px; color: var(--color-muted); }
+.rc-which b { color: var(--color-text); font-family: ui-monospace, Menlo, Consolas, monospace; }
+.rc-ctx {
+  display: flex; flex-direction: column; gap: 3px;
+  padding: 11px 13px; border-radius: var(--radius-sm); font-size: 12.5px; line-height: 1.5;
+}
+.rc-ctx b { font-weight: 700; }
+.rc-ctx--info { background: color-mix(in srgb, var(--color-primary) 12%, var(--color-surface)); color: var(--color-text); }
+.rc-ctx--ok   { background: color-mix(in srgb, var(--status-approved-fg, #15803d) 12%, var(--color-surface)); color: var(--color-text); }
+.rc-ctx--warn { background: color-mix(in srgb, #b45309 14%, var(--color-surface)); color: var(--color-text); }
+.rc-ctx--bad  { background: color-mix(in srgb, var(--color-danger) 12%, var(--color-surface)); color: var(--color-text); }
+
+.rc-row { display: flex; gap: 12px; flex-wrap: wrap; }
+.rc-row > .rc-fld { flex: 1 1 180px; min-width: 0; }
+.rc-fld { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.rc-fld > span { font-size: 11.5px; font-weight: 650; color: var(--color-text); }
+.rc-fld--narrow { flex: 0 1 140px; }
+.rc-fld input, .rc-fld textarea, .rc-fld select {
+  border: 1px solid var(--color-border); border-radius: var(--radius-sm);
+  background: var(--color-surface); color: var(--color-text);
+  padding: 8px 10px; font: inherit; font-size: 13px; width: 100%;
+}
+.rc-fld textarea { resize: vertical; }
+.rc-fld input:focus-visible, .rc-fld textarea:focus-visible, .rc-fld select:focus-visible {
+  outline: 2px solid var(--color-primary); outline-offset: 1px;
+}
+
+/* The blocked ask. Its own tone because it is the only control here that
+   creates an obligation for a person rather than a number on a row. */
+.rc-blocked {
+  border: 1px solid var(--color-border); border-left: 3px solid var(--color-danger);
+  border-radius: var(--radius-sm); padding: 11px 13px;
+  display: flex; flex-direction: column; gap: 10px;
+}
+.rc-blocked.is-on { background: color-mix(in srgb, var(--color-danger) 7%, var(--color-surface)); }
+.rc-check { display: flex; gap: 9px; align-items: flex-start; cursor: pointer; }
+.rc-check input { margin: 2px 0 0; width: 15px; height: 15px; accent-color: var(--color-danger); flex: 0 0 auto; }
+.rc-check b { display: block; font-size: 13px; }
+.rc-check em { display: block; font-size: 11.5px; color: var(--color-muted); font-style: normal; margin-top: 2px; }
+.rc-blocked-note { margin: 0; font-size: 11.5px; color: var(--color-danger); font-weight: 550; }
+
+/* Confirmation strips on the submit page. */
+.rs-logged, .rs-regression {
+  display: flex; align-items: flex-start; gap: 11px;
+  padding: 13px 15px; border-radius: var(--radius);
+  border: 1px solid var(--color-border); margin-bottom: 14px;
+}
+.rs-logged { background: color-mix(in srgb, var(--status-approved-fg, #15803d) 10%, var(--color-surface)); }
+.rs-regression { background: color-mix(in srgb, var(--color-danger) 9%, var(--color-surface)); }
+.rs-logged-glyph { font-size: 15px; font-weight: 700; flex: 0 0 auto; line-height: 1.5; }
+.rs-logged .rs-logged-glyph { color: var(--status-approved-fg, #15803d); }
+.rs-regression .rs-logged-glyph { color: var(--color-danger); }
+.rs-logged-txt { flex: 1 1 auto; min-width: 0; font-size: 12.5px; }
+.rs-logged-txt b { display: block; font-size: 13.5px; margin-bottom: 2px; }
+.rs-logged-txt > span { color: var(--color-muted); }
+.rs-logged-x {
+  background: none; border: 0; font-size: 18px; line-height: 1;
+  color: var(--color-muted); cursor: pointer; padding: 0 2px; flex: 0 0 auto;
+}
+.rs-logged-x:hover { color: var(--color-text); }
+
+@media (max-width: 560px) {
+  .sb-again { align-items: stretch; }
+  .sb-again-act { width: 100%; }
+  .rc-row > .rc-fld, .rc-fld--narrow { flex: 1 1 100%; }
+}
+
+/* ── Admin: the queue cells and the log pane ─────────────────────────────── */
+.adm-recur, .adm-blocked {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 11px; font-weight: 650; padding: 2px 8px; border-radius: 999px;
+  white-space: nowrap; font-variant-numeric: tabular-nums;
+}
+.adm-recur {
+  background: color-mix(in srgb, #b45309 15%, var(--color-surface));
+  color: #b45309;
+}
+.adm-blocked {
+  background: color-mix(in srgb, var(--color-danger) 15%, var(--color-surface));
+  color: var(--color-danger);
+}
+.adm-regress, .adm-challenged {
+  margin-left: 6px; font-weight: 700; font-size: 12px;
+}
+.adm-regress { color: var(--color-danger); }
+.adm-challenged { color: #b45309; }
+
+.dr-wrap { display: flex; flex-direction: column; gap: 12px; }
+.dr-skel { display: flex; flex-direction: column; gap: 8px; }
+.dr-head { margin: 0; font-size: 13px; color: var(--color-muted); }
+.dr-head b { color: var(--color-text); }
+.dr-estimate {
+  margin: 0; font-size: 12.5px; line-height: 1.5;
+  padding: 10px 12px; border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--color-primary) 9%, var(--color-surface));
+}
+.dr-log { list-style: none; margin: 0; padding: 0; }
+.dr-log > li {
+  display: grid; grid-template-columns: 128px 1fr auto; gap: 12px;
+  padding: 11px 0; border-bottom: 1px solid var(--color-border);
+  font-size: 12.5px; align-items: start;
+}
+.dr-log > li:last-child { border-bottom: 0; }
+.dr-log > li.is-blocked { background: color-mix(in srgb, var(--color-danger) 5%, transparent); }
+.dr-when { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11.5px; color: var(--color-muted); }
+.dr-body { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.dr-who { font-weight: 650; display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+.dr-tag {
+  font-style: normal; font-size: 10px; font-weight: 650; text-transform: uppercase;
+  letter-spacing: .04em; padding: 1px 6px; border-radius: 999px;
+  background: color-mix(in srgb, #b45309 16%, var(--color-surface)); color: #b45309;
+}
+.dr-tag--bad { background: color-mix(in srgb, var(--color-danger) 16%, var(--color-surface)); color: var(--color-danger); }
+.dr-note { color: var(--color-muted); }
+.dr-block { display: flex; flex-direction: column; gap: 2px; white-space: pre-wrap; }
+.dr-block b { font-size: 10.5px; text-transform: uppercase; letter-spacing: .05em; color: var(--color-muted); }
+.dr-figs { color: var(--color-muted); font-variant-numeric: tabular-nums; }
+.dr-blocked { color: var(--color-danger); font-weight: 550; }
+.dr-blocked.is-done { color: var(--status-approved-fg, #15803d); }
+.dr-ids {
+  font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11px;
+  color: var(--color-muted); white-space: nowrap;
+  display: flex; flex-direction: column; gap: 6px; align-items: flex-end;
+}
+.dr-acts { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+
+@media (max-width: 620px) {
+  .dr-log > li { grid-template-columns: 1fr; gap: 4px; }
+  .dr-ids { white-space: normal; align-items: flex-start; }
+  .dr-acts { justify-content: flex-start; }
+}
+
 .rs-skelrow {
   border: 1px solid var(--color-border); border-radius: var(--radius);
   background: var(--color-surface); padding: 11px 13px; display: grid; gap: 7px;

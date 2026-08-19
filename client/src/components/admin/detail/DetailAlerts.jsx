@@ -61,6 +61,24 @@ export function DetailAlerts({
   const showWorkaround = Boolean(detail.needs_workaround && !detail.workaround_provided);
   const workaroundStaged = Boolean(edit.workaround_provided);
 
+  // ── Recurrences ───────────────────────────────────────────────────────────
+  // Three separate facts, three separate banners, because they call for three
+  // different actions: somebody is stuck NOW, a shipped fix has come back, or a
+  // closure is being disputed.
+  //
+  // `open_workaround_requests` counts the RECURRENCES only. It is added to the
+  // original reporter's ask rather than merged with it — the pair on
+  // `submissions` records one person's request and whether the team answered
+  // it, and folding a second person's request into the same two columns would
+  // either be invisible (both already 1) or erase that the team helped.
+  const openBlocked = Number(detail.open_workaround_requests || 0);
+  const showBlockedByOthers = openBlocked > 0;
+  // A claim until somebody rules on it: 0 unchecked, 1 confirmed, -1 rejected.
+  const regressionClaim = Number(detail.regression_claim_confirmed || 0);
+  const showIsRegression = Boolean(detail.regression_of_submission_id);
+  const showHasRegression = Boolean(detail.has_regression && detail.latest_regression_submission_id);
+  const showChallenged = Boolean(detail.recurrence_challenged) && !showHasRegression;
+
   const count = [
     modalTopNotice,
     conflictInfo,
@@ -70,6 +88,10 @@ export function DetailAlerts({
     detailError,
     showRequirements,
     showWorkaround,
+    showBlockedByOthers,
+    showIsRegression,
+    showHasRegression,
+    showChallenged,
     showResubmitted,
     showResubmissionOf,
     edit.is_retired,
@@ -202,6 +224,56 @@ export function DetailAlerts({
               <li key={requirement}>{requirement}</li>
             ))}
           </ul>
+        </Alert>
+      )}
+
+      {showBlockedByOthers && (
+        <Alert tone="danger" title={`${openBlocked} ${openBlocked === 1 ? 'person is' : 'people are'} blocked on this and waiting`}>
+          <p>
+            They reported it happening to them and asked for a workaround. Open the
+            <b> Reported again </b> pane to see who, what they are stuck on, and to mark each
+            one handled — the original reporter&rsquo;s request is tracked separately, above.
+          </p>
+        </Alert>
+      )}
+
+      {showIsRegression && (
+        <Alert
+          tone={regressionClaim === 1 ? "danger" : "warn"}
+          title={
+            regressionClaim === 1
+              ? `Confirmed: this is a return of Submission #${detail.regression_of_submission_id}`
+              : regressionClaim === -1
+                ? 'Reviewed — not the same issue'
+                : `Reported as a return of Submission #${detail.regression_of_submission_id}`
+          }
+        >
+          <p>
+            {regressionClaim === 0
+              ? 'The requester filed this saying a fix that already shipped has come back. '
+                + 'Nobody has checked that yet — it is their claim, not a triage decision.'
+              : regressionClaim === 1
+                ? 'A fix shipped for the original and the problem returned. The original carries a link forward to this ticket.'
+                : 'Someone judged this a different issue from the original. The link is kept as a record of the claim.'}
+          </p>
+        </Alert>
+      )}
+
+      {showHasRegression && (
+        <Alert tone="danger" title="Reported again after this was deployed">
+          <p>
+            {`Submission #${detail.latest_regression_submission_id} says the problem came back after this shipped. `}
+            This ticket stays Deployed — the deploy did happen — and the new one carries the work.
+          </p>
+        </Alert>
+      )}
+
+      {showChallenged && (
+        <Alert tone="warn" title="People are still reporting this after it was closed">
+          <p>
+            {`${detail.recurrence_count || 0} report${Number(detail.recurrence_count) === 1 ? '' : 's'} came in after this was closed without a fix. `}
+            Worth a second look — see the <b>Reported again</b> pane for what they sent.
+          </p>
         </Alert>
       )}
 

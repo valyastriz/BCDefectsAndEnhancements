@@ -50,6 +50,16 @@ const DEFAULT_SUBMISSION_SOURCES = [
   'admin_easyvista_resubmission',
 ];
 const DEFAULT_OCCURRENCE_TIMEFRAMES = ['Day', 'Week', 'Month', 'Quarter', 'Year'];
+// Why a ticket was closed without a fix. A starting point the Metadata page can
+// rename, extend or switch off — not a closed set. What each one ASKS FOR when
+// somebody reports it happening again lives in helpers/rejectionReasons.js.
+const DEFAULT_REJECTION_REASONS = [
+  'Could not reproduce',
+  'Working as designed',
+  'Insufficient detail to investigate',
+  'Not cost-effective to fix',
+  'Vendor limitation',
+];
 
 function defineModels(sequelize) {
   const User = sequelize.define('User', {
@@ -207,6 +217,58 @@ function defineModels(sequelize) {
     occurrence_timeframe_id: { type: DataTypes.INTEGER, allowNull: true },
     occurrence_rate: { type: DataTypes.REAL, allowNull: true },
 
+    // ── Recurrences: "it happened to me too" ────────────────────────────────
+    //
+    // RECURRENCE, not occurrence, and the distinction is the reason for the word.
+    // The four `occurrence_*` columns immediately above are the ADMIN's own
+    // frequency estimate, typed on the Impact tab ("about 5 a month"). These count
+    // what REPORTERS actually said happened. Two different claims by two different
+    // people; one name for both would make the queue's numbers unreadable.
+    //
+    // Both are denormalized aggregates of `submission_recurrences`, maintained by
+    // recalculateRecurrenceAggregates on every write to that table. They exist
+    // because the admin queue sorts and filters on them, and a correlated subquery
+    // per row on the hot path is exactly the N+1 the API rules forbid. The child
+    // table stays the source of truth — these are always recomputed from it, never
+    // incremented in place, so a retraction cannot leave the count adrift.
+    recurrence_count: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
+    last_recurrence_at: { type: DataTypes.TEXT, allowNull: true },
+    // Somebody reported this again AFTER it was closed without a fix. Its own
+    // column rather than a derived read, because it is what the "Challenged"
+    // queue filter selects on, and a rejected ticket is otherwise invisible —
+    // nobody opens it to notice the count went up.
+    recurrence_challenged: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
+    // How many people are blocked and still waiting, counting the recurrences
+    // ONLY. The original reporter's ask stays in `needs_workaround` /
+    // `workaround_provided` and is deliberately not folded in here — see
+    // helpers/workaroundState.js for why the two are added rather than merged.
+    open_workaround_requests: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
+
+    // ── Regression: a deployed fix that came back ───────────────────────────
+    //
+    // Shaped after the resubmission chain above — forward pointer, back pointer,
+    // denormalized latest — because it answers the same kind of question and the
+    // detail modal renders both the same way. It is NOT that chain: a
+    // resubmission means "we sent this to the Service Desk a second time", which
+    // is a thing WE did. This means "the defect you fixed is happening again",
+    // which is a thing a REQUESTER says.
+    //
+    // Which is why the claim has a confirmed state and `duplicate_of` does not.
+    // `duplicate_of` is set by an admin during triage, so it reads as a decision
+    // the team made. This link is set by whoever filed the new report, and until
+    // somebody checks it, it is a claim. 0 = claimed, 1 = confirmed, -1 = rejected
+    // on review (kept, not deleted: that somebody thought it was a regression is
+    // itself worth knowing, and clearing it would invite the same claim again).
+    regression_of_submission_id: { type: DataTypes.INTEGER, allowNull: true },
+    regression_claim_confirmed: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
+    has_regression: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
+    latest_regression_submission_id: { type: DataTypes.INTEGER, allowNull: true },
+    // WHY a ticket was closed without a fix, when it was. Drives which extra
+    // block the depth-2 sheet asks for: "could not reproduce" wants steps,
+    // "working as designed" wants what you expected instead. Null on every
+    // existing row and on everything that was not rejected.
+    rejection_reason_id: { type: DataTypes.INTEGER, allowNull: true },
+
     // ── Report requests (plan.md §4 Phase 1) ────────────────────────────────
     // Every one of these is nullable and null on every existing row, so the
     // migration cannot change what any current ticket means.
@@ -270,6 +332,9 @@ function defineModels(sequelize) {
       // completion date, and neither is a column the queue ever filtered on.
       { name: 'idx_submissions_assigned_to', fields: ['assigned_to'] },
       { name: 'idx_submissions_completed_at', fields: ['completed_at'] },
+      // The back-pointer is followed on every detail load of a regression and
+      // on the parent's banner; unindexed it is a full scan of the queue.
+      { name: 'idx_submissions_regression_of', fields: ['regression_of_submission_id'] },
     ],
   });
 
@@ -419,6 +484,28 @@ function defineModels(sequelize) {
     // 0 on every application that existed before this, so nothing changes for them:
     // Billing Center and Policy Center take every type, and so does `Other`.
     reports_only: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
+
+    // ── Which reference numbers identify a case IN THIS SYSTEM ──────────────
+    //
+    // A policy number and an account number are what make a Billing Center defect
+    // reproducible. Policy Center's identifying pair is not the same one, and the
+    // next application's will be different again — so "which numbers do we ask
+    // for" is a property of the application, not a constant in a form.
+    //
+    // Three plain booleans rather than a JSON blob or a field-definition table:
+    // the set is small, closed, and the house rule (see the report-request block
+    // on `submissions`) is that adding a field stays a one-line migration. A field
+    // builder would buy flexibility nobody asked for and make every read worse.
+    //
+    // Defaults keep policy and account ON and transaction OFF, which is the
+    // Billing Center answer and the sensible default for a new application.
+    // READ ONLY by the recurrence sheets so far — the main submit form still asks
+    // for all three regardless, and aligning it is its own decision (see
+    // client/src/pages/RepSubmitPage.jsx). Nothing about existing behaviour
+    // changes when these columns appear.
+    uses_policy_num: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 1 },
+    uses_account_num: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 1 },
+    uses_transaction_num: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
   }, { tableName: 'applications', timestamps: false });
 
   const EnhancementRequestType = sequelize.define('EnhancementRequestType', {
@@ -456,6 +543,114 @@ function defineModels(sequelize) {
     sort_order: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
     is_active: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 1 },
   }, { tableName: 'levels_of_effort', timestamps: false });
+
+  // WHY a ticket was closed without a fix.
+  //
+  // `Rejected` is one status, and the reason has only ever lived in
+  // `decision_notes` — free text, admin-only, unreadable by anything. That was
+  // fine while nothing branched on it. The depth-2 recurrence sheet does: a
+  // defect closed as "could not reproduce" is reopened by STEPS and nothing else,
+  // while one closed as "working as designed" is reopened by what the requester
+  // expected instead. Asking for the wrong one wastes the only contribution that
+  // would have worked.
+  //
+  // A managed lookup like every other list, so the Metadata page owns it and the
+  // wording can change without a deploy. `helpers/rejectionReasons.js` maps a row
+  // to the block it asks for, and falls back to asking for BOTH when it does not
+  // recognise the value — so an admin adding a reason degrades to a longer form,
+  // never to a broken one.
+  const RejectionReason = sequelize.define('RejectionReason', {
+    id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
+    name: { type: DataTypes.TEXT, allowNull: false, unique: true },
+    sort_order: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
+    is_active: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 1 },
+  }, { tableName: 'rejection_reasons', timestamps: false });
+
+  // ── "It happened to me too" ───────────────────────────────────────────────
+  //
+  // One row per person per time they hit an already-reported issue. A child table
+  // and not a counter column, for the reason RequestTimeEntry is one: a number
+  // loses who, when, and on which policy, cannot be audited, and cannot be undone
+  // by the person who fat-fingered it.
+  //
+  // APPEND-ONLY. `retracted_at` is how a row goes away, never a DELETE — the
+  // count feeds a priority decision, so it has to be possible to ask "who said
+  // what, and did anyone take it back". Nothing in this app hard-deletes a
+  // submission and this follows the same rule.
+  //
+  // No unique constraint, deliberately: the same person hitting the same defect
+  // on Monday and again on Thursday is TWO real data points, and deduplicating
+  // them would destroy the frequency this table exists to measure. The UI
+  // prevents a double-tap by showing "you reported this on the 11th" instead.
+  const SubmissionRecurrence = sequelize.define('SubmissionRecurrence', {
+    id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
+    submission_id: { type: DataTypes.INTEGER, allowNull: false },
+    // Who hit it. An id, never a typed name — this is the same rule
+    // RequestTimeEntry follows, and for the same reason: a rename must not
+    // silently unlink somebody's report. The DISPLAY name is snapshotted beside
+    // it so the log still reads correctly for a since-deleted account, exactly as
+    // the submission's own `created_by` does.
+    reported_by_user_id: { type: DataTypes.INTEGER, allowNull: true },
+    reported_by_name: { type: DataTypes.TEXT, allowNull: false },
+    // When it happened TO THEM — not when they typed it. The depth-3 gate
+    // compares this against the parent's deploy date, so the difference is the
+    // whole feature: reporting on the 18th something that happened on the 2nd is
+    // not a regression.
+    occurred_at: { type: DataTypes.TEXT, allowNull: false },
+    created_at: { type: DataTypes.TEXT, allowNull: false },
+
+    // Which sheet produced this row (1, 2 or 3). Stored rather than re-derived,
+    // because the parent's status moves on: a row captured while the ticket was
+    // Rejected keeps meaning "this was a challenge to a closure" even after an
+    // admin reopens it.
+    depth: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 1 },
+
+    // The identifiers, per the application's own reference-field flags.
+    policy_num: { type: DataTypes.TEXT, allowNull: true },
+    account_num: { type: DataTypes.TEXT, allowNull: true },
+    transaction_num: { type: DataTypes.TEXT, allowNull: true },
+    note: { type: DataTypes.TEXT, allowNull: true },
+
+    // Depth 2's targeted block. Which of these is asked for depends on why the
+    // parent was closed; all are nullable because no sheet asks for all of them.
+    steps_to_reproduce: { type: DataTypes.TEXT, allowNull: true },
+    expected_behaviour: { type: DataTypes.TEXT, allowNull: true },
+    workaround_cost: { type: DataTypes.TEXT, allowNull: true },
+    frequency_count: { type: DataTypes.INTEGER, allowNull: true },
+    frequency_timeframe_id: { type: DataTypes.INTEGER, allowNull: true },
+    policies_affected_count: { type: DataTypes.INTEGER, allowNull: true },
+    // DECIMAL, not REAL. This project has already had single-precision floats
+    // silently corrupt stored money on the hosted database — see the note on
+    // `submissions.policy_premium_impact`. It is the same kind of number here.
+    direct_dollar_impact: { type: DataTypes.DECIMAL(14, 2), allowNull: true },
+
+    // ── The blocked ask, as its own pair ────────────────────────────────────
+    // Mirrors submissions.needs_workaround / workaround_provided, per person, and
+    // it has to be a separate pair rather than a write to the parent's. If the
+    // team already answered the original reporter, the parent reads
+    // needs_workaround=1 + workaround_provided=1, i.e. HANDLED — so setting the
+    // parent's flag again changes nothing and this person's request is invisible,
+    // while clearing `workaround_provided` would erase that the team helped,
+    // which is the exact thing that two-column design exists to prevent.
+    // "Open" here means requested with no provided_at, the same shape.
+    workaround_requested: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
+    workaround_blocked_on: { type: DataTypes.TEXT, allowNull: true },
+    workaround_provided_at: { type: DataTypes.TEXT, allowNull: true },
+    workaround_provided_by: { type: DataTypes.TEXT, allowNull: true },
+
+    // Withdrawn by its reporter or struck by an admin. The row stays.
+    retracted_at: { type: DataTypes.TEXT, allowNull: true },
+    retracted_by: { type: DataTypes.TEXT, allowNull: true },
+  }, {
+    tableName: 'submission_recurrences',
+    timestamps: false,
+    indexes: [
+      { name: 'idx_submission_recurrences_submission_id', fields: ['submission_id'] },
+      { name: 'idx_submission_recurrences_reported_by', fields: ['reported_by_user_id'] },
+      // "Who is blocked right now" is read on every admin queue load.
+      { name: 'idx_submission_recurrences_workaround', fields: ['workaround_requested'] },
+    ],
+  });
 
   // ── Report request delivery ───────────────────────────────────────────────
   // Analyst hours, one row per sitting.
@@ -639,6 +834,8 @@ function defineModels(sequelize) {
     SubmissionSource,
     OccurrenceTimeframe,
     LevelOfEffort,
+    RejectionReason,
+    SubmissionRecurrence,
     RequestTimeEntry,
     RequestAssignment,
     UserApplicationRole,
@@ -804,6 +1001,7 @@ async function migrateWithModels(sequelize, models) {
   await seedLookup(models.PriorityLevel, DEFAULT_PRIORITY_LEVELS);
   await seedLookup(models.SubmissionSource, DEFAULT_SUBMISSION_SOURCES);
   await seedLookup(models.LevelOfEffort, DEFAULT_LEVELS_OF_EFFORT);
+  await seedLookup(models.RejectionReason, DEFAULT_REJECTION_REASONS);
 
   // Seed occurrence timeframes with days_equivalent values
   for (let i = 0; i < DEFAULT_OCCURRENCE_TIMEFRAMES.length; i++) {

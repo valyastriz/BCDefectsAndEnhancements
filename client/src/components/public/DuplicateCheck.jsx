@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../../lib/api';
 import { StatusBoardRow } from './StatusBoardRow';
+import { RecurrenceSheet } from './RecurrenceSheet';
+import { DEPTH_REGRESSION } from '../../constants/recurrenceConstants';
 
 // Below this the summary is not a searchable description — "invoice wrong"
 // would come back with half the queue, so the check stays disabled until the
@@ -29,11 +31,27 @@ function SkeletonRow({ titleWidth, metaWidth }) {
  * Self-disabling: `/api/ai-search/status` reports `enabled: false` when no
  * provider key is configured, and the whole block renders nothing.
  */
-export function DuplicateCheck({ query, requestType = '' }) {
+export function DuplicateCheck({
+  query,
+  requestType = '',
+  // What the reporter has already typed. Handed to the recurrence sheet so it
+  // does not re-ask for a policy number they filled in two fields ago — the
+  // whole reason this affordance lives here rather than inside StatusBoardRow,
+  // which has no form to harvest.
+  harvest = null,
+  // Depth 3 needs a full report, pre-filled from the matched ticket. Only the
+  // page owns the form, so it does the filling; this hands it the context.
+  onRegression = null,
+  // A recurrence landed. The page confirms it and resets, because they came here
+  // to file a report and they have — just not a new ticket.
+  onRecurrenceLogged = null,
+}) {
   const [status, setStatus] = useState({ loading: true, enabled: false, summaryEnabled: false });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [result, setResult] = useState(null);
+  // The ticket whose "it happened to me" sheet is open, or null.
+  const [sameIssueFor, setSameIssueFor] = useState(null);
   // The exact text that produced `result`, so editing the summary afterwards
   // offers a re-check instead of silently showing matches for the old wording.
   const [searchedQuery, setSearchedQuery] = useState('');
@@ -209,7 +227,9 @@ export function DuplicateCheck({ query, requestType = '' }) {
             <div className="rs-dupe-list">
               <div className="sb-panel">
                 <div className="sb-rows">
-                  {matches.map((item) => <StatusBoardRow key={item.id} item={item} />)}
+                  {matches.map((item) => (
+                    <StatusBoardRow key={item.id} item={item} onSameIssue={setSameIssueFor} />
+                  ))}
                 </div>
               </div>
             </div>
@@ -230,7 +250,9 @@ export function DuplicateCheck({ query, requestType = '' }) {
               <div className="rs-dupe-list">
                 <div className="sb-panel">
                   <div className="sb-rows">
-                    {keywordMatches.map((item) => <StatusBoardRow key={item.id} item={item} />)}
+                    {keywordMatches.map((item) => (
+                      <StatusBoardRow key={item.id} item={item} onSameIssue={setSameIssueFor} />
+                    ))}
                   </div>
                 </div>
               </div>
@@ -242,6 +264,26 @@ export function DuplicateCheck({ query, requestType = '' }) {
             detail is more use to the team than none.
           </p>
         </>
+      )}
+
+      {sameIssueFor && (
+        <RecurrenceSheet
+          submissionId={sameIssueFor.id}
+          ticketRef={sameIssueFor.easyvista_ticket_id || `#${sameIssueFor.id}`}
+          harvested={harvest || {}}
+          onClose={() => setSameIssueFor(null)}
+          onDone={(res) => {
+            setSameIssueFor(null);
+            // Depth 3 logged the recurrence and now wants a full report. The
+            // recurrence is already saved either way, so abandoning the form
+            // that follows still leaves the evidence behind.
+            if (res?.depth === DEPTH_REGRESSION && res?.needs_report) {
+              onRegression?.(res, sameIssueFor);
+            } else {
+              onRecurrenceLogged?.(res, sameIssueFor);
+            }
+          }}
+        />
       )}
     </div>
   );

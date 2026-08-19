@@ -33,6 +33,7 @@ export function buildDefaultFilters() {
     year: '',
     inJira: '',
     workaround: '',
+    recurrenceFilter: '',
     jiraNumber: '',
     easyvistaNumber: '',
     releaseNumber: '',

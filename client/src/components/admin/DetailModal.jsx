@@ -15,6 +15,7 @@ import { DetailTriageSection } from './detail/DetailTriageSection';
 import { DetailImpactSection } from './detail/DetailImpactSection';
 import { DetailSubmissionSection } from './detail/DetailSubmissionSection';
 import { DetailAttachmentsSection } from './detail/DetailAttachmentsSection';
+import { DetailRecurrences } from './detail/DetailRecurrences';
 import { DetailTimelineSection } from './detail/DetailTimelineSection';
 import { DetailReferenceSection } from './detail/DetailReferenceSection';
 import { DetailEasyVistaSection } from './detail/DetailEasyVistaSection';
@@ -180,6 +181,15 @@ export function DetailModal({
     { key: DETAIL_TABS.history, label: 'History' },
     { key: DETAIL_TABS.triage, label: 'Triage' },
     { key: DETAIL_TABS.impact, label: 'Impact', warn: blockedTabs.has(DETAIL_TABS.impact) },
+    // Only when somebody has actually reported it again. An always-present tab
+    // reading "0" on the overwhelming majority of tickets would be six words of
+    // furniture on every open; a tab that appears IS the signal.
+    ...(Number(detail?.recurrence_count || 0) > 0 ? [{
+      key: DETAIL_TABS.recurrences,
+      label: 'Reported again',
+      count: Number(detail.recurrence_count),
+      warn: Number(detail.open_workaround_requests || 0) > 0,
+    }] : []),
     isReportRequest
       ? { key: DETAIL_TABS.delivery, label: 'Delivery' }
       : {
@@ -361,6 +371,24 @@ export function DetailModal({
                 uploadAttachment={uploadAttachment}
                 deleteAttachment={deleteAttachment}
               />
+            </DetailPane>
+          )}
+
+          {activeTab === DETAIL_TABS.recurrences && (
+            <DetailPane id={DETAIL_TABS.recurrences}>
+              <DetailGroup label="Who has reported this happening to them">
+                {/* No onChanged: both admin actions emit submission:recurrence,
+                    and useAdminNotifications already reloads the queue and the
+                    open detail on any admin event. The pane reloads itself for
+                    the immediate feedback, and refreshToken re-syncs it when the
+                    detail comes back with a new count. */}
+                <DetailRecurrences
+                  submissionId={openId}
+                  detail={detail}
+                  canEdit={!readOnly}
+                  refreshToken={detail?.recurrence_count || 0}
+                />
+              </DetailGroup>
             </DetailPane>
           )}
 

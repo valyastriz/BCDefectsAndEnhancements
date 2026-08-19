@@ -154,6 +154,23 @@ export function FilterPanel({
         <option value="any">Requested (either)</option>
       </Select>
     ),
+    // Tickets people are still reporting. The last two options are why this
+    // filter exists at all: a challenged closure and a returned fix are
+    // otherwise invisible, because nobody opens a rejected or a deployed ticket
+    // to notice its count went up.
+    recurrenceFilter: () => (
+      <Select
+        label="Reported again"
+        value={filters.recurrenceFilter}
+        onChange={(e) => patch('recurrenceFilter')(e.target.value)}
+      >
+        <option value="">All</option>
+        <option value="any">Reported again at all</option>
+        <option value="challenged">Challenged — reported after it was closed</option>
+        <option value="regressed">Came back after its fix shipped</option>
+        <option value="blocked">Somebody is blocked and waiting</option>
+      </Select>
+    ),
   };
 
   // Groups with no visible filters left are dropped entirely rather than

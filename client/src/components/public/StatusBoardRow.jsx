@@ -209,7 +209,7 @@ function StageCell({ reached, track }) {
  * server's is_mine for a signed-in reporter, this browser's remembered ids
  * otherwise) and useViewer.isMine is the single place that decides between them.
  */
-export function StatusBoardRow({ item, isMine = false }) {
+export function StatusBoardRow({ item, isMine = false, onSameIssue = null }) {
   const [open, setOpen] = useState(false);
   const detailsId = useId();
 
@@ -231,6 +231,30 @@ export function StatusBoardRow({ item, isMine = false }) {
   ].filter(([, value]) => Boolean(value));
 
   const routings = Array.isArray(item.routings) ? item.routings : [];
+
+  // "It happened to me too". Opt-in per surface — the caller passes a handler
+  // because only IT knows what context to hand the sheet (the submit form has a
+  // half-filled report to harvest; the board has nothing). The admin queue never
+  // passes one, so the affordance is simply absent there.
+  //
+  // The prompt names the condition it is really asking about — "since 18 June",
+  // "closed without a fix" — so somebody knows what they are being asked before
+  // they commit to a form. Derived from what the row already carries rather than
+  // from a second request per row: `deployed_status_at` is on the public payload,
+  // which is what the AI-search fix restored (helpers/statusTimestamps.js).
+  const recurrenceCount = Number(item.recurrence_count || 0);
+  const deployedAt = item.deployed_status_at || item.delivered_status_at || null;
+  let againPrompt = 'Did this happen to you too?';
+  let againLabel = 'It happened to me';
+  if (deployedAt) {
+    againPrompt = `Seen this since ${fullDate(deployedAt)}? That would mean the fix did not hold.`;
+    againLabel = 'It happened again';
+  } else if (status === 'Backlog - Monitoring Impact') {
+    againPrompt = 'We are counting how often this happens. You are the count.';
+    againLabel = 'Add to the count';
+  } else if (outcome) {
+    againPrompt = 'This one was closed without a fix. If it is still happening, tell us.';
+  }
 
   return (
     <div
@@ -277,6 +301,21 @@ export function StatusBoardRow({ item, isMine = false }) {
         </span>
         <span className="c-exp" aria-hidden="true">▾</span>
       </button>
+
+      {onSameIssue && (
+        <div className="sb-again">
+          <span className="sb-again-q">{againPrompt}</span>
+          {recurrenceCount > 0 && (
+            <span className="sb-again-count" title="People who have reported this happening to them">
+              <b aria-hidden="true">◆</b>
+              {recurrenceCount} {recurrenceCount === 1 ? 'report' : 'reports'}
+            </span>
+          )}
+          <button type="button" className="sb-again-act" onClick={() => onSameIssue(item)}>
+            {againLabel}
+          </button>
+        </div>
+      )}
 
       {/* Rendered only while open: fifty collapsed expansions in the DOM is
           fifty tracks and descriptions nobody asked for. */}
