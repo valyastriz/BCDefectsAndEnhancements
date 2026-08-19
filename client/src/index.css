@@ -4115,10 +4115,17 @@ select.dm-prow-input { cursor: pointer; }
 
 /* No overflow:hidden here — it would trap the sticky column header in a
    non-scrolling clip context and silently kill the stick. The corners are
-   rounded on the band and the row list instead. */
+   rounded on the band and the row list instead.
+
+   `container-type: inline-size` makes the PANEL the thing the row template
+   reflows against, rather than the window — see the responsive block below for
+   what that fixes. It brings layout containment with it, which does not create a
+   scrollport, so the sticky header above is unaffected (checked in the browser,
+   not assumed). */
 .sb-panel {
   background: var(--color-surface); border: 1px solid var(--color-border);
   border-radius: var(--radius-lg); box-shadow: var(--shadow-sm);
+  container-type: inline-size; container-name: board;
 }
 .sb-band {
   display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 14px;
@@ -4244,13 +4251,21 @@ select.dm-prow-input { cursor: pointer; }
 .sb-when { font-size: 11.5px; color: var(--color-muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
 
 /* Where it stands, at row scale: four pips and the name of the stop. */
-.sb-stage { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+/* `max-width: 100%` and the label's `min-width: 0` are what make the ellipsis on
+   .sb-stage-lbl below actually fire. Without them an inline-flex box sizes to
+   its content and simply overruns the cell: "With Service Desk" is 174px, and in
+   the 166px stage column it ran into the age beside it with a 2px gap — visible
+   on the board at every window between 820 and 1180px, and reported by the
+   overflow probe, which the board's own verification never ran at those widths.
+   The columns are wide enough for that label now; this is the net for the next
+   one (`TRACKER_LABEL` is configurable, so the longest word here is not fixed). */
+.sb-stage { display: inline-flex; align-items: center; gap: 8px; min-width: 0; max-width: 100%; }
 .sb-pips { display: inline-flex; align-items: center; flex: 0 0 auto; }
 .sb-pips i { display: block; width: 7px; height: 7px; border-radius: 50%; background: var(--color-border); }
 .sb-pips b { display: block; width: 12px; height: 2px; background: var(--color-border); }
 .sb-pips i.on, .sb-pips b.on { background: var(--sb-stage, var(--color-primary)); }
 .sb-pips i.now { box-shadow: 0 0 0 3px color-mix(in srgb, var(--sb-stage, var(--color-primary)) 24%, transparent); }
-.sb-stage-lbl { font-size: 12px; font-weight: 650; color: var(--sb-stage, var(--color-text)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sb-stage-lbl { font-size: 12px; font-weight: 650; color: var(--sb-stage, var(--color-text)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .sb-stage--new       { --sb-stage: var(--status-new-fg); }
 .sb-stage--approved  { --sb-stage: var(--status-approved-fg); }
 .sb-stage--submitted { --sb-stage: var(--status-submitted-fg); }
@@ -4326,17 +4341,35 @@ select.dm-prow-input { cursor: pointer; }
 /* ── Responsive ──────────────────────────────────────────────────────────
    Columns drop in the order of what a reporter can recover elsewhere: the
    application is in the scope picker, reported-by is one line into the
-   expansion. Both stay in the expansion at every width. */
-@media (max-width: 1180px) {
+   expansion. Both stay in the expansion at every width.
+
+   CONTAINER queries, not media queries. The board's own page hands this panel
+   the full window, but the rep form renders the same panel in an ~814px column
+   on a 1500px desktop — where the window-width version of these rules kept the
+   eight-column desktop template and squeezed `sum` down to ZERO pixels. The
+   duplicate check was drawing a ticket's reference, type, stage, reporter,
+   application and age, and not the one thing it exists to show: what the ticket
+   is about. Measured at 0px wide, not noticed by eye.
+
+   The thresholds are the panel widths the old window breakpoints produced —
+   1180/1000/820px of window is 1100/920/740px of panel, because the page pads
+   40px a side — so the board itself reflows where it always did, give or take
+   the 2px of border a container query does not count (it measures the content
+   box, and the panel has a 1px border each side). */
+@container board (max-width: 1100px) {
   .sb-head, .sb-row {
-    grid-template-columns: 102px 88px minmax(0, 1fr) 172px 100px 78px 26px;
+    /* The stage column stays 178px at every width that draws one. Its widest
+       content — the pips plus "With Service Desk" — is 174px regardless of how
+       much room the row has, so narrowing it here (it was 172 then 166) only
+       ever made the label overrun. */
+    grid-template-columns: 102px 88px minmax(0, 1fr) 178px 100px 78px 26px;
     grid-template-areas: "ref type sum stage who when exp";
   }
   .c-app { display: none; }
 }
-@media (max-width: 1000px) {
+@container board (max-width: 920px) {
   .sb-head, .sb-row {
-    grid-template-columns: 98px 88px minmax(0, 1fr) 166px 76px 26px;
+    grid-template-columns: 98px 88px minmax(0, 1fr) 178px 76px 26px;
     grid-template-areas: "ref type sum stage when exp";
   }
   .c-who { display: none; }
@@ -4344,7 +4377,7 @@ select.dm-prow-input { cursor: pointer; }
 }
 /* Below this the row folds to three lines rather than squeezing eight columns
    into a phone. The header goes with it — there is nothing left to align. */
-@media (max-width: 820px) {
+@container board (max-width: 740px) {
   .sb-head { display: none; }
   .sb-row {
     grid-template-columns: auto auto 1fr auto;

@@ -146,8 +146,12 @@ function selectTopK(ranked, { minSimilarity = AI_SEARCH_MIN_SIMILARITY, limit = 
 }
 
 // Filler words that would otherwise turn nearly every ticket into a keyword
-// hit (includes portal boilerplate like ticket/defect that appears in every
-// doc's Type line). Terms shorter than 3 chars are dropped before this check.
+// hit. Includes the portal's own vocabulary — every row here is a ticket, and
+// most of them are a defect, an enhancement or a report, so those words say
+// nothing about WHICH one. `report` and its forms are the newest members: a
+// report request whose summary contains "report" is every report request there
+// is, which is exactly the queue the requester is being shown.
+// Terms shorter than 3 chars are dropped before this check.
 const KEYWORD_STOPWORDS = new Set([
   'about', 'after', 'all', 'and', 'any', 'anything', 'are', 'because', 'been',
   'before', 'being', 'between', 'but', 'can', 'could', 'defect', 'defects',
@@ -155,30 +159,97 @@ const KEYWORD_STOPWORDS = new Set([
   'from', 'get', 'gets', 'got', 'had', 'has', 'have', 'having', 'her', 'him',
   'his', 'how', 'into', 'issue', 'issues', 'its', 'just', 'like', 'may',
   'might', 'more', 'most', 'not', 'once', 'only', 'other', 'our', 'out',
-  'over', 'own', 'per', 'related', 'she', 'should', 'some', 'something',
-  'such', 'than', 'that', 'the', 'their', 'them', 'then', 'there', 'these',
-  'they', 'this', 'those', 'ticket', 'tickets', 'too', 'under', 'until',
-  'very', 'want', 'wants', 'was', 'were', 'what', 'when', 'where', 'which',
-  'while', 'who', 'whose', 'why', 'will', 'with', 'would', 'you', 'your',
+  'over', 'own', 'per', 'related', 'report', 'reported', 'reporting',
+  'reports', 'she', 'should', 'some', 'something', 'such', 'than', 'that',
+  'the', 'their', 'them', 'then', 'there', 'these', 'they', 'this', 'those',
+  'ticket', 'tickets', 'too', 'under', 'until', 'very', 'want', 'wants', 'was',
+  'were', 'what', 'when', 'where', 'which', 'while', 'who', 'whose', 'why',
+  'will', 'with', 'would', 'you', 'your',
 ]);
 
 // Salient keyword terms from the query: lowercase, punctuation stripped,
 // stopwords and <3-char terms dropped. Each term also contributes a trailing-
 // 's'-trimmed variant so "invoices" hits "invoice".
-function extractKeywordTerms(query) {
+//
+// `excluded` drops further words the caller has already accounted for another
+// way — in practice the words of an application name, which is answered by the
+// application filter rather than by matching text (see applicationInQuery).
+// Without it, a reporter writing "Billing Center invoice is wrong" gets back
+// every ticket in Billing Center, because they all say so somewhere.
+function extractKeywordTerms(query, { excluded = null } = {}) {
   const words = String(query || '')
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, ' ')
     .split(' ')
     .filter(Boolean);
+  const drop = (word) => (
+    word.length < 3 || KEYWORD_STOPWORDS.has(word) || Boolean(excluded?.has(word))
+  );
   const terms = new Set();
   for (const word of words) {
-    if (word.length < 3 || KEYWORD_STOPWORDS.has(word)) continue;
+    if (drop(word)) continue;
     terms.add(word);
     const trimmed = word.endsWith('s') ? word.slice(0, -1) : '';
-    if (trimmed.length >= 3 && !KEYWORD_STOPWORDS.has(trimmed)) terms.add(trimmed);
+    if (trimmed.length >= 3 && !drop(trimmed)) terms.add(trimmed);
   }
   return [...terms];
+}
+
+// ── Applications are TAGS, not words ────────────────────────────────────────
+// "It should search for tagged by application": a query that names an
+// application is asking about that application, so the name is lifted out of the
+// text and answered by narrowing the candidate set to the rows carrying that
+// tag. Both halves matter — filtering alone would still let the words flood the
+// literal matcher, and dropping the words alone would throw away the one piece
+// of scope the reporter actually gave.
+//
+// A name only qualifies when at least one of its words carries meaning on its
+// own. That is what stops the `Other` queue — a real application — from
+// swallowing every search that happens to contain the word "other": its only
+// word is already a stopword, so it never matches.
+function tokenize(text) {
+  return String(text || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').split(' ').filter(Boolean);
+}
+
+function isScopableApplicationName(name) {
+  return tokenize(name).some((word) => word.length >= 3 && !KEYWORD_STOPWORDS.has(word));
+}
+
+/**
+ * The application a query names, if it names one, plus the words to keep out of
+ * the literal matcher.
+ *
+ * The words of EVERY known application are excluded, not just the matched one:
+ * "center" belongs to Billing Center and Policy Center alike, and a ticket whose
+ * description happens to mention either is not thereby a duplicate. The longest
+ * name wins the scope, so "Billing Center" is not decided by a shorter name that
+ * shares a word with it.
+ */
+function applicationInQuery(query, applications) {
+  const words = tokenize(query);
+  const haystack = ` ${words.join(' ')} `;
+  const excluded = new Set();
+  let scope = null;
+  for (const application of applications) {
+    if (!isScopableApplicationName(application.name)) continue;
+    const nameWords = tokenize(application.name);
+    if (!nameWords.length) continue;
+    for (const word of nameWords) excluded.add(word);
+    if (!haystack.includes(` ${nameWords.join(' ')} `)) continue;
+    if (!scope || nameWords.length > scope.wordCount) {
+      scope = { id: Number(application.id), name: application.name, wordCount: nameWords.length };
+    }
+  }
+  return { scope, excluded };
+}
+
+async function loadApplicationTags() {
+  const { Application } = dbApi.getModels() || {};
+  if (!Application) return [];
+  const rows = await Application.findAll({ attributes: ['id', 'name'], raw: true });
+  return rows
+    .map((row) => ({ id: Number(row.id), name: String(row.name || '').trim() }))
+    .filter((row) => row.id && row.name);
 }
 
 // Identifier-shaped tokens from the query: anything containing a digit, with a
@@ -442,6 +513,14 @@ async function runAiSearch(db, {
   const resolvedDays = normalizeWindowDays(resolvedWithinDays);
 
   // Resolve application scope (id wins; else resolve the name unless "all").
+  //
+  // "all" counts as the caller HAVING expressed a preference — it is what the
+  // search panel's application picker sends when somebody deliberately chooses
+  // to search everything, and a word in their query must not quietly overrule
+  // that. Only a caller with no picker at all (the submit form's duplicate
+  // check) lets the query name the application; see applicationInQuery below.
+  const callerPickedApplication = Boolean(Number(applicationId))
+    || Boolean(String(applicationName || '').trim());
   let appId = Number(applicationId) || null;
   if (!appId) {
     const name = String(applicationName || '').trim();
@@ -449,6 +528,32 @@ async function runAiSearch(db, {
       appId = await getLookupIdByName(db, 'applications', name);
     }
   }
+
+  // The application the QUERY names, when the caller has not already picked one.
+  // A named application is a tag the reporter handed us, so it narrows the
+  // candidate set; its words then come out of the keyword terms below. A failure
+  // to load the catalog is not fatal: no scope, no exclusions, and the search
+  // behaves exactly as it did before.
+  const applicationTags = await loadApplicationTags().catch((error) => {
+    console.error('[ai-search] could not load applications; searching unscoped:', error?.message || error);
+    return [];
+  });
+  const { scope: queryApplication, excluded: applicationWords } = applicationInQuery(
+    cleanQuery,
+    applicationTags,
+  );
+  // `callerPickedApplication`, not `!appId`: "all" resolves to no id at all, so
+  // gating on the id alone let a word in the query narrow a search that had
+  // explicitly asked for everything — and narrow it SILENTLY, because the field
+  // below said no scope had been applied.
+  const applicationFromQuery = !callerPickedApplication ? queryApplication : null;
+  if (applicationFromQuery) appId = applicationFromQuery.id;
+  // Named in every response, including the empty ones. A search narrowed to one
+  // application that then finds nothing must not report back as "nothing like
+  // this anywhere" — that is a bigger claim than it can make, and the client puts
+  // this on screen. Null when the caller supplied its own filter: that narrowing
+  // is already theirs and needs no announcement.
+  const applicationScope = applicationFromQuery ? applicationFromQuery.name : null;
 
   // Which kinds of ticket can be a match for this one.
   //
@@ -478,7 +583,7 @@ async function runAiSearch(db, {
     } catch (error) {
       if (safeScope !== SCOPE_PUBLIC) throw error;
       console.error('[ai-search] could not resolve the report type; answering empty rather than risk leaking one:', error?.message || error);
-      return { enabled: true, query: cleanQuery, summary: emptySummary(), matches: [], keywordMatches: [], window: { reportedWithinDays: reportedDays, resolvedWithinDays: resolvedDays }, windowExcluded: 0, meta: emptyMeta() };
+      return { enabled: true, query: cleanQuery, summary: emptySummary(), matches: [], keywordMatches: [], window: { reportedWithinDays: reportedDays, resolvedWithinDays: resolvedDays }, windowExcluded: 0, meta: emptyMeta(applicationScope) };
     }
   }
   const onlyTypeId = wantedType === SUBMISSION_TYPE_REPORT ? reportTypeId : null;
@@ -494,7 +599,7 @@ async function runAiSearch(db, {
     viewerUserId,
   });
   if (!rawCandidates.length) {
-    return { enabled: true, query: cleanQuery, summary: emptySummary(), matches: [], keywordMatches: [], window: { reportedWithinDays: reportedDays, resolvedWithinDays: resolvedDays }, windowExcluded: 0, meta: emptyMeta() };
+    return { enabled: true, query: cleanQuery, summary: emptySummary(), matches: [], keywordMatches: [], window: { reportedWithinDays: reportedDays, resolvedWithinDays: resolvedDays }, windowExcluded: 0, meta: emptyMeta(applicationScope) };
   }
   const hydrated = await hydrateRows(rawCandidates);
 
@@ -512,7 +617,7 @@ async function runAiSearch(db, {
     resolvedMap,
   });
   if (!filtered.length) {
-    return { enabled: true, query: cleanQuery, summary: emptySummary(), matches: [], keywordMatches: [], window: { reportedWithinDays: reportedDays, resolvedWithinDays: resolvedDays }, windowExcluded, meta: { candidateCount: hydrated.length, rankedCount: 0, embeddedInline: 0, skippedEmbed: 0 } };
+    return { enabled: true, query: cleanQuery, summary: emptySummary(), matches: [], keywordMatches: [], window: { reportedWithinDays: reportedDays, resolvedWithinDays: resolvedDays }, windowExcluded, meta: { ...emptyMeta(applicationScope), candidateCount: hydrated.length } };
   }
 
   // 2. Self-heal: ensure candidate embeddings exist (bounded per search). This
@@ -590,7 +695,7 @@ async function runAiSearch(db, {
   // can endorse and explain one that IS on topic) and both are guaranteed a
   // spot in the response — in the separate `keywordMatches` section when the
   // LLM does not endorse them.
-  const keywordTerms = extractKeywordTerms(cleanQuery);
+  const keywordTerms = extractKeywordTerms(cleanQuery, { excluded: applicationWords });
   const identifierTerms = extractIdentifierTerms(cleanQuery);
   const keywordHits = findKeywordHits(literalCandidates, keywordTerms, { scope: safeScope });
   const identifierHits = findIdentifierHits(literalCandidates, identifierTerms, { scope: safeScope });
@@ -678,6 +783,7 @@ async function runAiSearch(db, {
       // not say it is narrowed reads as "there is nothing like this anywhere",
       // and the client puts it on screen.
       requestType: wantedType || null,
+      applicationScope,
       searchedOnlyType: onlyTypeId ? SUBMISSION_TYPE_REPORT : null,
       excludedType: excludeTypeId ? SUBMISSION_TYPE_REPORT : null,
     },
@@ -687,8 +793,15 @@ async function runAiSearch(db, {
 function emptySummary() {
   return { answer_summary: '', reported_in_window: false, resolved_in_window: false };
 }
-function emptyMeta() {
-  return { candidateCount: 0, rankedCount: 0, keywordCount: 0, embeddedInline: 0, skippedEmbed: 0 };
+function emptyMeta(applicationScope = null) {
+  return {
+    candidateCount: 0,
+    rankedCount: 0,
+    keywordCount: 0,
+    embeddedInline: 0,
+    skippedEmbed: 0,
+    applicationScope,
+  };
 }
 
 module.exports = {
@@ -699,6 +812,7 @@ module.exports = {
   selectTopK,
   extractKeywordTerms,
   extractIdentifierTerms,
+  applicationInQuery,
   findKeywordHits,
   findIdentifierHits,
   composeKeywordMatches,

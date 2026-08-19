@@ -119,6 +119,12 @@ export function DuplicateCheck({ query, requestType = '' }) {
   // stronger claim than the one it can make.
   const isReportRequest = String(requestType || '').trim().toLowerCase() === 'report';
   const scopeNoun = isReportRequest ? 'report requests' : 'defects and enhancements';
+  // The second narrowing, and the one the requester caused without knowing it:
+  // naming an application in the summary line searches that application's
+  // tickets rather than treating its name as a word to match, which used to
+  // return every ticket in the queue they were filing into.
+  const searchedApplication = String(result?.meta?.applicationScope || '').trim();
+  const inApplication = searchedApplication ? ` in ${searchedApplication}` : '';
 
   let title = 'Already reported?';
   let subtitle = tooShort
@@ -140,10 +146,12 @@ export function DuplicateCheck({ query, requestType = '' }) {
     title = total === 1
       ? `1 similar ${isReportRequest ? 'report request' : 'ticket'} found`
       : `${total} similar ${isReportRequest ? 'report requests' : 'tickets'} found`;
-    subtitle = 'Review these before you file. A duplicate slows the original one down.';
+    subtitle = searchedApplication
+      ? `Review these before you file — ${searchedApplication} ${scopeNoun} only, because your summary names it. A duplicate slows the original one down.`
+      : 'Review these before you file. A duplicate slows the original one down.';
   } else if (isClear) {
     title = `Nothing like this in the ${isReportRequest ? 'report queue' : 'queue'}`;
-    subtitle = `Looks new — carry on and file it. Only existing ${scopeNoun} were searched.`;
+    subtitle = `Looks new — carry on and file it. Only existing ${scopeNoun}${inApplication} were searched.`;
   }
 
   const showButton = !loading && (!result || isStale || isClear);

@@ -516,6 +516,40 @@ direct answer to the duplicate-intake problem
 - `Op.ne` alone would have dropped every row with a NULL `type_id` — SQL says NULL
   is neither equal nor unequal to anything, and historical rows exist with no
   type. **Excluding one kind of ticket must not also exclude the untyped ones.**
+- **It also narrows by application, from the summary itself.** Naming an
+  application is a tag, not a word to match — see
+  [the keyword doc](#13-ai-semantic-search) for the flood this replaced — and the
+  panel says which application it searched.
+- **Each match shows its summary line, and expands to the details reported.** The
+  row is the status board's, and the board's column template used to be chosen by
+  the **window** width; in the form's ~814px column on a 1500px desktop that kept
+  the eight-column desktop layout and squeezed the summary to **0px**. The panel
+  drew a reference, a type, a stage, a reporter and an age, and never said what the
+  ticket was about. `.sb-panel` is a **container** now (`container-type:
+  inline-size`) and the three breakpoints are `@container` queries on the panel's
+  own width — 1100/920/740px, the panel widths the old 1180/1000/820px window
+  breakpoints produced, so the board reflows where it always did. Anything else
+  embedding the board row inherits the fix.
+
+**"Date it happened" cannot be in the future** (2026-08-19). A defect that has not
+happened yet is not a defect. Three layers, and only the last one decides:
+
+| Layer | Where | What it does |
+| --- | --- | --- |
+| The picker | `max={today}` on the rep form and the admin Add-a-ticket dialog | Greys out tomorrow in the calendar |
+| The form | `invalid` in `RepSubmitPage.jsx` | Catches a **typed** date — `max` is not validation — names the field, focuses it, and blocks the submit |
+| The endpoint | `isFutureDay` in `helpers/utils.js`, called from the defect branch of `POST /api/submissions` | 400 `Date of error cannot be in the future` |
+
+`isFutureDay` compares **calendar days in local time, not instants**: a defect
+reported at 2pm and dated 11:59pm the same day is still today, and refusing it
+would be a worse answer than accepting it. Tomorrow is wrong at any hour. Today is
+built from the local calendar (`todayInputValue`), never
+`toISOString().slice(0, 10)` — west of Greenwich that is *yesterday* all evening,
+and the ceiling would refuse a defect being reported as it happens.
+
+> The guard is deliberately **not** in `defectDateTimeIso`, which the bulk importer
+> also calls. Whether a historical import row with a future date should be refused
+> is a different decision and has not been made.
 
 **Screenshot attachment** has three ways in, because reps get screenshots three
 ways: drag, Browse, and — the common one — **PrintScreen then Ctrl+V**. The paste
@@ -1590,8 +1624,42 @@ reasons:
 So there is a third, non-embedded, never-hashed **keyword doc** per ticket. Matching
 is careful about false positives:
 
+- **The keyword doc carries values, not facets and not field labels.** This is the
+  fix for the flood reported on 2026-08-19: the doc used to be the embedded doc plus
+  identifiers, so it contained `Application: Billing Center`, `Type: defect`,
+  `Status: Deployed` and every field's label. A reporter who wrote "Billing Center
+  invoice is wrong" therefore matched **every Billing Center ticket** — measured at
+  20 keyword hits out of 23 candidates, and the same query returns 3 now. `screen`
+  matched every defect (they all have a `Screen:` line) and `policy` every ticket
+  with a policy number. A ticket is not *about* billing because it is *filed under*
+  Billing Center. Facets are matched **as facets** — see the application scope below
+  and the `requestType` narrowing — and the embedded docs are untouched, so no
+  `content_hash` changes and nothing re-embeds.
 - Query terms: lowercased, punctuation stripped, stopwords and <3-char terms
   dropped, plus a trailing-`s`-trimmed variant so "invoices" hits "invoice".
+- **The portal's own vocabulary is a stopword**: `ticket`, `issue`, `defect`,
+  `enhancement` — and, since 2026-08-19, `report`/`reports`/`reported`/`reporting`.
+  On the report branch every candidate *is* a report, so the word distinguishes
+  nothing and matching it returned the whole queue.
+- **An application named in the query becomes the application filter**, and its
+  words are dropped from the terms — `applicationInQuery` in `aiSearchService.js`.
+  A name only qualifies if at least one of its words is not itself a stopword,
+  which is what stops the real `Other` queue from swallowing any search containing
+  the word "other". The longest matching name wins, so `Policy Center` is not
+  decided by a shorter name sharing a word with it.
+  - It fires **only when the caller expressed no preference** — i.e. the submit
+    form's duplicate check, which sends no application at all. `AiSearchPanel`
+    sends its picker's value **verbatim, including `all`**, which the server has
+    always read as "no filter"; that is a deliberate "search everything" and is
+    not overruled by a word in the sentence. **Both ends of this are live bugs
+    waiting to be reintroduced:** gating the filter on `!appId` instead of "did
+    the caller pick one" narrows silently (`all` resolves to no id), and so does a
+    client that helpfully converts `all` to `''` before sending it. A filter and
+    the field that discloses it must be gated on the same condition.
+  - The narrowing is reported as `meta.applicationScope`, and the duplicate check
+    puts it on screen ("Billing Center defects and enhancements only, because your
+    summary names it"). A search that narrowed and found nothing must not read as
+    "nothing like this anywhere".
 - Identifier-shaped tokens (anything containing a digit) **skip** the stopword and
   length rules — a ticket really can be `#42` — because they match against identifier
   **fields**, not free text.
@@ -2491,9 +2559,9 @@ against the real app. All except `verify-session-store.mjs` need the server on
 |---|---|---|
 | `verify-admin-data-entry.mjs` | The three data-entry dialogs, the redirect dialog, and the report-request Delivery pane | One report request, removed |
 | `verify-metadata-page.mjs` | The metadata page. Makes ONE reversible write and **proves it undid it** | Yes, restored |
-| `verify-submit-form.mjs` | The form's field/height/control counts, the duplicate check's type narrowing, and **the session-less wall** | One report request, removed |
+| `verify-submit-form.mjs` | The form's field/height/control counts, the duplicate check's type **and application** narrowing, that a match shows its summary and expands to its details, the **future-date** guard at both layers, and **the session-less wall** | Four tickets, removed |
 | `verify-throughput-page.mjs` | Both views, in two real sessions (`admin` is a manager, `lead_admin` is not) | Two delivered requests + hours, removed |
-| `verify-public-board.mjs` | The per-type track, the parked state, the type chip, the stage tiles, **and that a report request is invisible to a stranger** | One public report request, removed |
+| `verify-public-board.mjs` | The per-type track, the parked state, the type chip, the stage tiles, that the board's own search is **not narrowed by a word in the question**, **and that a report request is invisible to a stranger** | One public report request, removed |
 | `verify-report-import-export.mjs` | The spreadsheet round trip: export, re-import the portal's own file, compare every column, and all three refusal paths | Four report requests, removed |
 | `verify-session-store.mjs` | Sessions outlive a restart. **Brings its own servers** on :4100 — spawn, sign in, kill, spawn again, present the same cookie | Session rows only |
 | `lib/overflow-probe.mjs` | Per-container overflow. **Read its header before changing it** — each exclusion is there because a false positive buried a real finding. |
@@ -3219,6 +3287,58 @@ from `['Billing Center', 'Policy Center']` — a literal pair — so it would ha
 Other outright, and any future application with it. Both that check and the list the
 dialog offers now come from the applications table.
 
+## Three things the owner found in the duplicate check (2026-08-19)
+
+One report, three separate faults, and **two of them were the same mistake at
+different layers: a fact about a ticket's SHAPE being matched as if it were a fact
+about its CONTENT.**
+
+**1. The duplicate check was not showing the summary.** The panel reuses the status
+board's row, whose column template was chosen by the **window** width. In the form's
+~814px column on a 1500px desktop that kept the eight-column desktop layout, and
+`minmax(0, 1fr)` collapsed the summary column to **zero pixels**. Every row drew a
+reference, a type, a stage, a reporter and an age — everything except what the
+ticket was about, on the one screen whose entire job is to answer that.
+
+> It was measured at 0px, not spotted by eye, and nothing caught it: the board's own
+> verification probes 1500/820/390px, where the panel is either wide enough or
+> folded. **The window was simply the wrong signal.** `.sb-panel` is a container now
+> and the breakpoints are `@container` queries on its own width — which fixes it for
+> every future embedding too, not just this one.
+
+**2. Matching on the application name returned the whole queue.** The literal keyword
+doc was the embedded doc plus identifiers, so it carried `Application: Billing
+Center` — and a reporter who wrote "Billing Center invoice is wrong" matched **every
+Billing Center ticket**. Measured: 20 keyword hits out of 23 candidates, i.e. the
+queue. *A duplicate check that returns everything has told you nothing.*
+
+The fix is to answer a facet **as a facet**: the application name comes out of the
+words and becomes the application **filter** — the owner's own phrasing, "it should
+search for tagged by application". The same query now returns 3.
+
+> **The same fault, one layer down, found while fixing it:** the doc carried the
+> field LABELS too. `Screen: …` made "screen" a hit on every defect and `Policy: …`
+> made "policy" a hit on every ticket with a policy number. The literal matcher now
+> reads values only.
+
+> **And a bug written while fixing it, caught by the verification, not by review:**
+> the narrowing was gated on "no application id resolved" rather than "the caller
+> did not pick one". `all` — what the search panel's picker sends — resolves to no
+> id, so a word in the query narrowed a search that had asked for everything, and
+> narrowed it **silently**, because the field reporting the scope was gated
+> correctly. A filter and its disclosure must be gated on the same condition.
+
+**3. "report" matched every report request.** The stopword list already held
+`ticket`, `defect` and `enhancement` for exactly this reason; `report` was missed
+because it arrived with the third request type. On the branch where every candidate
+*is* a report, the word distinguishes nothing.
+
+**Not fixed, and deliberately:** the summary column in the duplicate check is 240px,
+so a long summary still ellipsises. The full text is one click away in the expansion,
+which now also shows the details reported. Widening it further means folding the row
+at panel widths the public board still uses as a table, which is a change to the
+board, not to the duplicate check.
+
 ## Two bugs behind owner reports, both one type over from where they were found
 
 Worth recording as a pattern: **the same fault existed in a sibling branch nobody had
@@ -3627,7 +3747,16 @@ design difference.**
 - [ ] `has_relevant_match === false` forces an empty match list.
 - [ ] Identifiers are matched **literally** and are **not embedded**.
 - [ ] Semantic and literal matches stay in **separate labeled sections**.
-- [ ] The duplicate check **narrows by type in the query**, and **says what it searched**.
+- [ ] **A facet is never matched as a word.** The literal doc carries values only —
+      no application, type or status, and no field labels. A ticket is not *about*
+      billing because it is *filed under* Billing Center.
+- [ ] **The portal's own vocabulary is a stopword** — `ticket`, `issue`, `defect`,
+      `enhancement`, `report`. A word every candidate carries distinguishes nothing.
+- [ ] An application named in the query becomes the **filter**, and only when the
+      caller expressed no preference of their own. **The filter and the field that
+      discloses it are gated on the same condition** — or a search narrows silently.
+- [ ] The duplicate check **narrows by type in the query**, and **says what it
+      searched** — type *and* application.
 - [ ] Excluding one type does **not** also exclude rows with a null type.
 - [ ] A provider failure degrades to literal matches; it never fails the search.
 - [ ] The summary **describes and does not rule**.

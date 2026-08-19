@@ -325,6 +325,57 @@ async function run() {
       tiles.map((tile) => `${tile.count} ${tile.label}`).join(' | '),
     );
 
+    // ── The board's own search is not narrowed by a word in the question ─────
+    // An application named in a query narrows the search to that application —
+    // which is right for the submit form's duplicate check, where there is no
+    // picker and the requester's sentence is the only scope there is. This panel
+    // HAS a picker, and somebody who left it on "All systems" has said what they
+    // want searched. Driven through the real form and read off the real response,
+    // because the fault this closes is a panel that sends something the server
+    // reads as "no preference": the search would then narrow SILENTLY, with
+    // nothing on screen saying it had.
+    // The panel is `collapsible` on this page: it opens from an entry strip.
+    const entryStrip = await page.$('.ai-entry-strip');
+    if (entryStrip) {
+      await entryStrip.click();
+      await page.waitForSelector('.ai-search-panel', { timeout: 10000 }).catch(() => {});
+    }
+    const searchPanel = await page.$('.ai-search-panel');
+    if (searchPanel) {
+      const applicationOnBoard = await page.$eval(
+        '.sb-item .sb-app',
+        (node) => node.textContent.trim(),
+      ).catch(() => '');
+      const responsePromise = page.waitForResponse(
+        (response) => response.url().includes('/api/ai-search') && response.request().method() === 'POST',
+        { timeout: 90000 },
+      );
+      await page.fill('.ai-search-panel input[type="text"], .ai-search-panel input:not([type])', `${applicationOnBoard} invoice is wrong`);
+      await page.click('.ai-search-panel button[type="submit"]');
+      const body = await (await responsePromise).json().catch(() => ({}));
+      record(
+        'a word in the question does not overrule the search panel\'s own "All systems"',
+        Boolean(applicationOnBoard)
+          && body?.meta?.applicationScope === null
+          // Both of these are here because the first version of this check passed
+          // on a request that carried NO QUERY AT ALL — an empty query answers
+          // with an empty meta, whose applicationScope is null for the wrong
+          // reason. A check that cannot tell "not narrowed" from "did not run" is
+          // worse than no check. (The missing query was a real fault, introduced
+          // in this panel while editing the line above it.)
+          && String(body?.query || '').includes(applicationOnBoard)
+          && body?.meta?.candidateCount > 0,
+        `asked "${body?.query}" with the picker on All -> scope=${JSON.stringify(body?.meta?.applicationScope)} `
+        + `over ${body?.meta?.candidateCount} candidates`,
+      );
+    } else {
+      record(
+        'a word in the question does not overrule the search panel\'s own "All systems"',
+        false,
+        'NOT RUN — no AI search panel on the page (no provider key configured?)',
+      );
+    }
+
     const realErrors = consoleErrors.filter((text) => !/401|Unauthorized|403/i.test(text));
     record('console is clean', realErrors.length === 0, realErrors.slice(0, 3).join(' | '));
   } finally {

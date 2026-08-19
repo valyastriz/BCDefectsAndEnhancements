@@ -15,7 +15,7 @@ after it are the historical record.
 | | |
 |---|---|
 | **Shipped 2026-08-08** | `cdeb474` — the analyst's UI, the hand-off affordance, the soft association. `e481013` — 62 screenshots. `bd5993c` — plan.md. Then **two permission leaks the owner found**, the misleading "Filing as" line, and the demonstration data those needed. |
-| **Green** | 428 server tests · lint · build · **all seven** browser scripts: `verify-admin-data-entry` **150/150** · `verify-submit-form` 63/63 · `verify-throughput-page` 52/52 · `verify-metadata-page` 30/30 · `verify-public-board` 21/21 · `verify-report-import-export` 20/20 · `verify-session-store` 17/17 · **65 screenshots** |
+| **Green** | **436** server tests · lint · build · browser scripts: `verify-admin-data-entry` **150/150** · `verify-submit-form` **74/74** · `verify-throughput-page` 52/52 · `verify-metadata-page` 30/30 · `verify-public-board` **22/22** · `verify-report-import-export` 20/20 · `verify-session-store` 17/17 · **65 screenshots** |
 | **Database** | 43 submissions, 0 `VERIFY` leftovers, **4 applications** (`Marketing Analytics` is reports-only). `submissions.working_application_id` applied. Billing Center and Policy Center carry `DEMO-` catalogs; `Other` carries none. 22 grants. |
 
 ## What is actually left
@@ -76,6 +76,141 @@ path with its own application resolution.
    putting it above threw "Cannot access 'form' before initialization" and rendered
    the whole page as nothing. The same trap caught `isReportRequest` in
    `DetailModal.jsx` this pass, and it still *compiles*.
+
+---
+
+## The duplicate check: a summary nobody could read, and matches on facts about the shape of a ticket (2026-08-19, twenty-third pass)
+
+Three things the owner found in the pre-submit duplicate check, plus one bug found
+while fixing them and one written while fixing them.
+
+### 1. The summary column was ZERO PIXELS WIDE
+
+`DuplicateCheck` reuses the status board's row, and `.sb-head, .sb-row` picked its
+column template from **media** queries — the window's width. On the board's own page
+the panel is the window minus 40px of padding a side, so that worked. In the submit
+form the same panel is an **814px column on a 1500px window**, which kept the
+eight-column desktop template: 104+88+178+104+118+78+26 of fixed columns plus gaps
+and padding is 794px, and `minmax(0, 1fr)` got what was left. Measured at **0px**.
+
+Every row drew a reference, a type, a stage, a reporter and an age. It never said
+what the ticket was **about**, on the one screen whose entire job is to answer that.
+
+`.sb-panel` is now `container-type: inline-size` and the three breakpoints are
+`@container` queries at **1100 / 920 / 740px** — the panel widths the old
+1180/1000/820px window breakpoints produced — so the board reflows where it always
+did, and any future embedding of the row inherits the fix. The summary column in the
+duplicate check is 240px now, and the row expands to the full description.
+
+> Nothing caught this. `verify-public-board` probes 1500/820/390px, where the panel
+> is either wide enough or folded, and `verify-submit-form` never ran a check that
+> returned rows. **The window was the wrong signal** — the repo already said so for
+> the detail modal (`index.css`, the `.dm-modal` container comment) and this was the
+> same mistake in the other direction.
+
+### 2. Matching on the application name returned the whole queue
+
+The literal keyword doc was **the embedded doc plus identifiers**, so it carried
+`Application: Billing Center`. A reporter writing "Billing Center invoice shows the
+wrong amount" matched **every Billing Center ticket** — measured 20 keyword hits out
+of 23 candidates, i.e. the queue, plus Policy Center rows on the shared word
+"center". *A duplicate check that returns everything has told you nothing.*
+
+The owner's own phrasing was the fix: **"it should search for tagged by
+application"**. An application named in the query now becomes the application
+**filter**, and its words come out of the keyword terms. Same query: **6 results, 3
+of them literal, all Billing Center.**
+
+- A name only qualifies if at least one of its words is not itself a stopword —
+  which is what stops the real `Other` queue swallowing any search containing the
+  word "other". The longest matching name wins.
+- **The words of every application are excluded, not just the matched one.**
+  "center" belongs to Billing Center and Policy Center alike.
+- Reported as `meta.applicationScope`; the panel says *"Billing Center defects and
+  enhancements only, because your summary names it."* A search that narrowed and
+  found nothing must not read as "nothing like this anywhere".
+
+**Found while fixing it — the same fault one layer down.** The doc also carried the
+field LABELS, so `Screen:` made "screen" a hit on every defect and `Policy:` made
+"policy" a hit on every ticket with a policy number. The literal matcher reads
+**values only** now. The embedded docs are byte-identical either way, so no
+`content_hash` moved and nothing re-embedded.
+
+**Written while fixing it, and caught by the new check rather than by review.** The
+narrowing was gated on `!appId` — "no application resolved" — instead of "the caller
+did not pick one". `all` resolves to no id, so a word in the query narrowed a search
+that had asked for everything, and narrowed it **silently**: the field disclosing the
+scope was gated correctly while the filter was not. **A filter and its disclosure
+must be gated on the same condition.**
+
+**And the same fault reached the search panel, from the other side.**
+`AiSearchPanel` sent `applicationName: appName === 'all' ? '' : appName` — an empty
+string, which the server now reads as "this caller expressed no preference". So the
+admin queue's and the status board's searches WOULD have been narrowed by a word in
+the question, with nothing on screen saying so. The panel sends the picker's value
+verbatim now; `'all'` has always meant "no filter" server-side. `verify-public-board`
+drives the real panel and reads the real response (21/21 → **22/22**).
+
+> Both halves of that check earn their place. The first version asserted only
+> `meta.applicationScope === null` and **passed on a request carrying no query at
+> all** — an empty query answers with an empty meta, whose scope is null for the
+> wrong reason. The missing query was real: editing the line above it had deleted
+> `query: q` from the request, and lint, tests and the panel's own guard all stayed
+> green because the guard reads state and the deleted line was the payload. The
+> check now asserts the query arrived and that candidates were searched.
+
+### 3. "report" matched every report request
+
+`ticket`, `issue`, `defect` and `enhancement` were already stopwords for exactly this
+reason. `report` was missed because it arrived with the third request type. On the
+branch where every candidate *is* a report, the word distinguishes nothing.
+
+### 4. "Date it happened" could be in the future
+
+A defect that has not happened yet is not a defect. Three layers, and only the last
+decides: `max={today}` on the picker (rep form and the admin Add-a-ticket dialog),
+an `invalid` check in `RepSubmitPage` that catches a **typed** date the picker would
+not have offered, and `isFutureDay` at the endpoint — 400 `Date of error cannot be in
+the future`.
+
+**Calendar days, not instants.** A defect reported at 2pm and dated 11:59pm the same
+day is still today; refusing it would be worse than accepting it. Tomorrow is wrong at
+any hour. `todayInputValue` builds today from the **local** calendar — not
+`toISOString().slice(0, 10)`, which west of Greenwich is *yesterday* all evening and
+would refuse a defect being reported as it happens.
+
+Deliberately **not** in `defectDateTimeIso`, which the bulk importer also calls:
+whether a historical import row with a future date should be refused is a different
+decision and has not been made.
+
+### Also fixed: the stage label overran its column
+
+Found by measuring the row rather than by eye. `.sb-stage` is `inline-flex`, which
+sizes to its content, so "With Service Desk" (174px) sat in a 166px column and ran
+into the age beside it with a 2px gap — on the public board at **every window
+between 820 and 1180px**, which the board's own verification never probes. The stage
+column is 178px at every width that draws one, and `max-width: 100%` plus the label's
+`min-width: 0` make the ellipsis that was already declared actually fire.
+
+### Verified
+
+436 server tests · lint · `verify-admin-data-entry` 150/150 · `verify-public-board`
+22/22 · **0 `VERIFY` rows left in the shared database.**
+
+`verify-submit-form.mjs` extended from 63 to **74/74**, including: an application
+name narrows exactly as picking it does (compared on `meta.candidateCount`, which is
+the narrowing itself before any ranking); a caller who picked "All" is not overruled;
+a query of nothing but portal vocabulary produces **zero** literal hits; a match
+shows its summary line and expands to its details; the future date is refused by the
+form and by the endpoint, and the last minute of today still accepted. Server tests
+428 → **436**. `verify-public-board` 21/21. Four fixtures written to the shared
+database and all four removed; **0 `VERIFY` rows left**.
+
+> One check in the first draft failed, correctly. It compared the whole result LIST
+> for a query with and without the application name — but adding two words changes
+> the query's **embedding** and the summary model's endorsements, so a row moving
+> between the lists says nothing about the filter. Rewritten to compare
+> `candidateCount`. **Per §0.3: the probe was wrong, not the code.**
 
 ---
 

@@ -19,6 +19,7 @@ const {
   selectTopK,
   extractKeywordTerms,
   extractIdentifierTerms,
+  applicationInQuery,
   findKeywordHits,
   findIdentifierHits,
   composeKeywordMatches,
@@ -344,6 +345,57 @@ test('extractKeywordTerms: "invoices" also matches "invoice"; stopwords and shor
   assert.deepEqual(extractKeywordTerms('any of the'), []);
 });
 
+// Every row in this portal is a request, and most of them are a defect, an
+// enhancement or a report — so those words say nothing about WHICH one, and a
+// requester whose report request says "report" was being handed the whole report
+// queue as candidate duplicates.
+test('the portal\'s own vocabulary cannot be a keyword hit — including "report"', () => {
+  const terms = extractKeywordTerms('A report of unapplied cash, reported monthly');
+  assert.ok(!terms.includes('report'));
+  assert.ok(!terms.includes('reports'));
+  assert.ok(!terms.includes('reported'));
+  assert.ok(terms.includes('unapplied'), 'the words that DO distinguish it survive');
+  assert.ok(terms.includes('cash'));
+  assert.deepEqual(extractKeywordTerms('a report on the tickets and defects'), []);
+});
+
+// An application is a TAG. Matching its NAME as text made every ticket in an
+// application a literal hit for the application's own name — which, on a
+// duplicate check, is every ticket in the queue being filed into.
+test('applicationInQuery lifts an application name out of the words and into the scope', () => {
+  const applications = [
+    { id: 1, name: 'Billing Center' },
+    { id: 2, name: 'Policy Center' },
+    { id: 3, name: 'Other' },
+  ];
+
+  const named = applicationInQuery('Billing Center invoice shows the wrong amount', applications);
+  assert.equal(named.scope.id, 1);
+  assert.equal(named.scope.name, 'Billing Center');
+  const terms = extractKeywordTerms(
+    'Billing Center invoice shows the wrong amount',
+    { excluded: named.excluded },
+  );
+  assert.ok(!terms.includes('billing'));
+  // "center" belongs to Policy Center too, so it is excluded whichever one won.
+  assert.ok(!terms.includes('center'));
+  assert.ok(terms.includes('invoice'));
+  assert.ok(terms.includes('amount'));
+
+  // The longest name wins, so a shared word cannot decide the scope.
+  assert.equal(applicationInQuery('policy center renewal quote fails', applications).scope.name, 'Policy Center');
+
+  // No application named, no scope — and the exclusions still apply, because a
+  // description that happens to say "billing" is not thereby a duplicate.
+  const unnamed = applicationInQuery('the invoice total is wrong', applications);
+  assert.equal(unnamed.scope, null);
+
+  // `Other` is a real application whose only word is a stopword. It must never
+  // swallow a search that merely contains the word "other".
+  assert.equal(applicationInQuery('this and other invoices', applications).scope, null);
+  assert.ok(!applicationInQuery('this and other invoices', applications).excluded.has('other'));
+});
+
 test('public scope: keyword hits cannot come from non-public rows or internal text', () => {
   const base = { application_name: 'Billing Center', type: 'defect', status: 'New' };
   const candidates = [
@@ -390,10 +442,31 @@ test('the keyword doc adds identifiers and people WITHOUT changing the embedded 
   assert.ok(!embedded.includes('Dana Reporter'), 'people must stay out of the embedded doc');
 
   const lookup = buildKeywordDoc(IDENTIFIABLE_ROW, 'admin');
-  assert.ok(lookup.startsWith(embedded), 'the lookup doc extends the embedded doc');
+  assert.ok(lookup.includes('invoice totals differ'), 'the lookup doc carries the ticket prose');
   for (const value of ['#42', 'INC0012345', 'BC-4471', 'R2026.3', '981234567', 'TXN-9090', 'Dana Reporter', 'dana@example.com', 'Sam Submitter']) {
     assert.ok(lookup.includes(value), `lookup doc is missing ${value}`);
   }
+});
+
+// The two ways this document used to make a ticket match a word that says
+// nothing about it. Both are facts about the SHAPE of the row, not its content:
+// a ticket is not about billing because it is filed under Billing Center, and it
+// is not about screens because the form has a field called Screen.
+test('the keyword doc carries neither the facets nor the field labels', () => {
+  for (const scope of ['admin', 'public']) {
+    const lookup = buildKeywordDoc({ ...IDENTIFIABLE_ROW, status: 'Deployed' }, scope);
+    assert.ok(!/Billing Center/i.test(lookup), `${scope}: the application is a tag, not a word`);
+    assert.ok(!/\bdefect\b/i.test(lookup), `${scope}: the type is a tag, not a word`);
+    assert.ok(!/\bDeployed\b/i.test(lookup), `${scope}: the status is a tag, not a word`);
+    assert.ok(!/^Summary:/m.test(lookup), `${scope}: field labels are not content`);
+    assert.ok(!/^Policy:/m.test(lookup), `${scope}: field labels are not content`);
+  }
+
+  // And the EMBEDDED docs still carry all of it, in the same order — a changed
+  // embedded doc changes its content_hash and re-embeds the whole corpus.
+  const embedded = buildAdminDoc({ ...IDENTIFIABLE_ROW, status: 'Deployed' });
+  assert.ok(embedded.startsWith('Application: Billing Center\nType: defect\nStatus: Deployed\n'));
+  assert.ok(embedded.includes('Summary: invoice totals differ'));
 });
 
 test('the public keyword doc withholds email and submitted-by', () => {

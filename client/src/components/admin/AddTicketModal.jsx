@@ -1,7 +1,7 @@
 import { Button, Modal, Notice } from '../bite-size/BitsizeUI';
 import { AddApplicationControl } from './AddApplicationControl';
 import { ScreenshotDropZone } from '../public/ScreenshotDropZone';
-import { formatCreatedViaLabel } from '../../utils/formatUtils';
+import { formatCreatedViaLabel, todayInputValue } from '../../utils/formatUtils';
 import { addTicketStatusStops } from '../../utils/formDefaults';
 import { TRACKER_LABEL, TRACKER_LABEL_THE } from '../../constants/tracker';
 import { SUBMISSION_TYPE_REPORT, statusesForRequestType } from '../../constants/statusConstants';
@@ -363,7 +363,15 @@ export function AddTicketModal({
               />
             </Field>
             <Field label="Date it happened" required>
-              <input type="date" value={addTicketForm.date_of_error} onChange={set('date_of_error')} />
+              {/* Same ceiling as the submit form: this dialog records something
+                  that HAS happened — a historical ticket most of all — so a
+                  future date is never the answer. */}
+              <input
+                type="date"
+                max={todayInputValue()}
+                value={addTicketForm.date_of_error}
+                onChange={set('date_of_error')}
+              />
             </Field>
             <Field label="Time" optional>
               <input type="time" value={addTicketForm.time_of_error} onChange={set('time_of_error')} />

@@ -117,9 +117,11 @@ Four sections, top to bottom.
 shows a zero balance while a payment is still pending"* is far more useful than
 *"invoice wrong"*, and the duplicate check works better with it.
 
-**Where it happened** — the screen title, and the date and time. Policy, account and
-transaction numbers are optional but they are the fastest way for somebody to
-reproduce what you saw.
+**Where it happened** — the screen title, and the date and time. **The date can be
+today or earlier and nothing later** — the calendar will not offer you tomorrow,
+and typing it is refused, because a defect cannot have happened yet. Policy,
+account and transaction numbers are optional but they are the fastest way for
+somebody to reproduce what you saw.
 
 **What happened** — what you expected, what appeared instead, and any error message
 **word for word**. Then the steps that make it happen again.
@@ -204,6 +206,18 @@ It searches **all time**, deliberately — a defect reported two years ago and s
 fixed is exactly the answer you need. It also searches **only the kind of request
 you are filing**, and says so, because a broken invoice screen has nothing to do
 with a dashboard.
+
+**Each match is one line: the request's summary, its type, where it has got to, and
+how long ago it was last touched. Click any of them to read what was actually
+reported** — the full description, who filed it and when, its progress with a date
+under each stage it has reached, and its reference numbers.
+
+**If you name an application in your summary, it searches that application only** —
+and says so, in the line under the heading. Writing "Billing Center" tells it
+*which queue you mean*; it does not go looking for every request that happens to
+mention Billing Center somewhere, which is nearly all of them. For the same reason
+it ignores the words every request here shares — *report*, *ticket*, *defect*,
+*enhancement*. Those say nothing about **which** one.
 
 If nothing matches: *"None of these match what you saw? Carry on below — a second
 report with fresh detail is more use to the team than none."* It describes what it
@@ -293,6 +307,12 @@ matters:
 - **Keyword matches** — requests whose **ID, incident number, Jira number, policy,
   account, reporter or text literally contains what you typed**. This is where a
   pasted incident number or policy number will be found.
+
+> Literal matching reads what was **written** in a request, not how it is filed.
+> Its application, type and status are filters, so searching for the word *report*
+> or *Billing Center* does not hand you every report or every Billing Center
+> ticket. Use the **application picker** to scope by application — choosing
+> **All** there means all, whatever your words say.
 
 The summary **describes what it found**. It will not tell you whether your issue is
 a duplicate — that is a triage decision, and it says so rather than guessing.
@@ -667,6 +687,10 @@ fact. Two modes across four kinds of work.
 **New ticket** files it as of now. **Historical ticket** is the backdated mode: it
 asks for the real reported date and the status the ticket already had, and builds the
 timeline from them.
+
+> **Date it happened** is capped at today in both modes, exactly as it is on the
+> submit form. Both record something that *has* happened — the backdated mode most
+> of all.
 
 | | |
 |---|---|

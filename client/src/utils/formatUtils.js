@@ -99,6 +99,21 @@ export function formatDateOnly(value) {
 }
 
 /**
+ * Today as the `YYYY-MM-DD` an `<input type="date">` speaks — the `max` for any
+ * question about something that has already happened.
+ *
+ * Built from the LOCAL calendar rather than `toISOString().slice(0, 10)`, which
+ * is UTC: west of Greenwich that returns yesterday for the whole evening, and a
+ * ceiling of yesterday refuses a defect somebody is reporting as it happens.
+ */
+export function todayInputValue() {
+  const now = new Date();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return `${now.getFullYear()}-${month}-${day}`;
+}
+
+/**
  * Milliseconds elapsed since an ISO timestamp, or null if unparseable.
  */
 export function msSince(value) {

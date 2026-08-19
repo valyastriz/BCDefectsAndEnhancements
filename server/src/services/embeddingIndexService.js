@@ -25,33 +25,68 @@ function line(label, value) {
   return text ? `${label}: ${text}` : '';
 }
 
-// Full internal text — admins may match on decision notes, steps, impact, etc.
-function buildAdminDoc(row) {
+// ── Facets: what a ticket IS, as opposed to what it says ────────────────────
+// Application, type and status are TAGS. They give the embedded doc a little
+// context, which is why they are still at the head of both documents below —
+// but they are deliberately kept out of the literal lookup text
+// (buildKeywordDoc), because a facet matched as a word matches everything:
+// "Application: Billing Center" turned the word "billing" into a literal hit on
+// every Billing Center ticket, which on a duplicate check is every ticket in the
+// queue the reporter is filing into. A facet is answered by filtering on the
+// facet — the application filter, the requestType narrowing — never by text.
+function facetFields(row) {
   return [
-    line('Application', row.application_name),
-    line('Type', row.type),
-    line('Status', row.status),
-    line('Screen', row.screen_title),
-    line('Summary', row.summary_of_issue),
-    line('What happened', row.what_happened_exact_details),
-    line('Request', row.request),
-    line('Steps to reproduce', row.steps_to_reproduce),
-    line('Decision notes', row.decision_notes),
-    line('Impact', row.impact_details),
-  ].filter(Boolean).join('\n');
+    ['Application', row.application_name],
+    ['Type', row.type],
+    ['Status', row.status],
+  ];
 }
 
-// Public-safe text only — mirrors the mapPublicSubmission allow-list. Never
-// include decision_notes / impact / reviewer / email here.
-function buildPublicDoc(row) {
+// Full internal prose — admins may match on decision notes, steps, impact, etc.
+function adminProseFields(row) {
   return [
-    line('Application', row.application_name),
-    line('Type', row.type),
-    line('Status', row.status),
-    line('Summary', row.summary_of_issue),
-    line('What happened', row.what_happened_exact_details),
-    line('Request', row.request),
-  ].filter(Boolean).join('\n');
+    ['Screen', row.screen_title],
+    ['Summary', row.summary_of_issue],
+    ['What happened', row.what_happened_exact_details],
+    ['Request', row.request],
+    ['Steps to reproduce', row.steps_to_reproduce],
+    ['Decision notes', row.decision_notes],
+    ['Impact', row.impact_details],
+  ];
+}
+
+// Public-safe prose only — mirrors the mapPublicSubmission allow-list. Never
+// include decision_notes / impact / reviewer / email here.
+function publicProseFields(row) {
+  return [
+    ['Summary', row.summary_of_issue],
+    ['What happened', row.what_happened_exact_details],
+    ['Request', row.request],
+  ];
+}
+
+function labelled(fields) {
+  return fields.map(([label, value]) => line(label, value)).filter(Boolean);
+}
+
+// The values on their own. What a LITERAL matcher needs: a field label is
+// scaffolding for the embedding, and matching it as text made the word "screen"
+// a hit on every defect (they all have a `Screen:` line) and "policy" a hit on
+// every ticket carrying a policy number. Same failure as the facets above, one
+// layer down.
+function unlabelled(fields) {
+  return fields.map(([, value]) => String(value == null ? '' : value).trim()).filter(Boolean);
+}
+
+// The EMBEDDED documents. Their text is unchanged by the split above — same
+// labels, same lines, same order — so every stored content_hash still matches
+// and nothing re-embeds.
+function buildAdminDoc(row) {
+  return [...labelled(facetFields(row)), ...labelled(adminProseFields(row))].join('\n');
+}
+
+function buildPublicDoc(row) {
+  return [...labelled(facetFields(row)), ...labelled(publicProseFields(row))].join('\n');
 }
 
 // ── Literal lookup text — NOT embedded, never hashed ────────────────────────
@@ -69,30 +104,34 @@ function buildPublicDoc(row) {
 // Scope safety mirrors the embedded docs: the public variant may only name
 // fields on the mapPublicSubmission allow-list — never the reporter's email,
 // easyvista_submitted_by, or any internal note.
+//
+// It carries VALUES and no labels, and the ticket's prose and identifiers and
+// not its facets — see facetFields and `unlabelled` above for the two ways this
+// document used to make a ticket match a word that says nothing about it.
 function buildKeywordDoc(row, scope) {
-  const base = scope === SCOPE_PUBLIC ? buildPublicDoc(row) : buildAdminDoc(row);
+  const prose = scope === SCOPE_PUBLIC ? publicProseFields(row) : adminProseFields(row);
   const identity = scope === SCOPE_PUBLIC
     ? [
-      line('Ticket', `#${row.id}`),
-      line('EasyVista', row.easyvista_ticket_id),
-      line('Jira', row.jira_number),
-      line('Policy', row.policy_num),
-      line('Account', row.account_num),
-      line('Reported by', row.created_by),
+      ['Ticket', `#${row.id}`],
+      ['EasyVista', row.easyvista_ticket_id],
+      ['Jira', row.jira_number],
+      ['Policy', row.policy_num],
+      ['Account', row.account_num],
+      ['Reported by', row.created_by],
     ]
     : [
-      line('Ticket', `#${row.id}`),
-      line('EasyVista', row.easyvista_ticket_id),
-      line('Jira', row.jira_number),
-      line('Release', row.release_number),
-      line('Policy', row.policy_num),
-      line('Account', row.account_num),
-      line('Transaction', row.transaction_num),
-      line('Reported by', row.created_by),
-      line('Reporter email', row.created_by_email),
-      line('Submitted by', row.easyvista_submitted_by),
+      ['Ticket', `#${row.id}`],
+      ['EasyVista', row.easyvista_ticket_id],
+      ['Jira', row.jira_number],
+      ['Release', row.release_number],
+      ['Policy', row.policy_num],
+      ['Account', row.account_num],
+      ['Transaction', row.transaction_num],
+      ['Reported by', row.created_by],
+      ['Reporter email', row.created_by_email],
+      ['Submitted by', row.easyvista_submitted_by],
     ];
-  return [base, ...identity].filter(Boolean).join('\n');
+  return unlabelled([...prose, ...identity]).join('\n');
 }
 
 // Fields an identifier lookup ("paste the incident number") may match against,

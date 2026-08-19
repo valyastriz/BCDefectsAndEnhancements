@@ -72,6 +72,23 @@ function defectDateTimeIso(body) {
   return parsed.toISOString();
 }
 
+/**
+ * Is this the date of something that has not happened yet?
+ *
+ * Compares CALENDAR DAYS in server-local time, not instants. "Today at 5pm"
+ * reported at 2pm is a rounding argument about clocks, not a future-dated
+ * ticket, and refusing it would be a worse answer than accepting it — while
+ * tomorrow is wrong at any hour. Blank is not future: whether the field is
+ * REQUIRED is a separate question, asked separately.
+ */
+function isFutureDay(value, now = new Date()) {
+  if (isBlank(value)) return false;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return false;
+  const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+  return parsed.getTime() > endOfToday.getTime();
+}
+
 module.exports = {
   toBooleanSql,
   parseBooleanFlag,
@@ -82,4 +99,5 @@ module.exports = {
   calculateOccurrenceRate,
   normalizeCleanupTagType,
   defectDateTimeIso,
+  isFutureDay,
 };

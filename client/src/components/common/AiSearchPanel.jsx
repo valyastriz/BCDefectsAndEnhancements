@@ -134,7 +134,14 @@ export function AiSearchPanel({
     try {
       const res = await searchFn({
         query: q,
-        applicationName: appName === 'all' ? '' : appName,
+        // The picker's value VERBATIM, including 'all' — the server reads that as
+        // "no application filter" and has always done so. It used to be sent as
+        // '', which now means something different: an application named in the
+        // query narrows the search when, and only when, the caller expressed no
+        // preference (services/aiSearchService.js, applicationInQuery). This panel
+        // HAS a picker, so somebody who chose All has expressed one, and a word in
+        // their sentence must not quietly overrule it.
+        applicationName: appName,
         reportedWithinDays,
         resolvedWithinDays,
       });

@@ -1,7 +1,7 @@
 const express = require('express');
 const dbApi = require('../../db');
 const { withDb } = require('../helpers/db');
-const { isBlank, toIsoOrNow, defectDateTimeIso, parseBooleanFlag } = require('../helpers/utils');
+const { isBlank, toIsoOrNow, defectDateTimeIso, isFutureDay, parseBooleanFlag } = require('../helpers/utils');
 const { SUBMISSION_TYPE_REPORT, REPORT_USAGE_FREQUENCIES, filingRequiresSignIn } = require('../constants');
 const { refuseTypeForApplication } = require('../helpers/applicationScope');
 
@@ -121,6 +121,14 @@ router.post('/api/submissions', imageUpload.array('attachments', 3), async (req,
     const defectDateTime = defectDateTimeIso({ date_time_of_error, date_of_error, time_of_error });
     if (!defectDateTime) {
       return res.status(400).json({ error: 'Date of error is required' });
+    }
+    // A defect cannot have happened tomorrow. The form caps its own picker at
+    // today (pages/RepSubmitPage.jsx), but a `max` attribute is a courtesy — a
+    // typed date, a stale tab or a direct post walks past it, and this is the
+    // door. Calendar days, so "today, later on" is still accepted; see
+    // helpers/utils.js isFutureDay.
+    if (isFutureDay(defectDateTime)) {
+      return res.status(400).json({ error: 'Date of error cannot be in the future' });
     }
 
     if (isBlank(summary_of_issue) || isBlank(screen_title) || isBlank(what_happened_exact_details)) {

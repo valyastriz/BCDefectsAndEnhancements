@@ -6,6 +6,7 @@ import { Button, Modal } from '../components/bite-size/BitsizeUI';
 import { DuplicateCheck } from '../components/public/DuplicateCheck';
 import { ScreenshotDropZone } from '../components/public/ScreenshotDropZone';
 import { SubmitReadinessRail } from '../components/public/SubmitReadinessRail';
+import { todayInputValue } from '../utils/formatUtils';
 // Shared with the admin Add-a-ticket dialog, which offers the same six words.
 import { USAGE_FREQUENCIES } from '../constants/reportConstants';
 
@@ -264,6 +265,22 @@ export function RepSubmitPage() {
   }, [form.type, form.is_new_dashboard, knownReporter]);
   const missing = requiredFields.filter((field) => !String(form[field.key] ?? '').trim());
 
+  // A defect that has not happened yet is not a defect. `max` on the picker
+  // below stops the calendar OFFERING tomorrow; a typed or pasted date walks
+  // straight past it, so the answer is checked here as well — and again at the
+  // endpoint, which is what actually decides. Both dates are the same
+  // `YYYY-MM-DD` shape, which compares correctly as text.
+  //
+  // Fields that are filled in WRONG, as opposed to `missing`, which is fields
+  // that are not filled in at all. The two block Submit the same way and are
+  // reported differently, because "pick a date" and "not that date" are
+  // different sentences.
+  const today = todayInputValue();
+  const invalid = (isDefect && form.date_of_error && form.date_of_error > today)
+    ? { date_of_error: 'That date has not happened yet — pick today or earlier.' }
+    : {};
+  const invalidKeys = Object.keys(invalid);
+
   function updateField(name, value) {
     setForm((prev) => ({ ...prev, [name]: value }));
   }
@@ -276,7 +293,11 @@ export function RepSubmitPage() {
   }
 
   function errorFor(key) {
-    if (!showErrors || !missing.some((field) => field.key === key)) return '';
+    if (!showErrors) return '';
+    // A wrong answer outranks a missing one: a field cannot be both, and the
+    // specific sentence is the useful one.
+    if (invalid[key]) return invalid[key];
+    if (!missing.some((field) => field.key === key)) return '';
     return (isReport && FIELD_ERRORS_REPORT[key]) || FIELD_ERRORS[key];
   }
 
@@ -289,11 +310,14 @@ export function RepSubmitPage() {
     // the answer is the notice already on screen rather than a round trip.
     if (reportNeedsSignIn) return;
 
-    if (missing.length > 0) {
+    // Empty fields first, then filled-in-wrong ones: an empty form should not
+    // send somebody to the one field they did answer.
+    const blocking = [...missing.map((field) => field.key), ...invalidKeys];
+    if (blocking.length > 0) {
       setShowErrors(true);
       // Send focus to the first thing that needs attention, so a keyboard or
       // screen-reader user is not left to hunt for the red field.
-      document.getElementById(`rs-${missing[0].key}`)?.focus();
+      document.getElementById(`rs-${blocking[0]}`)?.focus();
       return;
     }
 
@@ -553,6 +577,17 @@ export function RepSubmitPage() {
               </div>
             )}
 
+            {/* Separate from the one above: the readiness rail counts a future
+                date as answered, because it IS filled in. This says what is
+                actually wrong with it. */}
+            {showErrors && invalidKeys.length > 0 && (
+              <div className="rs-alert" role="alert">
+                <span className="rs-alert-glyph" aria-hidden="true">!</span>
+                <b>Check the date it happened</b>
+                <span>{invalid.date_of_error}</span>
+              </div>
+            )}
+
             {error && (
               <div className="rs-alert" role="alert">
                 <span className="rs-alert-glyph" aria-hidden="true">!</span>
@@ -710,6 +745,11 @@ export function RepSubmitPage() {
                     <input
                       id="rs-date_of_error"
                       type="date"
+                      // Today is the latest thing that can already have happened.
+                      // The picker greys out everything after it; `invalid`
+                      // above catches a typed date, and the endpoint refuses one
+                      // either way.
+                      max={today}
                       value={form.date_of_error}
                       onChange={(e) => updateField('date_of_error', e.target.value)}
                     />

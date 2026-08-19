@@ -412,6 +412,52 @@ async function run() {
   }
   await page.click('.rs-seg .rs-type:has-text("Defect")');
 
+  // ── "Date it happened" cannot be in the future ────────────────────────────
+  // A defect that has not happened yet is not a defect. Three layers, and the
+  // third is the only one that decides: the picker's own ceiling, the form
+  // refusing a typed date the picker would not have offered, and the endpoint
+  // refusing it whatever the form did.
+  //
+  // The endpoint half also has to prove it did NOT over-implement: "today" is a
+  // calendar day, so a defect reported at 2pm and dated 11:59pm the same day is
+  // still today, and refusing it would be a worse answer than accepting it.
+  const todayValue = new Date().toLocaleDateString('en-CA');
+  const tomorrowValue = new Date(Date.now() + 86400000).toLocaleDateString('en-CA');
+  record(
+    'the date picker is capped at today',
+    (await page.getAttribute('#rs-date_of_error', 'max')) === todayValue,
+    `max="${await page.getAttribute('#rs-date_of_error', 'max')}" (today is ${todayValue})`,
+  );
+
+  // A `max` attribute only greys out the calendar — a typed or pasted date walks
+  // straight past it, so the form has to catch it as well.
+  await page.fill('#rs-screen_title', 'Invoice Details');
+  await page.fill('#rs-summary_of_issue', 'VERIFY the future-date guard on the submit form');
+  await page.fill('#rs-what_happened_exact_details', 'Typed a date the picker would not have offered.');
+  await page.evaluate((value) => {
+    const input = document.querySelector('#rs-date_of_error');
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+    setter.call(input, value);
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  }, tomorrowValue);
+  await page.waitForTimeout(150);
+  await page.click('.rs-rail .rs-submit');
+  await page.waitForTimeout(300);
+  const refusedInForm = await page.evaluate(() => ({
+    fieldError: document.querySelector('#rs-date_of_error')?.closest('.rs-field')?.querySelector('.rs-bad')?.textContent.trim() || '',
+    focused: document.activeElement?.id || '',
+    // The screenshot confirmation is the next thing a valid defect hits, so its
+    // absence is how we know the submit did not proceed.
+    proceeded: Boolean(document.querySelector('.bs-modal')),
+  }));
+  record(
+    'a typed future date is refused by the form, with the field named and focused',
+    /has not happened yet/i.test(refusedInForm.fieldError)
+      && refusedInForm.focused === 'rs-date_of_error'
+      && refusedInForm.proceeded === false,
+    `"${refusedInForm.fieldError}" · focus on ${refusedInForm.focused} · submit proceeded: ${refusedInForm.proceeded}`,
+  );
+
   // And the narrowing is the SERVER's, not a label: one fixture report request,
   // searched from both directions.
   const csrf = (await context.cookies()).find((cookie) => cookie.name === 'bc_csrf')?.value || '';
@@ -608,6 +654,181 @@ async function run() {
       'and the response says what it searched, so the client can too',
       asReport.meta?.searchedOnlyType === 'report' && asDefect.meta?.excludedType === 'report',
       `report: ${JSON.stringify(asReport.meta?.searchedOnlyType)} · defect excluded: ${JSON.stringify(asDefect.meta?.excludedType)}`,
+    );
+
+    // ── WHAT COUNTS AS A MATCH ────────────────────────────────────────────────
+    // The check was returning nearly the whole queue, for two reasons that have
+    // nothing to do with what a ticket is about:
+    //   1. The application NAME was matched as text. Every Billing Center ticket
+    //      says "Billing Center" somewhere, so a reporter who wrote it in their
+    //      summary got all of them back — which, on the screen where they are
+    //      trying not to file twice, is the same as getting none.
+    //   2. So was the word "report", on the branch where every candidate is one.
+    // Neither is an absolute-count claim — those measure the shared database
+    // rather than the code (see CLAUDE.md). These are properties of the rule.
+    const rawSearch = async (body) => page.request.post(`${API}/api/ai-search`, {
+      headers: { 'Content-Type': 'application/json' },
+      data: body,
+    }).then((response) => response.json());
+
+    const applicationName = applications[0].name;
+    const byNameOnly = await rawSearch({ query: applicationName, requestType: 'defect' });
+    const namedCards = [...(byNameOnly.matches || []), ...(byNameOnly.keywordMatches || [])];
+    record(
+      'an application name in the query is a TAG: it narrows, and it is not a word to match',
+      byNameOnly.meta?.applicationScope === applicationName
+        && (byNameOnly.keywordMatches || []).length === 0
+        && namedCards.every((card) => card.application_name === applicationName),
+      `scope=${JSON.stringify(byNameOnly.meta?.applicationScope)}, `
+      + `${(byNameOnly.keywordMatches || []).length} literal hits, `
+      + `applications: ${[...new Set(namedCards.map((card) => card.application_name))].join(', ') || 'none'}`,
+    );
+
+    // The same sentence three ways: unscoped, with the application PICKED, and
+    // with it NAMED in the text. Compared on `candidateCount` — the size of the
+    // set the search ran over — because that is the narrowing itself, before any
+    // ranking. The result LISTS cannot be compared: adding two words changes the
+    // query's embedding and the summary model's endorsements, so a row moving
+    // between them says nothing about the filter. (An earlier version of this
+    // check compared the lists and failed for exactly that reason.)
+    const plainQuery = 'invoice total is wrong on the screen';
+    const everywhere = await rawSearch({ query: plainQuery, applicationName: 'all', requestType: 'defect' });
+    const picked = await rawSearch({ query: plainQuery, applicationName, requestType: 'defect' });
+    const spoken = await rawSearch({ query: `${applicationName} ${plainQuery}`, requestType: 'defect' });
+    const cardsOf = (result) => [...(result.matches || []), ...(result.keywordMatches || [])];
+    record(
+      'naming the application in the query is the same narrowing as picking it',
+      picked.meta?.candidateCount > 0
+        && spoken.meta?.candidateCount === picked.meta.candidateCount
+        && spoken.meta?.applicationScope === applicationName,
+      `picked ${picked.meta?.candidateCount} candidates · named ${spoken.meta?.candidateCount} · `
+      + `scope=${JSON.stringify(spoken.meta?.applicationScope)}`,
+    );
+    record(
+      'and it narrows: fewer candidates than the same question asked of everything',
+      everywhere.meta?.candidateCount > spoken.meta?.candidateCount
+        && cardsOf(spoken).every((card) => card.application_name === applicationName),
+      `${everywhere.meta?.candidateCount} candidates unscoped -> ${spoken.meta?.candidateCount} scoped; `
+      + `results from ${[...new Set(cardsOf(spoken).map((c) => c.application_name))].join(', ') || 'nowhere'}`,
+    );
+    // The picker still wins. Somebody who chose "All" — which is what the search
+    // panel sends — has said what they want searched, and a word in their
+    // sentence must not quietly overrule it. Same query as `spoken`, so the only
+    // difference is that this caller expressed a preference.
+    const askedForAll = await rawSearch({
+      query: `${applicationName} ${plainQuery}`,
+      applicationName: 'all',
+      requestType: 'defect',
+    });
+    record(
+      'but a caller who picked "All" is not overruled by a word in their query',
+      askedForAll.meta?.applicationScope === null
+        && askedForAll.meta?.candidateCount === everywhere.meta?.candidateCount,
+      `scope=${JSON.stringify(askedForAll.meta?.applicationScope)} over `
+      + `${askedForAll.meta?.candidateCount} candidates (unscoped is ${everywhere.meta?.candidateCount})`,
+    );
+
+    // "report" on the report branch is the portal's own vocabulary, exactly like
+    // "ticket" and "defect" already were. A query made only of those words has
+    // nothing left to match literally.
+    const vocabularyOnly = await rawSearch({
+      query: 'a report of the reported reports, and other tickets',
+      requestType: 'report',
+    });
+    record(
+      'the word "report" cannot be a literal match when every candidate IS one',
+      (vocabularyOnly.keywordMatches || []).length === 0,
+      `${(vocabularyOnly.keywordMatches || []).length} literal hits for a query of nothing but portal vocabulary`,
+    );
+
+    // ── AND THE RESULT IS LEGIBLE ─────────────────────────────────────────────
+    // The panel reuses the status board's row, whose column template used to be
+    // chosen by the WINDOW width. In an ~814px form column on a 1500px desktop
+    // that kept the eight-column desktop layout and squeezed the summary — the
+    // one thing a duplicate check exists to show — to ZERO pixels wide. The row
+    // drew a reference, a type, a stage, a reporter and an age, and never said
+    // what the ticket was about.
+    //
+    // Driven through the real form against this run's own fixture, so the text
+    // asserted is text the script wrote.
+    await page.click('.rs-seg .rs-type:has-text("Report request")');
+    await page.waitForTimeout(180);
+    await page.fill('#rs-summary_of_issue', marker);
+    await page.click('.rs-dupe-act');
+    await page.waitForSelector('.rs-dupe .sb-item', { timeout: 90000 });
+    const rowRead = await page.evaluate(() => {
+      const item = document.querySelector('.rs-dupe .sb-item');
+      const summary = item?.querySelector('.sb-sum');
+      return {
+        column: Math.round(item?.querySelector('.c-sum')?.getBoundingClientRect().width || 0),
+        rendered: Math.round(summary?.getBoundingClientRect().width || 0),
+        text: summary?.textContent.trim() || '',
+      };
+    });
+    record(
+      'the duplicate check shows each match\'s summary line, not just its reference',
+      rowRead.column > 100 && rowRead.rendered > 100 && rowRead.text.includes(marker),
+      `summary column ${rowRead.column}px, text "${rowRead.text.slice(0, 60)}"`,
+    );
+
+    await page.click('.rs-dupe .sb-item .sb-row');
+    await page.waitForTimeout(250);
+    const expansion = await page.evaluate(() => {
+      const more = document.querySelector('.rs-dupe .sb-item.is-open .sb-more');
+      return {
+        label: more?.querySelector('.sb-block-label')?.textContent.trim() || '',
+        prose: more?.querySelector('.sb-prose')?.textContent.replace(/\s+/g, ' ').trim() || '',
+        empty: Boolean(more?.querySelector('.sb-prose--empty')),
+      };
+    });
+    record(
+      'and expanding one shows the details that were reported',
+      !expansion.empty && expansion.prose.includes('Created by scripts/verify-submit-form.mjs'),
+      `"${expansion.label}": ${expansion.prose.slice(0, 70)}`,
+    );
+    await page.click('.rs-seg .rs-type:has-text("Defect")');
+    await page.waitForTimeout(180);
+
+    // ── The date ceiling, at the door rather than on the form ────────────────
+    // The form's guard above is a courtesy; this is the control. It has to
+    // refuse tomorrow AND accept the last minute of today, because the rule is
+    // about calendar days and not about which instant the server's clock is at.
+    const futureDefect = await page.request.post(`${API}/api/submissions`, {
+      multipart: {
+        type: 'defect',
+        application_name: applicationName,
+        summary_of_issue: `${marker} future date — must never be created`,
+        screen_title: 'Invoice Details',
+        what_happened_exact_details: 'Posted straight at the endpoint, dated tomorrow.',
+        date_of_error: tomorrowValue,
+        time_of_error: '09:00',
+      },
+    });
+    const futureBody = await futureDefect.json().catch(() => ({}));
+    if (futureBody?.id) fixtureIds.push(Number(futureBody.id)); // it must not have one
+    record(
+      'the endpoint refuses a future date, whatever the form did',
+      futureDefect.status() === 400 && /future/i.test(futureBody.error || ''),
+      `HTTP ${futureDefect.status()} "${String(futureBody.error || '').slice(0, 60)}"`,
+    );
+
+    const lateToday = await page.request.post(`${API}/api/submissions`, {
+      multipart: {
+        type: 'defect',
+        application_name: applicationName,
+        summary_of_issue: `${marker} today at 23:59 — safe to delete`,
+        screen_title: 'Invoice Details',
+        what_happened_exact_details: 'The end of today is still today. Removed by the same run.',
+        date_of_error: todayValue,
+        time_of_error: '23:59',
+      },
+    });
+    const lateBody = await lateToday.json().catch(() => ({}));
+    if (lateBody?.id) fixtureIds.push(Number(lateBody.id));
+    record(
+      'and it still accepts the last minute of today — the rule is days, not instants',
+      lateToday.status() === 201 && Number(lateBody?.id) > 0,
+      `HTTP ${lateToday.status()} ${lateBody?.id ? `#${lateBody.id}` : JSON.stringify(lateBody).slice(0, 60)}`,
     );
 
     // SEARCH IS THE THIRD WAY OUT. The board list and the by-id route both
