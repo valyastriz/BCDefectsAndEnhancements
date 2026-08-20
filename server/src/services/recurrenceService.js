@@ -24,6 +24,7 @@ const {
   DEPTH_REGRESSION,
   resolveRecurrenceDepth,
   allowedFieldsForDepth,
+  acceptsRecurrences,
 } = require('../helpers/recurrenceDepth');
 
 const MAX_NOTE_LENGTH = 2000;
@@ -140,6 +141,18 @@ async function getRecurrenceContext(db, submissionId, { occurredAt = null, viewe
   const resolved = await resolveRecurrenceTarget(db, submissionId);
   if (!resolved) return null;
   const { submission, redirectedFrom } = resolved;
+
+  // A report request takes no recurrences. Returned as an answer rather than a
+  // 404, so the client can simply not draw the affordance instead of showing a
+  // button that fails on press.
+  if (!acceptsRecurrences({ type: submission.model_type_name || submission.type })) {
+    return {
+      submission_id: Number(submission.id),
+      accepts: false,
+      reason: 'type-not-eligible',
+      depth: null,
+    };
+  }
 
   const withDates = await withStatusTimestamps({
     ...submission,
@@ -259,6 +272,15 @@ async function createRecurrence(db, {
   // guessing ids cannot confirm that a private one exists.
   if (!resolved) return { error: 'Ticket not found', status: 404 };
   const { submission, redirectedFrom } = resolved;
+
+  // Refused server-side as well as hidden client-side. The UI not offering the
+  // button is a courtesy; this is the rule.
+  if (!acceptsRecurrences({ type: submission.model_type_name || submission.type })) {
+    return {
+      error: 'A report request cannot be reported as happening again.',
+      status: 400,
+    };
+  }
 
   const occurred = occurredAtIso(body.occurred_at);
   const withDates = await withStatusTimestamps({

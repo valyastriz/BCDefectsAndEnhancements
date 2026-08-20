@@ -318,6 +318,48 @@ const SHOTS = [
     },
   },
 
+  // ══ "It happened again" ═══════════════════════════════════════════════════
+  // The duplicate check had never been photographed at all, which is awkward for
+  // the thing the manual calls the most useful control on the page. These four
+  // are the whole flow: the matches with the affordance under each one, then the
+  // sheet at the three depths that behave differently.
+  //
+  // `recurrenceQuery` types the summary of a REAL ticket read off the board, so
+  // the check has something to match. A sentence written in here would go stale
+  // the moment the demonstration data was reseeded.
+  {
+    file: '05-submit-duplicate-check.png',
+    route: '/', as: 'bc_rep', ready: '.rs-main .rs-card',
+    state: 'The duplicate check, with matches. Under each one: whether it happened to you too, how many people have already reported it, and a button whose wording states the condition it is really asking about — "seen this since 18 June?" on a deployed fix, "closed without a fix" on a rejected one',
+    async shot(page, helpers) {
+      await helpers.runDuplicateCheck(page);
+    },
+  },
+  {
+    file: '09-recurrence-sheet-in-flight.png',
+    route: '/', as: 'bc_rep', ready: '.rs-main .rs-card',
+    state: 'Depth 1 — the ticket is still being worked, so no second ticket is opened. It asks for a line and takes the policy number and date already typed into the form. The blocked tick-box is on every depth, because being stuck today has nothing to do with where somebody else\'s ticket has got to',
+    async shot(page, helpers) {
+      await helpers.openRecurrenceSheet(page, { status: ['New', 'Approved', 'Submitted'] });
+    },
+  },
+  {
+    file: '09b-recurrence-sheet-regression.png',
+    route: '/', as: 'bc_rep', ready: '.rs-main .rs-card',
+    state: 'Depth 3 — the fix shipped and it is back. It names the release date, says the report will be tagged to the original, and the full form that follows is pre-filled from that ticket rather than blank',
+    async shot(page, helpers) {
+      await helpers.openRecurrenceSheet(page, { status: ['Deployed'] });
+    },
+  },
+  {
+    file: '09c-recurrence-sheet-already-fixed.png',
+    route: '/', as: 'bc_rep', ready: '.rs-main .rs-card',
+    state: 'The guard, and the reason it exists: a deployed ticket where the date given is BEFORE the fix shipped. Not a regression — the week after any release this is the common case, and treating it as one would bury the real ones. Changing the date turns this sheet back into depth 3 while it is still open',
+    async shot(page, helpers) {
+      await helpers.openRecurrenceSheet(page, { status: ['Deployed'], beforeRelease: true });
+    },
+  },
+
   // ══ The public status board ═══════════════════════════════════════════════
   {
     file: '10-board-signed-out.png',
@@ -465,6 +507,20 @@ const SHOTS = [
   },
 
   // ══ The detail modal, tab by tab ══════════════════════════════════════════
+  // Somebody blocked by an issue SOMEBODY ELSE reported. `seedsRecurrence` makes
+  // one before the shot and the teardown removes it — these two pictures are the
+  // answer to "how would an admin know", so they cannot depend on a row a person
+  // happened to leave in the shared database.
+  {
+    file: '29-admin-queue-blocked.png',
+    route: '/admin', as: 'admin', ready: '.admin-header-row',
+    seedsRecurrence: { blocked: true },
+    state: 'A person blocked by an issue somebody else reported, on the queue and without opening anything: the red banner counts them — it counts PEOPLE, so one ticket can contribute several — and the row carries a "1 more blocked" chip in the DEFAULT columns. A toast is not a surface; it is gone the moment nobody was looking',
+    async shot(page, helpers) {
+      await helpers.showBlockedQueue(page);
+    },
+    async after(page, helpers) { await helpers.resetQueueFilters(page); },
+  },
   {
     file: '30-detail-triage.png',
     route: '/admin', as: 'admin', ready: '.admin-submissions-table tbody tr',
@@ -504,6 +560,16 @@ const SHOTS = [
       await page.click('.dm-tab:has-text("History")');
       await page.waitForSelector('.dm-modal');
     },
+  },
+  {
+    file: '33b-detail-reported-again.png',
+    route: '/admin', as: 'admin', ready: '.admin-header-row',
+    seedsRecurrence: { blocked: true },
+    state: 'The Reported again tab — admin only, because the rows carry reporter names, notes and policy numbers while the public surfaces get the count and nothing else. The tab appears only when somebody HAS reported it again; anyone blocked and still waiting is called out at the top with a Mark handled button per person, since the workaround that unblocked one may not cover another\'s case',
+    async shot(page, helpers) {
+      await helpers.openReportedAgainTab(page);
+    },
+    async after(page, helpers) { await helpers.resetQueueFilters(page); },
   },
   {
     file: '34-detail-files.png',
@@ -900,6 +966,135 @@ function buildImportSheet() {
 function makeHelpers(importSheetPath) {
   return {
     /**
+     * Put the queue's filters back to their defaults.
+     *
+     * Called by the `after` hook of the shots that narrow the queue. The filters
+     * live in localStorage and the context is reused, so a shot that leaves one
+     * set is a shot that breaks whatever comes next — which is exactly what
+     * happened to the four report-request shots.
+     */
+    async resetQueueFilters(page) {
+      await page.evaluate(() => {
+        for (const key of Object.keys(window.localStorage)) {
+          if (/filter/i.test(key)) window.localStorage.removeItem(key);
+        }
+      });
+    },
+
+    /**
+     * Filter the queue to the open workaround requests, the way an admin would:
+     * by pressing the banner's own button. That also guarantees the blocked row
+     * is on screen rather than hoping it landed on the first page.
+     */
+    async showBlockedQueue(page) {
+      await page.waitForSelector('table tbody tr', { timeout: 30000 });
+      const button = page.locator('button:has-text("View Workaround Requests")');
+      await button.waitFor({ timeout: 30000 });
+      await button.click();
+      await page.waitForSelector('.cell-workaround', { timeout: 20000 });
+    },
+
+    /** Open the blocked ticket and select its Reported again tab. */
+    async openReportedAgainTab(page) {
+      await this.showBlockedQueue(page);
+      // The row that actually has a recurrence-blocked chip — the filtered list
+      // also contains tickets where only the original reporter is waiting.
+      const row = page.locator('table tbody tr', {
+        has: page.locator('.cell-workaround:text-matches("more blocked")'),
+      }).first();
+      await row.locator('td').nth(1).click();
+      await page.waitForSelector('.dm-tabs, [role="dialog"]', { timeout: 20000 });
+      await page.click('button:has-text("Reported again")');
+      await page.waitForSelector('.dr-log', { timeout: 20000 });
+    },
+
+    /**
+     * Type a real ticket's summary into the form and run the duplicate check.
+     *
+     * The query is read off the live board rather than written in here: a
+     * sentence hardcoded in this file matches nothing the moment the
+     * demonstration data is reseeded, and the shot would then be a picture of
+     * "nothing like this in the queue" captioned as a page full of matches.
+     *
+     * `status` narrows which ticket is borrowed, because the affordance and the
+     * sheet both behave differently by ticket state and that is the whole point
+     * of photographing them.
+     */
+    async runDuplicateCheck(page, { status = null, pinToTicket = false } = {}) {
+      const board = await page.request
+        .get(`${API}/api/public/submissions`).then((r) => r.json());
+      const pool = status ? board.filter((t) => status.includes(t.status)) : board;
+      const ticket = pool.find((t) => String(t.summary_of_issue || '').trim().length > 25
+        && (!pinToTicket || t.easyvista_ticket_id));
+      if (!ticket) throw new Error(`no public ticket to borrow a summary from (status=${status})`);
+
+      // `pinToTicket` appends the incident number to the typed line.
+      //
+      // Semantic ranking decides what comes back, so typing a ticket's own words
+      // does NOT guarantee that ticket is among the matches — which is fine for
+      // the general picture of the check, and fatal for the three sheet shots,
+      // where the DEPTH is a property of one specific ticket. The identifier
+      // matcher (aiSearchService, extractIdentifierTerms) finds a pasted incident
+      // number exactly, so this makes the wanted row certain to be on screen. The
+      // placeholder already invites pasting one, so the line still reads naturally.
+      const typed = pinToTicket
+        ? `${String(ticket.summary_of_issue).slice(0, 90)} — ${ticket.easyvista_ticket_id}`
+        : String(ticket.summary_of_issue).slice(0, 120);
+
+      await page.click('.rs-seg .rs-type:has-text("Defect")');
+      await page.waitForSelector('#rs-summary_of_issue');
+      await page.fill('#rs-summary_of_issue', typed);
+      // Fill the identifiers too — the sheet HARVESTS these rather than asking
+      // again, and a shot with them blank would not show that.
+      await page.fill('#rs-policy_num', ticket.policy_num || '40-4471902');
+      await page.fill('#rs-account_num', ticket.account_num || '8004521');
+      await page.click('.rs-dupe-act');
+      // The affordance strip, not just the results block: it is what these shots
+      // are of, and it renders per match.
+      await page.waitForSelector('.sb-again', { timeout: 40000 });
+      return ticket;
+    },
+
+    /**
+     * Run the check, then open the sheet on a match of the wanted state.
+     *
+     * `beforeRelease` backdates the "when did it happen" field to a day BEFORE
+     * the ticket's deploy, which is what turns the depth-3 sheet into the
+     * already-fixed guard. Set through the form's own date field so the shot
+     * exercises the same path a person would.
+     */
+    async openRecurrenceSheet(page, { status, beforeRelease = false } = {}) {
+      // Pinned, so the ticket whose depth is being photographed is certainly on
+      // screen rather than at the mercy of semantic ranking.
+      const ticket = await this.runDuplicateCheck(page, { status, pinToTicket: true });
+      const ref = ticket.easyvista_ticket_id ? String(ticket.easyvista_ticket_id) : `#${ticket.id}`;
+
+      const onScreen = await page.$$eval('.sb-item', (items) => items.map((item) => (
+        item.querySelector('.sb-ref')?.textContent?.trim() || ''
+      )));
+      if (!onScreen.includes(ref)) {
+        throw new Error(`${ref} did not come back to photograph (saw: ${onScreen.join(', ') || 'nothing'})`);
+      }
+
+      // Backdate BEFORE opening the sheet: the sheet resolves its depth from this
+      // date on open, and that is the whole difference between depth 3 and the
+      // already-fixed guard.
+      if (beforeRelease) {
+        const releasedAt = ticket.deployed_status_at || ticket.delivered_status_at;
+        if (!releasedAt) throw new Error(`${ref} has no release date to backdate against`);
+        const before = new Date(new Date(releasedAt).getTime() - 86400000);
+        await page.fill('#rs-date_of_error', before.toISOString().slice(0, 10));
+      }
+
+      const row = page.locator('.sb-item', { has: page.locator(`.sb-ref:text-is("${ref}")`) });
+      await row.locator('.sb-again-act').click();
+      await page.waitForSelector('.rc-sheet', { timeout: 30000 });
+      // The context block carries the sentence that explains the depth, so its
+      // presence is what says the sheet has finished resolving.
+      await page.waitForSelector('.rc-ctx', { timeout: 20000 });
+    },
+
+    /**
      * Open the first ticket of a kind, from the queue, and prove it is that kind.
      *
      * WAITING ON THE RESPONSE IS NOT ENOUGH HERE, and this cost a shot: the queue
@@ -1123,7 +1318,14 @@ async function run() {
   // Sign in once per account that this run actually needs, before anything else,
   // so a 429 is reported as a rate limit at the top rather than as a broken
   // selector forty shots in.
-  const needed = [...new Set(all.map((entry) => entry.as))].filter((as) => ACCOUNTS[as]);
+  // Plus `bc_rep` when anything in this run seeds a recurrence: that write is made
+  // AS A REP, on a ticket somebody else filed, which is the whole point of the
+  // picture — and a filtered run otherwise signs in only the accounts its own
+  // shots name, so the seed arrived with no session and a bare 401.
+  const needed = [...new Set([
+    ...all.map((entry) => entry.as),
+    ...(all.some((entry) => entry.seedsRecurrence) ? ['bc_rep'] : []),
+  ])].filter((as) => ACCOUNTS[as]);
   const sessions = new Map();
   for (const as of needed) {
     sessions.set(as, await signInOnce(browser, ACCOUNTS[as]));
@@ -1154,18 +1356,76 @@ async function run() {
   };
 
   const createdByImport = [];
+  // Recurrences this run created so the "somebody is blocked" pictures had
+  // something to photograph. Same contract as the import rows: recorded on the
+  // way in, removed in the teardown, and the printed count is the proof.
+  const createdRecurrences = [];
+
+  /**
+   * Make one blocked recurrence, as a rep, on a ticket somebody else filed.
+   *
+   * Written rather than borrowed: these two shots ARE the answer to "how would an
+   * admin know somebody is blocked", so they must not depend on a row a person
+   * happened to leave in the shared database. CSRF has to be sent by hand — the
+   * endpoint is protected (middleware/csrf.js) and an API request context does not
+   * attach the token the way the real client's `request()` helper does.
+   */
+  async function seedRecurrence() {
+    const repContext = await contextFor('bc_rep', 'light', DESKTOP);
+    const board = await repContext.request
+      .get(`${API}/api/public/submissions`).then((r) => r.json());
+    // Never a report request: those take no recurrences (helpers/recurrenceDepth,
+    // acceptsRecurrences), and an earlier run of this script attached one to a
+    // report request precisely because the seed did not say so.
+    const target = board.find((t) => ['New', 'Approved', 'Submitted'].includes(t.status)
+      && String(t.type).toLowerCase() !== 'report');
+    if (!target) throw new Error('no in-flight public ticket to attach a recurrence to');
+
+    const cookies = await repContext.cookies();
+    const token = cookies.find((c) => c.name === 'bc_csrf')?.value;
+    const response = await repContext.request.post(
+      `${API}/api/submissions/${target.id}/recurrences`,
+      {
+        headers: token ? { 'X-CSRF-Token': token } : {},
+        data: {
+          note: 'VERIFY-SHOTS probe',
+          policy_num: '40-4471902',
+          account_num: '8004521',
+          occurred_at: new Date().toISOString(),
+          workaround_requested: true,
+          workaround_blocked_on: 'Four renewals to issue this afternoon and I cannot send an invoice.',
+        },
+        failOnStatusCode: false,
+      },
+    );
+    if (!response.ok()) throw new Error(`could not seed a recurrence: ${response.status()}`);
+    const body = await response.json();
+    createdRecurrences.push(Number(body.recurrence_id));
+    return body;
+  }
+
   try {
     for (const entry of all) {
       const theme = entry.theme || 'light';
       const viewport = entry.viewport || DESKTOP;
       let page;
       try {
+        // Before the page opens, so the queue's first load already has it.
+        if (entry.seedsRecurrence && createdRecurrences.length === 0) await seedRecurrence();
         const context = await contextFor(entry.as, theme, viewport);
         page = await context.newPage();
         await open(page, entry.route, entry.ready);
         if (entry.shot) await entry.shot(page, helpers);
         const size = await shoot(page, entry.file);
         record(entry.file, true, `${Math.round(size / 1024)} kB`);
+        // Runs AFTER the picture, for a shot that had to leave the app in a state
+        // the next one cannot live with. The admin queue's filters live in
+        // localStorage and the browser context is reused per (account, theme,
+        // width) — so the two "somebody is blocked" shots, which filter the queue
+        // to the open workaround requests, silently broke the four report-request
+        // shots that came after them. They looked for a report request in a queue
+        // that had been narrowed to two blocked defects.
+        if (entry.after) await entry.after(page, helpers);
         if (entry.writes) {
           // Read the ids straight off the result panel so the teardown removes
           // exactly what this run inserted, rather than searching by marker and
@@ -1191,6 +1451,45 @@ async function run() {
       }
     }
   } finally {
+    // ── Put back the recurrences the blocked shots wrote ───────────────────
+    // Struck first, which is what removes them from every count and every read
+    // path, then deleted outright so a shared table does not accumulate this
+    // script's litter one row per run. The cleanup script recomputes the
+    // derived aggregates on the parent, which is the part that matters: a
+    // deleted row leaving `recurrence_count` behind is exactly the drift the
+    // "always recompute, never increment" rule exists to prevent.
+    if (createdRecurrences.length > 0) {
+      try {
+        const context = await contextFor('admin', 'light', DESKTOP);
+        const cookies = await context.cookies();
+        const token = cookies.find((c) => c.name === 'bc_csrf')?.value;
+        for (const id of createdRecurrences) {
+          await context.request.patch(`${API}/api/admin/recurrences/${id}/retract`, {
+            headers: token ? { 'X-CSRF-Token': token } : {},
+            data: {},
+            failOnStatusCode: false,
+          });
+        }
+        // `cwd: SERVER_DIR` is load-bearing, not tidiness. The script calls
+        // `require('dotenv').config()`, which reads `.env` relative to the working
+        // directory — so spawning it from `client/` finds no DATABASE_URL and
+        // silently falls back to the local sql.js file. The teardown then reports
+        // success having touched a different database entirely, and the row it was
+        // supposed to remove is still in the hosted one. Same trap as running
+        // `node -e` for anything that talks to the database.
+        const output = execFileSync(
+          process.execPath,
+          ['scripts/cleanupVerifyRecurrences.js', '--include-live', '--apply'],
+          { cwd: SERVER_DIR, encoding: 'utf8' },
+        );
+        const line = output.split('\n').find((l) => /Deleted \d+ probe row/.test(l));
+        console.log(`      ${(line || `retracted ${createdRecurrences.length} recurrence(s)`).trim()}`);
+      } catch (error) {
+        console.log(`      COULD NOT REMOVE ${createdRecurrences.length} seeded recurrence(s): ${error.message}`);
+        console.log('      Run: cd server && npm run cleanup:verify-recurrences -- --include-live --apply');
+      }
+    }
+
     // ── Put back what the import shot wrote ─────────────────────────────────
     if (!SKIP_IMPORT) {
       // The result panel does not always print ids, so fall back to asking the

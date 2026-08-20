@@ -66,6 +66,24 @@ function normalize(value) {
   return String(value || '').trim();
 }
 
+/**
+ * May this ticket take a recurrence at all?
+ *
+ * Report requests cannot, and the reason is visibility rather than distaste for
+ * the idea: a report request is visible ONLY to the person who filed it
+ * (helpers/reportVisibility.js), so nobody else can ever see one to say it
+ * happened to them. The only reachable case is somebody reporting a recurrence on
+ * their own request, which is a person telling themselves something.
+ *
+ * Enforced here rather than left as a note, because it WAS left as a note: the
+ * feature's declared scope said "not report requests" while nothing in the code
+ * said so, and the screenshot run promptly attached one to a report request. A
+ * scope boundary that only exists in prose is not a boundary.
+ */
+function acceptsRecurrences(submission) {
+  return normalize(submission?.type).toLowerCase() !== 'report';
+}
+
 function parseTime(value) {
   if (!value) return null;
   const parsed = new Date(value).getTime();
@@ -186,6 +204,7 @@ module.exports = {
   ASK_IMPACT,
   ASK_FULL,
   releasedAt,
+  acceptsRecurrences,
   resolveRecurrenceDepth,
   allowedFieldsForDepth,
 };

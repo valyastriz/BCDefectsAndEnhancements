@@ -251,6 +251,11 @@ export function StatusBoardRow({
   // they commit to a form. Derived from what the row already carries rather than
   // from a second request per row: `deployed_status_at` is on the public payload,
   // which is what the AI-search fix restored (helpers/statusTimestamps.js).
+  // A report request takes no recurrences: it is visible only to the person who
+  // filed it, so nobody else can ever see one to say it happened to them, and the
+  // only reachable case is somebody reporting on their own request. The server
+  // refuses it too — this just stops the button being offered.
+  const acceptsRecurrences = String(item.type || '').trim().toLowerCase() !== SUBMISSION_TYPE_REPORT;
   const recurrenceCount = Number(item.recurrence_count || 0);
   const deployedAt = item.deployed_status_at || item.delivered_status_at || null;
   let againPrompt = 'Did this happen to you too?';
@@ -319,7 +324,7 @@ export function StatusBoardRow({
         <span className="c-exp" aria-hidden="true">▾</span>
       </button>
 
-      {onSameIssue && (
+      {onSameIssue && acceptsRecurrences && (
         <div className="sb-again">
           <span className="sb-again-q">{againPrompt}</span>
           {recurrenceCount > 0 && (

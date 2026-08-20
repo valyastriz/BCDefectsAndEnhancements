@@ -35,6 +35,9 @@ const PROBE_NOTES = [
   // so any row it left behind can still be cleared.
   'anon probe',
   'no-csrf probe',
+  // Written by capture-screenshots.mjs so the "somebody is blocked" pictures had
+  // something to photograph. Removed by that script's own teardown.
+  'VERIFY-SHOTS probe',
 ];
 
 async function main() {

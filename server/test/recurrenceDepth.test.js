@@ -2,6 +2,7 @@ const { test } = require('node:test');
 const assert = require('node:assert');
 
 const {
+  acceptsRecurrences,
   DEPTH_ALREADY_FIXED,
   DEPTH_ADD_WEIGHT,
   DEPTH_CHALLENGE,
@@ -21,6 +22,30 @@ const {
 const JUNE_18 = '2026-06-18T12:00:00.000Z';
 const AUG_18 = '2026-08-18T12:00:00.000Z';
 const JUNE_02 = '2026-06-02T12:00:00.000Z';
+
+// ── Which tickets take a recurrence at all ──────────────────────────────────
+
+test('a report request takes no recurrences', () => {
+  // Not distaste for the idea — visibility. A report request is visible only to
+  // the person who filed it, so nobody else can ever see one to say it happened
+  // to them, and the only reachable case is somebody reporting on their own
+  // request.
+  assert.equal(acceptsRecurrences({ type: 'report' }), false);
+  assert.equal(acceptsRecurrences({ type: 'Report' }), false, 'case does not matter');
+  assert.equal(acceptsRecurrences({ type: '  report  ' }), false, 'nor does whitespace');
+});
+
+test('defects and enhancements do', () => {
+  assert.equal(acceptsRecurrences({ type: 'defect' }), true);
+  assert.equal(acceptsRecurrences({ type: 'enhancement' }), true);
+});
+
+test('a missing type is allowed rather than refused', () => {
+  // The exclusion is one named type, not an allow-list. A row whose type failed
+  // to hydrate should not silently lose the feature.
+  assert.equal(acceptsRecurrences({}), true);
+  assert.equal(acceptsRecurrences({ type: null }), true);
+});
 
 // ── Depth 1: still in flight ────────────────────────────────────────────────
 

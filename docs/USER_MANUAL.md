@@ -226,6 +226,8 @@ found; it never tells you not to file.
 If you edit your summary afterwards, it offers a **re-check** rather than quietly
 showing matches for the old wording.
 
+![The duplicate check with matches](handoff/screenshots/05-submit-duplicate-check.png)
+
 ## 1.6a One of them IS your issue — say so instead of filing again
 
 Under every match there is a line asking whether it happened to you too, and a
@@ -255,6 +257,25 @@ it works it out.
 | **Closed without a fix** | It asks for the one thing that would change the team's mind — and *which* thing depends on why it was closed. "Could not reproduce" asks for **steps we can follow**. "Working as designed" asks what you **expected instead**, and what it costs. "Monitoring impact" asks **how often** and **how much**. |
 | **Already fixed and released** | If you saw it **after** the fix shipped, that means the fix did not hold — so it opens a full report for you, **pre-filled from the old ticket**, tagged to it. Check what carried over, say what is different, and send. |
 | **Fixed, and you saw it before the fix** | It tells you the date it was fixed and suggests trying again. If you have seen it since, change the date and it becomes the case above. |
+
+The first and the last two of those, in order — note that the second and third are
+the **same ticket**, and the only thing that changed is the date:
+
+| | |
+|---|---|
+| ![Still being worked on](handoff/screenshots/09-recurrence-sheet-in-flight.png) | ![Fixed and back](handoff/screenshots/09b-recurrence-sheet-regression.png) |
+| **Still being worked on** — no second ticket, and the policy number and date come from what you already typed | **Fixed, and back** — it names the release date and will tag your report to the original |
+
+![Already fixed](handoff/screenshots/09c-recurrence-sheet-already-fixed.png)
+
+**Fixed, and you saw it before the fix.** The same ticket as the picture beside it,
+with the date moved back one day. Not a regression — so it tells you when it was
+fixed and asks you to try again rather than opening a form. Change the date and it
+turns back into the one on the right.
+
+> A **report request** is the one thing this does not appear on. A report request is
+> visible only to the person who filed it, so nobody else can ever see one to say it
+> happened to them.
 
 ### If it is stopping you working, say that too — and it will not be missed
 
@@ -497,6 +518,14 @@ Two things worth knowing:
 "what should we work next?" better than anything else on this table. **Blocked** is
 how many of them still cannot work.
 
+![Someone blocked, on the queue](handoff/screenshots/29-admin-queue-blocked.png)
+
+**You do not have to go looking for a blocked person.** The red banner counts them —
+and it counts *people*, so one ticket can contribute several — and the row carries a
+**"1 more blocked"** chip in the **default** columns, with no Customize View needed.
+The banner's own button filters the queue to exactly those tickets. A notification
+you were not at your desk for is not a way of being told.
+
 **Ticket search** works the same as on the public board, but over everything you can
 see rather than only public rows.
 
@@ -590,6 +619,8 @@ Every status change, newest first, with who made it and when — plus where the 
 came from, its external identifiers and its release metadata.
 
 ### Reported again
+
+![Reported again tab](handoff/screenshots/33b-detail-reported-again.png)
 
 **This tab only appears when somebody has actually reported the issue happening to
 them.** A tab that said "0" on every other ticket would be furniture; a tab that

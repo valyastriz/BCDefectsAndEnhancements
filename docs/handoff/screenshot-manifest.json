@@ -1,5 +1,5 @@
 {
-  "captured": "2026-08-08",
+  "captured": "2026-08-20",
   "capturedBy": "client/scripts/capture-screenshots.mjs",
   "source": "the hosted Supabase database, seeded by server/scripts/seedRealisticSubmissions.js — production data, which the owner confirmed is entirely test data and fine to photograph. Server on :4000, Vite on :5173.",
   "capture": {
@@ -80,6 +80,38 @@
       "theme": "light",
       "viewport": "1500x950",
       "state": "What a submit attempt with nothing filled in says, and where it says it — per field, not one banner. \"You can press Submit with fields empty — we will point them out first\" is a promise the form keeps"
+    },
+    {
+      "file": "05-submit-duplicate-check.png",
+      "route": "/",
+      "as": "bc_rep",
+      "theme": "light",
+      "viewport": "1500x950",
+      "state": "The duplicate check, with matches. Under each one: whether it happened to you too, how many people have already reported it, and a button whose wording states the condition it is really asking about — \"seen this since 18 June?\" on a deployed fix, \"closed without a fix\" on a rejected one"
+    },
+    {
+      "file": "09-recurrence-sheet-in-flight.png",
+      "route": "/",
+      "as": "bc_rep",
+      "theme": "light",
+      "viewport": "1500x950",
+      "state": "Depth 1 — the ticket is still being worked, so no second ticket is opened. It asks for a line and takes the policy number and date already typed into the form. The blocked tick-box is on every depth, because being stuck today has nothing to do with where somebody else's ticket has got to"
+    },
+    {
+      "file": "09b-recurrence-sheet-regression.png",
+      "route": "/",
+      "as": "bc_rep",
+      "theme": "light",
+      "viewport": "1500x950",
+      "state": "Depth 3 — the fix shipped and it is back. It names the release date, says the report will be tagged to the original, and the full form that follows is pre-filled from that ticket rather than blank"
+    },
+    {
+      "file": "09c-recurrence-sheet-already-fixed.png",
+      "route": "/",
+      "as": "bc_rep",
+      "theme": "light",
+      "viewport": "1500x950",
+      "state": "The guard, and the reason it exists: a deployed ticket where the date given is BEFORE the fix shipped. Not a regression — the week after any release this is the common case, and treating it as one would bury the real ones. Changing the date turns this sheet back into depth 3 while it is still open"
     },
     {
       "file": "10-board-signed-out.png",
@@ -194,6 +226,14 @@
       "state": "`Other`, scoped, with every kind of request showing. It is a working list rather than a holding pen: a system with no configured application to submit to the Service Desk lands here, and so does one nobody has identified yet. Either way the work is still tracked — reports get built from it, and a defect or an enhancement is raised on the Service Desk by hand with its incident number typed back in"
     },
     {
+      "file": "29-admin-queue-blocked.png",
+      "route": "/admin",
+      "as": "admin",
+      "theme": "light",
+      "viewport": "1500x950",
+      "state": "A person blocked by an issue somebody else reported, on the queue and without opening anything: the red banner counts them — it counts PEOPLE, so one ticket can contribute several — and the row carries a \"1 more blocked\" chip in the DEFAULT columns. A toast is not a surface; it is gone the moment nobody was looking"
+    },
+    {
       "file": "30-detail-triage.png",
       "route": "/admin",
       "as": "admin",
@@ -224,6 +264,14 @@
       "theme": "light",
       "viewport": "1500x950",
       "state": "The History tab — every status change with who made it and when, plus where the ticket came from"
+    },
+    {
+      "file": "33b-detail-reported-again.png",
+      "route": "/admin",
+      "as": "admin",
+      "theme": "light",
+      "viewport": "1500x950",
+      "state": "The Reported again tab — admin only, because the rows carry reporter names, notes and policy numbers while the public surfaces get the count and nothing else. The tab appears only when somebody HAS reported it again; anyone blocked and still waiting is called out at the top with a Mark handled button per person, since the workaround that unblocked one may not cover another's case"
     },
     {
       "file": "34-detail-files.png",

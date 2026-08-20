@@ -2791,9 +2791,53 @@ precisely what "always recompute, never increment" exists to prevent. Both paths
 now reconcile, the migration reconciles on every `--apply` even when the schema is
 already current, and an audit confirmed zero drift.
 
-**Green:** 473 server tests (37 new) · lint · build · `verify-recurrences.mjs`
+**Green:** 476 server tests (40 new) · lint · build · `verify-recurrences.mjs`
 **38/38** at three widths in both themes · `verify-admin-data-entry` 150/150 ·
 `verify-submit-form` 74/74 · `verify-public-board` 22/22.
+
+### The documentation set, third pass — and a scope boundary that was only prose
+
+The three docs and the screenshots, which the first two passes left half done.
+
+**Six new shots**, added to the registry so `capture-screenshots.mjs` takes them
+and writes the manifest itself: the duplicate check (which had **never** been
+photographed, awkwardly, for the thing the manual calls the most useful control on
+the page), the sheet at all three depths, the admin queue with somebody blocked,
+and the Reported again tab. The two depth-3 shots are deliberately the SAME ticket
+one day apart, because that difference is the whole feature.
+
+**`NEXT_STEPS.md` gained a section it did not have**: *Deliberately left for the
+rebuild*, holding two product decisions rather than pretending nothing is
+outstanding. The first is the owner's: **a super user needs two views.** Their
+account is the one that bypasses per-application scoping, and that single
+`unrestricted` flag governs the queue, the totals, the banners and the
+notifications together — so the bypass that makes them useful is what makes the
+page unreadable for the one application they actually work. The insight worth
+keeping is that scope answers three questions with one flag and they come apart
+here: *what may I read* (unchanged — narrowing it would break the account that
+exists to fix anything), *what am I looking at*, and *what should interrupt me*.
+It is a presentation-and-attention scope layered over an unchanged permission
+scope, not a new permission.
+
+**And the thing the screenshots caught that no test did.** The implied scope said
+"not report requests" and **nothing in the code said so** — so the first run of the
+blocked-queue shot cheerfully attached a recurrence to a report request, and the
+picture proved it. A scope boundary that exists only in prose is not a boundary.
+`acceptsRecurrences` now refuses them server-side (a report request is visible
+only to its filer, so nobody else could ever see one to report it happening to
+them) and `StatusBoardRow` stops offering the button.
+
+**Three harness traps, all found by running it:**
+- `execFileSync` for the teardown inherited the CLIENT working directory, so
+  `require('dotenv').config()` found no `.env`, silently fell back to local
+  sql.js, and reported success having touched a different database — while the row
+  it was meant to remove sat in the hosted one. `cwd: SERVER_DIR`, as the import
+  teardown already had it.
+- The two blocked shots leave the queue **filtered**, and admin filters live in
+  localStorage on a reused browser context — which broke the four report-request
+  shots that came after them. There is an `after` hook now, and they reset it.
+- A filtered run signs in only the accounts its own shots name, so the seed —
+  which writes AS A REP — arrived with no session and a bare 401.
 
 **Two false failures the verification harness produced, both worth remembering:**
 the `\b274\b` word boundary fails against a row reading `#2748/5/2026` because the

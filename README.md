@@ -87,7 +87,7 @@ analyst hours — enough for every screen to draw something real.
 ## Verifying
 
 ```bash
-cd server && npm test          # 378 tests (node:test)
+cd server && npm test          # 476 tests (node:test)
 cd client && npm run lint      # ESLint incl. react-compiler rules — must stay green
 cd client && npm run build     # production build
 ```
@@ -96,8 +96,9 @@ With the server on `:4000` and Vite on `:5173` already running:
 
 ```bash
 cd client
-node scripts/verify-submit-form.mjs          # and six more verify-*.mjs
-node scripts/capture-screenshots.mjs         # 62 shots + the manifest
+node scripts/verify-submit-form.mjs          # and seven more verify-*.mjs
+node scripts/capture-screenshots.mjs         # every shot + the manifest it writes
+node scripts/check-doc-images.mjs            # every doc image resolves, every shot is used
 ```
 
 The browser harness is what proves the things unit tests cannot — per-container
