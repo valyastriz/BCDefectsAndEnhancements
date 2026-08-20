@@ -26,6 +26,9 @@ export function StatusBoardList({
   setPageSize,
   totalPages,
   isMine,
+  // "I did not file this, but I said it happened to me." Its own test so the row
+  // can say which relationship it is instead of claiming a report you never made.
+  iReportedTooo = () => false,
 }) {
   // Clicking the column you are already sorted by flips it; a new column opens
   // in its type's default direction (dates and numbers high→low, text A→Z) —
@@ -101,7 +104,7 @@ export function StatusBoardList({
 
       <div className="sb-rows">
         {pagedItems.map((item) => (
-          <StatusBoardRow key={item.id} item={item} isMine={isMine(item)} />
+          <StatusBoardRow key={item.id} item={item} isMine={isMine(item)} iReportedTooo={iReportedTooo(item)} />
         ))}
       </div>
     </div>

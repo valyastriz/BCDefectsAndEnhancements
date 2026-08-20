@@ -20,22 +20,53 @@ router.get('/api/health', (_req, res) => {
 
 
 /**
- * Mark the rows this caller filed.
+ * Every submission this caller has said "it happened to me too" on.
  *
- * Compared server-side against `reporter_user_id` and returned as a bare
- * boolean — the reporter id itself is an internal field and stays out of the
- * payload (mapPublicSubmission's allow-list is what enforces that). Always false
- * for an anonymous caller, who has no identity to match against.
+ * ONE query for the whole board, keyed on the index
+ * `idx_submission_recurrences_reported_by` — not a lookup per row. Retracted
+ * reports are excluded: withdrawing one should take the ticket out of your list
+ * as well as out of the count.
  *
- * Attached AFTER mapping rather than inside the mapper because it is a fact
- * about the viewer, not about the row: the socket broadcast reaches every
- * watcher at once and so cannot carry it.
+ * Returns an empty set for an anonymous caller, who has no identity to match.
  */
-function markOwnership(req) {
+async function loadMyRecurrenceIds(models, viewerUserId) {
+  if (!viewerUserId || !models?.SubmissionRecurrence) return new Set();
+  const rows = await models.SubmissionRecurrence.findAll({
+    where: { reported_by_user_id: viewerUserId, retracted_at: null },
+    attributes: ['submission_id'],
+    raw: true,
+  }).catch(() => []);
+  return new Set(rows.map((row) => Number(row.submission_id)));
+}
+
+/**
+ * Mark the rows this caller has a stake in, and say WHICH KIND of stake.
+ *
+ * Two different relationships, kept as two flags rather than one:
+ *
+ *   is_mine            — I filed this. What it has always meant.
+ *   i_reported_this_too — I did not file it, but I said it happened to me.
+ *
+ * Collapsing them into one `is_mine` would tell somebody they filed a ticket
+ * they did not, and the board's row already says "reported by you". Keeping them
+ * apart lets the board show a ticket you contributed to WITHOUT claiming it is
+ * your report — which is the honest answer, and the one that stops a recurrence
+ * disappearing from the reporter's view the moment they log it. That
+ * disappearance is precisely what makes somebody file the duplicate next time.
+ *
+ * Compared server-side; the reporter id itself is an internal field and stays out
+ * of the payload (mapPublicSubmission's allow-list is what enforces that).
+ *
+ * Attached AFTER mapping rather than inside the mapper because both are facts
+ * about the VIEWER, not about the row: the socket broadcast reaches every watcher
+ * at once and so cannot carry either.
+ */
+function markOwnership(req, myRecurrenceIds = new Set()) {
   const viewerUserId = Number(req?.session?.user?.id) || null;
   return (row) => ({
     ...mapPublicSubmission(row),
     is_mine: Boolean(viewerUserId) && Number(row.reporter_user_id) === viewerUserId,
+    i_reported_this_too: myRecurrenceIds.has(Number(row.id)),
   });
 }
 
@@ -86,7 +117,10 @@ router.get('/api/public/submissions', async (req, res) => {
 
     enrichedRows.sort((a, b) => String(b.updated_at || '').localeCompare(String(a.updated_at || '')));
 
-    const withOwnership = markOwnership(req);
+    const withOwnership = markOwnership(
+      req,
+      await loadMyRecurrenceIds(dbModels, Number(req?.session?.user?.id) || null),
+    );
     return res.json(enrichedRows.map((row) => {
       const mapped = withOwnership(row);
       // Attached after mapping for the same reason is_mine is: `routings` is not
@@ -125,8 +159,13 @@ router.get('/api/public/submissions/:id', async (req, res) => {
     // triage talk between admins and can name colleagues or judge their work.
     const routings = await listRoutings(dbModels, Number(req.params.id), { forPublic: true });
 
+    const myRecurrenceIds = await loadMyRecurrenceIds(
+      dbModels,
+      Number(req?.session?.user?.id) || null,
+    );
+
     return res.json({
-      ...markOwnership(req)(submission),
+      ...markOwnership(req, myRecurrenceIds)(submission),
       attachments,
       routings,
     });

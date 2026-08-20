@@ -221,18 +221,20 @@ async function recalculateRecurrenceAggregates(submissionId) {
     !max || String(row.occurred_at) > String(max) ? row.occurred_at : max
   ), null);
   const challenged = rows.some((row) => Number(row.depth) === DEPTH_CHALLENGE) ? 1 : 0;
-  const openWorkarounds = rows.filter((row) => (
-    Number(row.workaround_requested) === 1 && !row.workaround_provided_at
-  )).length;
+  const asked = rows.filter((row) => Number(row.workaround_requested) === 1);
+  const openWorkarounds = asked.filter((row) => !row.workaround_provided_at).length;
 
   await Submission.update({
     recurrence_count: count,
     last_recurrence_at: last,
     recurrence_challenged: challenged,
     open_workaround_requests: openWorkarounds,
+    // Serviced or not. Distinguishes "somebody asked and we helped" from "nobody
+    // else ever asked", which `open_` alone cannot.
+    workaround_requests_total: asked.length,
   }, { where: { id: Number(submissionId) } });
 
-  return { count, last, challenged, openWorkarounds };
+  return { count, last, challenged, openWorkarounds, askedTotal: asked.length };
 }
 
 /**

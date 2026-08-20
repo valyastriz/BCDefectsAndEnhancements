@@ -28,7 +28,7 @@ import { AiSearchPanel } from '../components/common/AiSearchPanel';
 
 export function PublicUpdatesPage() {
   const savedFilters = useMemo(() => readSavedPublicFilters(), []);
-  const { viewer, ownership, isMine } = useViewer();
+  const { viewer, ownership, isMine, iReportedTooo, isMineOrReported } = useViewer();
 
   const [items, setItems] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -165,7 +165,13 @@ export function PublicUpdatesPage() {
     return items.filter((item) => item.application_name === filters.application);
   }, [items, filters.application]);
 
-  const mineCount = useMemo(() => inScope.filter(isMine).length, [inScope, isMine]);
+  // Counts everything I have a stake in — filed OR reported as happening to me.
+  // Matches what the Mine control then shows, or the badge would promise rows the
+  // filter does not deliver.
+  const mineCount = useMemo(
+    () => inScope.filter(isMineOrReported).length,
+    [inScope, isMineOrReported],
+  );
 
   const tileCounts = useMemo(() => {
     const counts = { total: inScope.length, other: 0 };
@@ -191,9 +197,9 @@ export function PublicUpdatesPage() {
   );
 
   const visibleItems = useMemo(() => {
-    const matched = inScope.filter((item) => matchesPublicFilters(item, filters, isMine, statusOptions));
+    const matched = inScope.filter((item) => matchesPublicFilters(item, filters, isMineOrReported, statusOptions));
     return sortPublicItems(matched, filters.sort);
-  }, [inScope, filters, isMine, statusOptions]);
+  }, [inScope, filters, isMineOrReported, statusOptions]);
 
   useEffect(() => { setPage(1); }, [visibleItems]);
 
@@ -294,7 +300,7 @@ export function PublicUpdatesPage() {
           <div className="sb-panel">
             <div className="sb-rows">
               {matches.map((match) => (
-                <StatusBoardRow key={match.id} item={match} isMine={isMine(match)} />
+                <StatusBoardRow key={match.id} item={match} isMine={isMine(match)} iReportedTooo={iReportedTooo(match)} />
               ))}
             </div>
           </div>
@@ -394,6 +400,7 @@ export function PublicUpdatesPage() {
           setPageSize={setPageSize}
           totalPages={totalPages}
           isMine={isMine}
+          iReportedTooo={iReportedTooo}
         />
       )}
 

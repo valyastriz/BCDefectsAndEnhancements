@@ -197,9 +197,13 @@ export function RecurrenceSheet({ submissionId, ticketRef, harvested = {}, onClo
           {depth === 1 && (
             <div className="rc-ctx rc-ctx--info">
               <b>This one is already being worked on.</b>
+              {/* Says what the portal DOES, not what the team will decide.
+                  Nothing here re-prioritises a ticket — the count is evidence an
+                  admin can sort and filter on, and promising a queue position we
+                  do not control would be a promise to break. */}
               <span>
-                We will not open a second ticket — your report is added to it, and it moves up the
-                list the more people it affects.
+                We will not open a second ticket — your report is recorded against it, so the
+                team can see how many people this is affecting and who is hit.
               </span>
             </div>
           )}

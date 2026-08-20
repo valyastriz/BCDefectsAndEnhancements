@@ -94,6 +94,14 @@ async function run() {
   const consoleErrors = [];
   page.on('console', (m) => { if (m.type() === 'error') consoleErrors.push(m.text()); });
 
+  // Signed in as an admin from the start, because the banner's baseline has to be
+  // read BEFORE this run writes anything and that read needs a session. The rep
+  // gets its own browser context further down, so the two never share cookies.
+  const adminLogin = await page.request.post(`${API}/api/auth/login`, {
+    data: { username: ADMIN_USER, password: ADMIN_PASS },
+  });
+  if (!adminLogin.ok()) throw new Error(`admin login failed: ${adminLogin.status()}`);
+
   // ── Pick live tickets to work against ────────────────────────────────────
   const board = await page.request.get(`${API}/api/public/submissions`).then((r) => r.json());
   const inFlight = board.find((t) => ['New', 'Approved', 'Submitted'].includes(t.status));
@@ -107,7 +115,23 @@ async function run() {
   );
 
   // Baselines, taken FIRST. Every count check below is a delta against these.
+  //
+  // Never an absolute: this is a shared database, and other people's blocked
+  // reports are legitimately in the banner's number. An absolute measures the
+  // fixture and the world at once, which is how verify-throughput-page.mjs
+  // failed three checks the moment real data existed.
   const baselineCount = Number(inFlight.recurrence_count || 0);
+  const bannerBaseline = await page.request
+    .get(`${API}/api/admin/submissions?workaround=open&retiredFilter=non_retired`)
+    .then((r) => (r.ok() ? r.json() : []))
+    .then((rows) => rows
+      .filter((row) => !row.is_retired)
+      .reduce((total, row) => (
+        total
+        + (row.needs_workaround && !row.workaround_provided ? 1 : 0)
+        + Number(row.open_workaround_requests || 0)
+      ), 0))
+    .catch(() => 0);
 
   // ── 1. The depth is resolved live, and the date moves it ─────────────────
   const ctxInFlight = await page.request
@@ -175,10 +199,16 @@ async function run() {
     `status ${noCsrf.status()}`,
   );
 
-  await page.request.get(`${API}/api/health`); // mints a bc_csrf cookie
-  const anonPost = await page.request.post(`${API}/api/submissions/${inFlight.id}/recurrences`, {
+  // A genuinely signed-out context. It has to be its own: `page` is signed in as
+  // an admin from the first line (the banner baseline needs that), and reusing it
+  // here would prove nothing — an earlier version did exactly that and the "no
+  // session" probe cheerfully created a real recurrence.
+  const anonContext = await browser.newContext({ viewport: VIEWPORTS[0] });
+  const anonPage = await anonContext.newPage();
+  await anonPage.request.get(`${API}/api/health`); // mints a bc_csrf cookie
+  const anonPost = await anonPage.request.post(`${API}/api/submissions/${inFlight.id}/recurrences`, {
     data: { note: 'anon probe' },
-    headers: await csrfHeader(context),
+    headers: await csrfHeader(anonContext),
     failOnStatusCode: false,
   });
   const anonBody = await anonPost.json().catch(() => ({}));
@@ -242,12 +272,36 @@ async function run() {
     `status ${repLogAttempt.status()}`,
   );
 
-  // ── 6. The admin side ────────────────────────────────────────────────────
-  const adminLogin = await page.request.post(`${API}/api/auth/login`, {
-    data: { username: ADMIN_USER, password: ADMIN_PASS },
-  });
-  if (!adminLogin.ok()) throw new Error(`admin login failed: ${adminLogin.status()}`);
+  // ── 5b. It shows up under the reporter's OWN reports ─────────────────────
+  //
+  // The gap this closes: `is_mine` means "I filed this", so a ticket somebody
+  // only reported hitting used to vanish from their view the moment they logged
+  // it — which is the surest way to make them file the duplicate next time.
+  const repBoard = await repPage.request.get(`${API}/api/public/submissions`).then((r) => r.json());
+  const repRow = repBoard.find((t) => t.id === inFlight.id);
+  record(
+    'the reporter can see it under their own reports after saying it happened to them',
+    repRow?.i_reported_this_too === true,
+    `i_reported_this_too = ${JSON.stringify(repRow?.i_reported_this_too)} on #${inFlight.id}`,
+  );
+  record(
+    'and it does NOT claim they filed it',
+    repRow?.is_mine === false || (repRow?.is_mine === true && Number(inFlight.id) === Number(repRow.id) && repRow.created_by === 'Bailey Rep'),
+    `is_mine = ${JSON.stringify(repRow?.is_mine)} (filed by ${repRow?.created_by})`,
+  );
+  // Somebody who did NOT report it must not see the flag — this is a per-viewer
+  // fact, and getting it wrong would show one person's stake to everybody.
+  // Read from the signed-out context: the admin session has been writing here.
+  const strangerBoard = await anonPage.request.get(`${API}/api/public/submissions`).then((r) => r.json());
+  const strangerRow = strangerBoard.find((t) => t.id === inFlight.id);
+  record(
+    'another viewer does not see the reporter’s stake',
+    strangerRow?.i_reported_this_too === false,
+    `i_reported_this_too = ${JSON.stringify(strangerRow?.i_reported_this_too)} for a signed-out viewer`,
+  );
 
+  // ── 6. The admin side ────────────────────────────────────────────────────
+  // Already signed in at the top — the banner baseline needed it.
   const log = await page.request
     .get(`${API}/api/admin/submissions/${inFlight.id}/recurrences`).then((r) => r.json());
   const mine = log.find((r) => r.id === recurrenceId);
@@ -271,6 +325,99 @@ async function run() {
     Boolean(mine?.workaround_requested) && !mine?.workaround_provided_at,
     `blocked_on: ${JSON.stringify(mine?.workaround_blocked_on)}`,
   );
+
+  // ── 6b. A blocked person is OBVIOUS on the queue ─────────────────────────
+  //
+  // Not "findable" — obvious. The test is what an admin sees WITHOUT opening the
+  // ticket and WITHOUT having turned on an optional column, because a person who
+  // cannot work today must not be something you discover by clicking into a row.
+  const openQuery = await page.request
+    .get(`${API}/api/admin/submissions?workaround=open&retiredFilter=non_retired`)
+    .then((r) => r.json());
+  const inOpenList = openQuery.find((t) => t.id === inFlight.id);
+  record(
+    'the "open workaround" filter finds a ticket blocked only by a RECURRENCE',
+    Boolean(inOpenList),
+    inOpenList
+      ? `#${inFlight.id} is in the open list (needs_workaround=${inOpenList.needs_workaround}, open_workaround_requests=${inOpenList.open_workaround_requests})`
+      : `#${inFlight.id} MISSING — an admin would never find the blocked person`,
+  );
+  record(
+    'the ticket carries the count the banner and the chip both read',
+    Number(inOpenList?.open_workaround_requests || 0) >= 1,
+    `open_workaround_requests = ${inOpenList?.open_workaround_requests}`,
+  );
+
+  // The red banner at the top of the queue. It counts PEOPLE, so a recurrence
+  // ask has to move it — asserted as a DELTA against the baseline taken before
+  // this run wrote anything, never as an absolute. Other people's blocked
+  // reports are legitimately in that number on a shared database.
+  await page.goto(`${BASE}/admin`, { waitUntil: 'networkidle' });
+  await page.waitForSelector('table tbody tr', { timeout: 20000 }).catch(() => {});
+  await page.waitForTimeout(1200); // the banner count is its own fetch
+  // Innermost match, not the first: the outer page wrapper also "contains" the
+  // text, and taking it was why an earlier version of this check reported the
+  // banner missing while it was on screen the whole time.
+  const readBanner = () => page.evaluate(() => {
+    const all = [...document.querySelectorAll('div,span')]
+      .filter((e) => /waiting on a workaround/i.test(e.textContent || '') && e.children.length <= 4);
+    const el = all[all.length - 1];
+    if (!el) return null;
+    const match = el.textContent.replace(/\s+/g, ' ').trim().match(/(\d+)\s+reporters?\s+(?:is|are)\s+waiting/);
+    return match ? Number(match[1]) : null;
+  });
+  const bannerNow = await readBanner();
+  record(
+    'the red "waiting on a workaround" banner counts a recurrence ask',
+    bannerNow !== null && bannerNow >= bannerBaseline + 1,
+    bannerNow === null
+      ? 'banner absent — a blocked person raises nothing at the top of the queue'
+      : `baseline ${bannerBaseline} → ${bannerNow}`,
+  );
+
+  // And the inline chip, in the DEFAULT column set — no Customize View needed.
+  // Reached the way an admin actually would: press the banner's own button,
+  // which filters the queue to the open requests. That makes the check
+  // deterministic instead of hoping the row lands on page one, and it exercises
+  // the real journey rather than a URL.
+  const viewButton = await page.$('button:has-text("View Workaround Requests")');
+  if (viewButton) {
+    await viewButton.click();
+    await page.waitForTimeout(1500);
+  }
+  const chip = await page.evaluate((wantedId) => {
+    const rows = [...document.querySelectorAll('table tbody tr')];
+    // Matched on the ID CELL, found by scanning the cells — not on the row's whole
+    // text and not on the first cell. Two traps, both of which cost a false
+    // failure: the row reads "#2748/5/2026" because the next cell's date runs
+    // straight on, so a `\b274\b` boundary fails against a following digit; and
+    // the first `td` is the selection checkbox, which has no text at all.
+    const idText = (r) => [...r.querySelectorAll('td')]
+      .map((td) => td.textContent.trim())
+      .find((t) => /^#?\d+$/.test(t)) || '';
+    const row = rows.find((r) => idText(r).replace(/[^0-9]/g, '') === String(wantedId));
+    if (!row) {
+      return {
+        found: false,
+        text: null,
+        rows: rows.length,
+        seen: rows.map((r) => idText(r) || '(no id cell)'),
+      };
+    }
+    return {
+      found: true,
+      text: [...row.querySelectorAll('.cell-workaround')].map((c) => c.textContent.trim()).join(' | '),
+      rows: rows.length,
+    };
+  }, inFlight.id);
+  record(
+    'the queue row says somebody is blocked, in the default columns',
+    chip.found && /blocked/i.test(chip.text || ''),
+    chip.found
+      ? `#${inFlight.id} chips: ${chip.text || 'none'}`
+      : `#${inFlight.id} not in the ${chip.rows} filtered rows (saw ${(chip.seen || []).join(', ')}) — the blocked person is unreachable from the banner`,
+  );
+  await shoot(page, 'recurrence-admin-queue-blocked');
 
   // ── 7. The affordance renders where it should, and not where it should not ─
   await page.goto(`${BASE}/public`, { waitUntil: 'networkidle' });
@@ -397,6 +544,7 @@ async function run() {
     `${logFinal.length} live rows remain`,
   );
 
+  await anonContext.close();
   await repContext.close();
   await browser.close();
 

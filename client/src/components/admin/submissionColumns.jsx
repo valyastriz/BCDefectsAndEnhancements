@@ -107,6 +107,22 @@ export const COLUMN_DEFS = {
               ? <span className="cell-workaround cell-workaround--done">Workaround given</span>
               : <span className="cell-workaround">Needs workaround</span>
           )}
+          {/* Somebody who did NOT file this is blocked by it — they said it
+              happened to them too and asked for a way through.
+              In the DEFAULT view, beside the original reporter's chip, for the
+              same reason that one is: a person stuck on a live case must not be
+              something you only discover by opening the ticket or by having
+              turned on an optional column. It reads as its own chip rather than
+              folding into the one above, because "the reporter is waiting" and
+              "two other people are waiting" are different situations and the
+              second is invisible on the ticket's own fields. */}
+          {Number(row.open_workaround_requests || 0) > 0 && (
+            <span className="cell-workaround">
+              {Number(row.open_workaround_requests) === 1
+                ? '1 more blocked'
+                : `${row.open_workaround_requests} more blocked`}
+            </span>
+          )}
           {row.is_cleanup && row.cleanup_tag_type !== 'cleanup_only' && <Badge value="Clean Up" />}
           {row.is_retired && <Badge value="Retired" />}
           {/* Which queue this belongs to. A badge rather than loose text because

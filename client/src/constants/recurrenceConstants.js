@@ -73,26 +73,32 @@ export const SHEET_COPY = {
 /**
  * The extra block a depth-2 sheet shows, and why it is asking.
  *
- * The point of the split: a defect closed as "could not reproduce" is reopened
- * by STEPS and nothing else, while one closed as "working as designed" is
- * reopened by what the requester expected instead. Asking the wrong one wastes
- * the only contribution that would have worked.
+ * The point of the split: a closure for "could not reproduce" turns on STEPS and
+ * nothing else, while one for "working as designed" turns on what the requester
+ * expected instead. Asking the wrong one wastes the only contribution that could
+ * have counted.
+ *
+ * EVERY LINE HERE STATES WHAT IS NEEDED, NEVER WHAT WILL HAPPEN. Nothing in this
+ * feature reopens a ticket, re-prioritises one, or commits anybody to a fix — it
+ * puts evidence in front of the people who decide. Copy that promises an outcome
+ * we do not control is a promise to break, and the person reading it is already
+ * the one who was told no once.
  */
 export const ASK_BLOCKS = {
   [ASK_REPRO]: {
-    why: 'It was closed because the team could not make it happen. Steps we can follow are the only thing that reopens it.',
+    why: 'It was closed because the team could not make it happen. Steps they can follow are what that decision turned on — without them there is nothing new to go on.',
     fields: ['steps_to_reproduce'],
   },
   [ASK_EXPECTATION]: {
-    why: 'It was reviewed and judged to be working correctly. We know it does this — what helps is what you expected instead, and what it costs.',
+    why: 'It was reviewed and judged to be working correctly. The team knows it does this — so what is worth adding is what you expected instead, and what it costs you.',
     fields: ['expected_behaviour', 'workaround_cost', 'frequency'],
   },
   [ASK_IMPACT]: {
-    why: 'We agree this is a defect. What decides whether it gets fixed is how much it costs, so that is what we are asking for.',
+    why: 'The team agrees this is a defect and is weighing how much it costs. Your numbers go into that.',
     fields: ['frequency', 'policies_affected_count', 'direct_dollar_impact', 'workaround_cost'],
   },
   [ASK_FULL]: {
-    why: 'This was closed without a fix. Anything you can add helps us look at it again.',
+    why: 'This was closed without a fix. Anything you can add goes to the team with your report.',
     fields: ['steps_to_reproduce', 'expected_behaviour', 'frequency', 'policies_affected_count', 'direct_dollar_impact', 'workaround_cost'],
   },
 };

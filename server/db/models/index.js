@@ -240,9 +240,15 @@ function defineModels(sequelize) {
     recurrence_challenged: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
     // How many people are blocked and still waiting, counting the recurrences
     // ONLY. The original reporter's ask stays in `needs_workaround` /
-    // `workaround_provided` and is deliberately not folded in here — see
-    // helpers/workaroundState.js for why the two are added rather than merged.
+    // `workaround_provided` and is deliberately not folded in here — see the
+    // recurrence block above, and handoff invariant 3a, for why the two are added
+    // at read time rather than merged in the data.
     open_workaround_requests: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
+    // How many recurrences EVER asked, serviced or not. Its own number because
+    // `open_` alone cannot distinguish "a second person asked and we helped them"
+    // from "nobody else ever asked" — which is the difference between the
+    // workaround filter's `handled` and its `any`.
+    workaround_requests_total: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
 
     // ── Regression: a deployed fix that came back ───────────────────────────
     //

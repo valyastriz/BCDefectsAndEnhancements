@@ -288,6 +288,20 @@ recurrence asks — **added to** the original reporter's ask, never merged with 
 It is also the truer model: the workaround that unblocked one person may simply
 not cover another's case.
 
+**3b. A blocked person must be visible without opening the ticket.**
+The corollary of 3a, and the thing that makes it worth anything. A recurrence's
+workaround ask feeds **three** surfaces that need no notification to have been
+seen: the red banner at the top of the queue (which counts **people**, so
+`open_workaround_requests` is added to the original ask — see
+`AdminDashboardPage.loadWorkaroundCount`), the inline chip in the **default**
+column set (`submissionColumns.summary`), and the `workaround=open` filter, whose
+"open" means *anybody* is waiting rather than only the filer. A toast is not a
+surface — it is gone the moment nobody was looking.
+
+`workaround_requests_total` exists for the other two filter states:
+`open_workaround_requests` alone cannot distinguish "a second person asked and we
+helped them" (**handled**) from "nobody else ever asked" (**neither**).
+
 **4. A cleanup task is a flag, not a type.**
 `is_cleanup` plus `cleanup_tag_type` on a defect or an enhancement. This is why an
 "application admin for defects and enhancements" needs no cleanup grant — cleanups
@@ -3745,6 +3759,10 @@ design difference.**
 - [ ] Redirect **moves**; resubmission **forks**; a moved ticket lands as `New` with `status_at_handoff` preserved.
 - [ ] `needs_workaround` and `workaround_provided` stay **two** columns; the filter has **three** states.
 - [ ] A recurrence's workaround ask lives on **its own row**, never on the parent's pair.
+- [ ] A blocked person shows on the **banner**, the **default columns** and the **open filter** — not only in a toast.
+- [ ] `workaround=open` means **anybody** is waiting, not just the person who filed it.
+- [ ] The recurrence aggregates are **recomputed from the child rows** by every path that writes them — including the migration and the cleanup script.
+- [ ] `is_mine` still means "I filed it"; `i_reported_this_too` is the separate flag, and both are **per viewer**.
 - [ ] The recurrence **depth** is resolved server-side; a client-supplied depth is ignored.
 - [ ] An unrecognised status is **depth 1**, and an unrecognised rejection reason asks for **everything**.
 - [ ] Public payloads carry the recurrence **count** and never the **log**.

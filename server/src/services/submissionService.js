@@ -449,14 +449,27 @@ async function listFilteredAdminSubmissions(db, query = {}, scope) {
     if (inJira === 'yes' && !Boolean(row.logged_defect)) return false;
     if (inJira === 'no' && Boolean(row.logged_defect)) return false;
 
-    // Three states, not two: a ticket the rep never flagged is neither open nor
+    // Three states, not two: a ticket nobody flagged is neither open nor
     // handled, so "handled" must not sweep it in.
+    //
+    // "Anybody" means the original reporter OR anyone who later said it happened
+    // to them and asked for a way through. Both are people stuck on a live case,
+    // and a filter that found only the first would hide every person blocked by
+    // an issue somebody ELSE reported first — which, once the recurrence flow
+    // exists, is most of them. `open_workaround_requests` is the derived count of
+    // un-serviced recurrence asks (services/recurrenceService.js); the original
+    // reporter's own pair is deliberately not folded into it (handoff invariant
+    // 3a), so the two are added here rather than merged in the data.
     if (workaround) {
-      const requested = Boolean(row.needs_workaround);
-      const handled = Boolean(row.workaround_provided);
-      if (workaround === 'open' && !(requested && !handled)) return false;
-      if (workaround === 'handled' && !(requested && handled)) return false;
-      if (workaround === 'any' && !requested) return false;
+      const originalOpen = Boolean(row.needs_workaround) && !row.workaround_provided;
+      const recurrenceOpen = Number(row.open_workaround_requests || 0) > 0;
+      const askedAtAll = Boolean(row.needs_workaround)
+        || Number(row.workaround_requests_total || 0) > 0;
+      const anybodyWaiting = originalOpen || recurrenceOpen;
+
+      if (workaround === 'open' && !anybodyWaiting) return false;
+      if (workaround === 'handled' && !(askedAtAll && !anybodyWaiting)) return false;
+      if (workaround === 'any' && !askedAtAll) return false;
     }
 
     // Tickets people are still reporting. Four states, and the last two are the

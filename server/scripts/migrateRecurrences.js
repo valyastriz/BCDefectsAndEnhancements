@@ -35,6 +35,7 @@ const SUBMISSION_COLUMNS = [
   { name: 'last_recurrence_at', spec: { type: DataTypes.TEXT, allowNull: true } },
   { name: 'recurrence_challenged', spec: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 } },
   { name: 'open_workaround_requests', spec: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 } },
+  { name: 'workaround_requests_total', spec: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 } },
   { name: 'regression_of_submission_id', spec: { type: DataTypes.INTEGER, allowNull: true } },
   { name: 'regression_claim_confirmed', spec: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 } },
   { name: 'has_regression', spec: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 } },
@@ -105,17 +106,20 @@ async function main() {
   console.log('');
 
   const nothingToDo = !tablesToCreate.length && !submissionMissing.length && !applicationMissing.length;
-  if (nothingToDo) {
-    console.log('Nothing to do — the schema is already up to date.');
+
+  if (!APPLY) {
+    if (nothingToDo) {
+      console.log('Schema is already up to date. Re-run with --apply to reconcile the derived');
+      console.log('aggregates anyway — that step is idempotent and runs on every apply.');
+    } else {
+      console.log('DRY RUN — nothing was written. Re-run with --apply to make these changes.');
+      console.log('Every change is additive: new tables, and new columns that are nullable or');
+      console.log('defaulted. No existing row changes meaning and nothing is dropped or renamed.');
+    }
     return;
   }
 
-  if (!APPLY) {
-    console.log('DRY RUN — nothing was written. Re-run with --apply to make these changes.');
-    console.log('Every change is additive: new tables, and new columns that are nullable or');
-    console.log('defaulted. No existing row changes meaning and nothing is dropped or renamed.');
-    return;
-  }
+  if (nothingToDo) console.log('Schema already up to date — reconciling aggregates only.\n');
 
   await sequelize.transaction(async (transaction) => {
     // Sequelize builds both tables from the models, so the migration and the
@@ -152,6 +156,29 @@ async function main() {
     }
     console.log(`  seeded ${DEFAULT_REJECTION_REASONS.length} rejection reasons`);
   }
+
+  // ── Reconcile the derived aggregates ─────────────────────────────────────
+  //
+  // A column added AFTER rows already exist reads back as its default on every
+  // one of them, and nothing recomputes until the next write to that submission.
+  // `workaround_requests_total` arrived that way and left the workaround filter's
+  // `handled` and `any` states wrong for every recurrence filed before it.
+  //
+  // Runs every time, not only on the pass that adds a column: it is idempotent,
+  // it is cheap, and it is the one thing that makes "the aggregates are always
+  // recomputed from the child rows, never incremented" true across a migration
+  // as well as across a write.
+  const { recalculateRecurrenceAggregates } = require('../src/services/recurrenceService');
+  const affected = await models.SubmissionRecurrence.findAll({
+    attributes: ['submission_id'],
+    group: ['submission_id'],
+    raw: true,
+  });
+  for (const row of affected) {
+    // eslint-disable-next-line no-await-in-loop
+    await recalculateRecurrenceAggregates(Number(row.submission_id));
+  }
+  console.log(`  reconciled aggregates on ${affected.length} submission(s)`);
 
   // Prove it, rather than assume the ALTERs took.
   const stillMissingSubmissions = await missingColumns(queryInterface, 'submissions', SUBMISSION_COLUMNS);

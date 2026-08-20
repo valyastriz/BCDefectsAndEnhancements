@@ -124,13 +124,34 @@ export function useViewer() {
     return localFiledIds.length > 0 ? 'browser' : 'none';
   }, [viewer.isAuthenticated, localFiledIds.length]);
 
-  // One ownership test for every surface. Server-side `is_mine` wins whenever it
-  // is present, so the browser list can never contradict a real identity.
+  // "I filed this." One ownership test for every surface. Server-side `is_mine`
+  // wins whenever it is present, so the browser list can never contradict a real
+  // identity.
   const isMine = useCallback((item) => {
     if (!item) return false;
     if (viewer.isAuthenticated) return Boolean(item.is_mine);
     return localFiledIds.includes(Number(item.id));
   }, [viewer.isAuthenticated, localFiledIds]);
+
+  // "I said this happened to me too." A different relationship from filing, and
+  // deliberately its own test: a row must be able to say which one it is rather
+  // than telling somebody they filed a ticket they did not.
+  //
+  // Server-answered only. An anonymous visitor cannot record a recurrence at all
+  // (the endpoint refuses without a session), so there is no browser-remembered
+  // equivalent to fall back to.
+  const iReportedTooo = useCallback((item) => Boolean(item?.i_reported_this_too), []);
+
+  // What the board's All/Mine control means: everything I have a stake in.
+  //
+  // Filing is not the only stake. Somebody who reports an existing ticket
+  // happening to them has contributed to it and needs to be able to follow it —
+  // without this, their report lands and the ticket vanishes from their view,
+  // which is the surest way to make them file the duplicate next time.
+  const isMineOrReported = useCallback(
+    (item) => isMine(item) || iReportedTooo(item),
+    [isMine, iReportedTooo],
+  );
 
   const localFiledIdSet = useMemo(() => new Set(localFiledIds), [localFiledIds]);
 
@@ -142,6 +163,8 @@ export function useViewer() {
     localFiledIds,
     localFiledIdSet,
     isMine,
+    iReportedTooo,
+    isMineOrReported,
     reload: load,
   };
 }

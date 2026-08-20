@@ -3485,6 +3485,22 @@ select.dm-prow-input { cursor: pointer; }
   .rc-row > .rc-fld, .rc-fld--narrow { flex: 1 1 100%; }
 }
 
+/* "+ you" — a ticket somebody else filed that you reported hitting too. Quiet on
+   purpose: the reporter column still names whoever filed it, and this only says
+   you are on it as well. */
+.sb-alsoyou {
+  display: inline-block; margin-left: 6px;
+  font-size: 10px; font-weight: 700; letter-spacing: .02em;
+  padding: 1px 5px; border-radius: 999px;
+  background: color-mix(in srgb, var(--color-primary) 16%, var(--color-surface));
+  color: var(--color-primary);
+  white-space: nowrap;
+}
+.sb-alsonote {
+  margin: 0 0 8px; font-size: 12.5px; font-weight: 550;
+  color: var(--color-primary);
+}
+
 /* ── Admin: the queue cells and the log pane ─────────────────────────────── */
 .adm-recur, .adm-blocked {
   display: inline-flex; align-items: center; gap: 4px;

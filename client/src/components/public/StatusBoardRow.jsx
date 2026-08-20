@@ -209,7 +209,16 @@ function StageCell({ reached, track }) {
  * server's is_mine for a signed-in reporter, this browser's remembered ids
  * otherwise) and useViewer.isMine is the single place that decides between them.
  */
-export function StatusBoardRow({ item, isMine = false, onSameIssue = null }) {
+export function StatusBoardRow({
+  item,
+  isMine = false,
+  // "I did not file this, but I said it happened to me." A different
+  // relationship from `isMine`, and shown differently: telling somebody they
+  // filed a ticket they did not would be wrong, and the row already names the
+  // person who did file it.
+  iReportedTooo = false,
+  onSameIssue = null,
+}) {
   const [open, setOpen] = useState(false);
   const detailsId = useId();
 
@@ -288,6 +297,14 @@ export function StatusBoardRow({ item, isMine = false, onSameIssue = null }) {
         </span>
         <span className="c-who">
           <span className={`sb-who${isMine ? ' sb-who--you' : ''}`}>{reporter}</span>
+          {/* The reporter column still names whoever FILED it; this says you are
+              on it too. Without it, a ticket you reported as happening to you
+              shows up under Mine looking like somebody else's — which reads as a
+              bug, and is the reason people stop using the "it happened to me"
+              button and file the duplicate instead. */}
+          {!isMine && iReportedTooo && (
+            <span className="sb-alsoyou" title="You reported this happening to you">+ you</span>
+          )}
         </span>
         <span className="c-app">
           {item.application_name && (
@@ -329,6 +346,14 @@ export function StatusBoardRow({ item, isMine = false, onSameIssue = null }) {
               {description
                 ? <p className="sb-prose">{description}</p>
                 : <p className="sb-prose sb-prose--empty">No description was given.</p>}
+              {!isMine && iReportedTooo && (
+                <p className="sb-alsonote">
+                  You told us this happened to you as well
+                  {Number(item.recurrence_count || 0) > 1
+                    ? `, along with ${Number(item.recurrence_count) - 1} other ${Number(item.recurrence_count) - 1 === 1 ? 'person' : 'people'}`
+                    : ''}.
+                </p>
+              )}
               <p className="sb-meta">
                 Reported by <b>{reporter}</b>
                 {fullDate(item.created_at) && (

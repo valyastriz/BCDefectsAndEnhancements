@@ -229,9 +229,19 @@ showing matches for the old wording.
 ## 1.6a One of them IS your issue — say so instead of filing again
 
 Under every match there is a line asking whether it happened to you too, and a
-button. **Use it.** A second ticket for the same problem slows the first one down;
-adding your report to it speeds it up, because the team can see how many people a
-thing is actually hitting.
+button. **Use it.** A second ticket for the same problem splits the story in two
+and slows the first one down. Adding your report to the existing one keeps it in
+one place and shows the team how many people the problem is actually hitting —
+which is something they could not see before, and cannot get any other way.
+
+> **What it does not do:** it does not move the ticket up a queue. Nothing here
+> re-prioritises anything automatically. What it does is put the evidence in front
+> of the people who make that call.
+
+**You keep it in your list.** A ticket you reported hitting shows up under **Mine**
+on the Status Board even though somebody else filed it, marked **+ you** so it is
+clear whose report it is. You did not file it, so it does not pretend you did —
+but you contributed to it, so you can follow it.
 
 You will also see **how many people have already reported it** — if eleven others
 have hit the same thing, that on its own is usually your answer.
@@ -246,15 +256,21 @@ it works it out.
 | **Already fixed and released** | If you saw it **after** the fix shipped, that means the fix did not hold — so it opens a full report for you, **pre-filled from the old ticket**, tagged to it. Check what carried over, say what is different, and send. |
 | **Fixed, and you saw it before the fix** | It tells you the date it was fixed and suggests trying again. If you have seen it since, change the date and it becomes the case above. |
 
-### If it is stopping you working, say that too
+### If it is stopping you working, say that too — and it will not be missed
 
 Every one of those has a tick-box: **"This is stopping my work — I need a
 workaround."** It is there whatever state the ticket is in, because being stuck
 today has nothing to do with where somebody else's ticket has got to.
 
-Ticking it **alerts the admins for that system straight away**, separately from the
-queue, and tells them what you are stuck on. It does not replace the fix — it asks
-for a way to keep working until the fix arrives.
+Ticking it sends an alert to the admins for that system straight away, separately
+from the queue, and tells them what you are stuck on. It does not replace the fix —
+it asks for a way to keep working until the fix arrives.
+
+It also lands in three places on their side that do not depend on anyone having
+been at their desk when you sent it: the **red banner** at the top of their queue
+counts you, their **queue row** for that ticket says somebody is blocked, and the
+ticket's own **Reported again** pane names you and what you are stuck on. So a
+missed notification is not a missed request.
 
 ## 1.7 Attaching a screenshot
 

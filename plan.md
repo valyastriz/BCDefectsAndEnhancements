@@ -2759,8 +2759,49 @@ Public exposure is the **aggregate only** — `recurrence_count`,
 `last_recurrence_at`, `has_regression` on the allow-list; the log with its names,
 notes and policy numbers is behind `ensureAdmin` plus application scope.
 
-**Green:** 463 server tests (27 new) · lint · `verify-recurrences.mjs` **31/31**
-at three widths in both themes.
+### Second pass, same day — three things the owner caught
+
+1. **A promise the portal cannot keep.** The depth-1 sheet said your report "moves
+   up the list the more people it affects". Nothing re-prioritises anything here.
+   Every line of this feature's copy now states what it DOES — records your report,
+   shows the team the count — and never what will happen. Same fix applied to the
+   depth-2 blocks ("the only thing that reopens it" → what the closure turned on)
+   and to "they have been alerted" → "an alert has gone".
+2. **A recurrence vanished from the reporter's own list.** `is_mine` means "I filed
+   this", so saying it happened to you put the ticket nowhere you could follow it —
+   which is the surest way to make somebody file the duplicate next time. There is
+   now a second, separate flag: `i_reported_this_too`, one query per board load off
+   the `reported_by` index. The **Mine** filter includes both; the row is marked
+   **+ you** rather than claiming you filed it, because telling somebody they filed
+   a ticket they did not would be a different lie. Both flags are per viewer.
+3. **A blocked person was not obvious on the admin side.** The original reporter's
+   ask gets a red banner at the top of the queue; a recurrence's ask got a toast
+   (gone if nobody was looking), an optional column, and a pane inside the ticket.
+   Now: the **banner counts it** — and counts *people*, not tickets, since it says
+   "N reporters are waiting" — the **default columns** carry a "1 more blocked" chip,
+   and `workaround=open` means **anybody** is waiting rather than only the filer.
+   That last change needed `workaround_requests_total`, because
+   `open_workaround_requests` alone cannot tell "we helped the second person" from
+   "nobody else asked".
+
+**And one bug of my own, found by auditing:** the cleanup script deleted probe rows
+without recomputing the aggregates, and `workaround_requests_total` was added
+without backfilling — so counts could drift from the rows behind them, which is
+precisely what "always recompute, never increment" exists to prevent. Both paths
+now reconcile, the migration reconciles on every `--apply` even when the schema is
+already current, and an audit confirmed zero drift.
+
+**Green:** 473 server tests (37 new) · lint · build · `verify-recurrences.mjs`
+**38/38** at three widths in both themes · `verify-admin-data-entry` 150/150 ·
+`verify-submit-form` 74/74 · `verify-public-board` 22/22.
+
+**Two false failures the verification harness produced, both worth remembering:**
+the `\b274\b` word boundary fails against a row reading `#2748/5/2026` because the
+next cell's date runs straight on, and the first `td` is the selection checkbox
+with no text — so match the **id cell**, found by scanning. And moving the admin
+login to the top of the script made the "unauthenticated write is refused" probe
+run *with* a session, so it created a real row instead of being refused: a
+signed-out probe needs its own browser context.
 
 **Deliberately out:** notifying the original reporter; pushing recurrence detail
 into the Service Desk payload; auto-updating the admin's `occurrence_rate`;

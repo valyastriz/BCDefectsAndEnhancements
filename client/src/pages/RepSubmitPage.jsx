@@ -568,7 +568,9 @@ export function RepSubmitPage() {
             <span>
               The team sees your report against the one they are already working
               {recurrenceNotice.count ? `, now reported by ${recurrenceNotice.count} ${recurrenceNotice.count === 1 ? 'person' : 'people'}` : ''}.
-              {recurrenceNotice.blocked ? ' They have been alerted that you are blocked.' : ''}
+              {/* "An alert has gone" — which is what actually happened. "They have
+                  been alerted" claims a delivery nothing here can guarantee. */}
+              {recurrenceNotice.blocked ? ' An alert has gone to that system’s admins saying you are blocked.' : ''}
             </span>
           </span>
           <button type="button" className="rs-logged-x" onClick={() => setRecurrenceNotice(null)} aria-label="Dismiss">×</button>

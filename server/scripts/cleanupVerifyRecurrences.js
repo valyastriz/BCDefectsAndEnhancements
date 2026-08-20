@@ -22,9 +22,19 @@ require('dotenv').config();
 const dbApi = require('../db');
 
 const APPLY = process.argv.includes('--apply');
+// Also remove probe rows that were never struck. Off by default: the
+// retracted-only rule is what guarantees this script can never delete a real
+// report, so lifting it is a deliberate act for repairing a broken run.
+const INCLUDE_LIVE = process.argv.includes('--include-live');
 const PROBE_NOTES = [
   'VERIFY-RECURRENCES probe',
   'VERIFY-SCRIPT probe - safe to delete',
+  // Written by the "unauthenticated write is refused" probe during a run where
+  // that check wrongly shared the admin's signed-in context, so the write
+  // succeeded instead of being refused. Fixed in the script; the note stays here
+  // so any row it left behind can still be cleared.
+  'anon probe',
+  'no-csrf probe',
 ];
 
 async function main() {
@@ -47,9 +57,17 @@ async function main() {
 
   const live = all.filter((row) => PROBE_NOTES.includes(String(row.note || '')) && !row.retracted_at);
   if (live.length) {
-    console.log(`\n${live.length} row(s) carry a probe note but are NOT retracted — left alone:`);
-    for (const row of live) console.log(`  #${row.id} submission=${row.submission_id}`);
+    console.log(`\n${live.length} row(s) carry a probe note but are NOT retracted:`);
+    for (const row of live) console.log(`  #${row.id} submission=${row.submission_id} note=${JSON.stringify(row.note)}`);
+    if (INCLUDE_LIVE) {
+      console.log('  --include-live given: these will be removed too.');
+    } else {
+      console.log('  Left alone. A live row is normally a real report, and the retracted-only');
+      console.log('  rule is what keeps this script from ever touching one. Pass --include-live');
+      console.log('  if a broken run left a probe row un-struck and you have checked the list.');
+    }
   }
+  if (INCLUDE_LIVE) probes.push(...live);
 
   if (probes.length === 0) {
     console.log('\nNothing to remove.');
@@ -60,9 +78,23 @@ async function main() {
     return;
   }
 
+  const touchedSubmissions = [...new Set(probes.map((r) => Number(r.submission_id)))];
   const removed = await SubmissionRecurrence.destroy({ where: { id: probes.map((r) => r.id) } });
+
+  // Recompute, because the aggregates on `submissions` are derived and this is a
+  // write to the child table like any other. Deleting rows and leaving
+  // recurrence_count behind would be exactly the drift the "always recompute,
+  // never increment" rule exists to prevent — and it would be invisible, because
+  // the number would simply be wrong rather than missing.
+  const { recalculateRecurrenceAggregates } = require('../src/services/recurrenceService');
+  for (const id of touchedSubmissions) {
+    // eslint-disable-next-line no-await-in-loop
+    await recalculateRecurrenceAggregates(id);
+  }
+
   const remaining = await SubmissionRecurrence.count();
-  console.log(`\nDeleted ${removed} probe row(s). ${remaining} recurrence row(s) remain.`);
+  console.log(`\nDeleted ${removed} probe row(s); reconciled ${touchedSubmissions.length} submission(s).`);
+  console.log(`${remaining} recurrence row(s) remain.`);
 }
 
 main()

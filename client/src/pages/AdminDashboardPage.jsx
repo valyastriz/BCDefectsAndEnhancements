@@ -209,9 +209,19 @@ export function AdminDashboardPage({ user, onLogout }) {
         retiredFilter: 'non_retired',
       });
       const normalized = (data || []).map(normalizeAdminRow);
-      const count = normalized.filter(
-        (r) => r.needs_workaround && !r.workaround_provided && !r.is_retired,
-      ).length;
+      // PEOPLE, not tickets — the banner says "N reporters are waiting", so it
+      // has to count reporters. One ticket can have several: the person who
+      // filed it, plus everyone who later said it happened to them and asked
+      // for a way through. Counting tickets would report three blocked people
+      // on one ticket as "1 reporter is waiting", which is the number that
+      // decides whether somebody drops what they are doing.
+      const count = normalized
+        .filter((r) => !r.is_retired)
+        .reduce((total, r) => (
+          total
+          + (r.needs_workaround && !r.workaround_provided ? 1 : 0)
+          + Number(r.open_workaround_requests || 0)
+        ), 0);
       setWorkaroundRequestsCount(count);
     } catch {
       // Silently ignore — banner just won't update
